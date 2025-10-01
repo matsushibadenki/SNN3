@@ -149,7 +149,7 @@ python train\_planner.py
 
 ## **5\. プロジェクト構造**
 
-snn2/  
+snn3/  
 ├── app/                  \# UIアプリケーションとDIコンテナ  
 │   ├── adapters/         \# LangChainなど外部ライブラリとの連携  
 │   ├── services/         \# ビジネスロジック  
