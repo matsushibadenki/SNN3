@@ -1,4 +1,4 @@
-# **Project SNN: A Predictive Digital Life Form (v3.0)**
+# **Project SNN: A Predictive Digital Life Form (v4.0)**
 
 ## **1\. 概要**
 
@@ -8,117 +8,95 @@
 
 このシステムは、単なるチャットボットではなく、以下の高度な認知能力を備えた自律エージェントとして動作します。
 
+* **デュアルコアSNNアーキテクチャ:** 脳の働きに着想を得た**予測符号化モデル**に加え、時間情報処理能力を最大化する**スパイキングトランスフォーマー**という、2つの最先端アーキテクチャをタスクに応じて切り替え可能です。  
 * **オンデマンド学習:** 未知のタスクに直面した際、大規模言語モデルから知識を蒸留し、タスクに特化した超省エネルギーな「専門家SNN」を自律的に生成します。  
 * **自己認識と計画立案:** 自身の能力（学習済み専門家モデル）を把握し、**学習済みのプランナーSNN**を用いて、複雑なタスクをサブタスクに分解し、最適な実行計画を動的に推論します。  
-* **高次認知:** 複数の専門家SNNとRAG（Retrieval-Augmented Generation）システムを連携させ、意見の対立から新たな知見を創発（Emergence）させることができます。  
-* **メタ認知と注意制御:** 学習プロセス全体を「メタ認知SNN (SNAKE)」が監視し、予測誤差が大きい困難なタスクに対して動的に計算リソース（アテンション）を集中させ、学習を安定・効率化させます。  
-* **自己進化:** 自らの性能を評価し、改善の余地があると判断した場合、自身のソースコード（設定ファイルなど）を自律的に修正し、ベンチマークで性能向上を検証し、悪化した場合は元に戻します。  
-* **内発的動機付け:** 予測が上達し、世界の理解が深まること自体を「報酬」と感じる**好奇心**を持ち、学習が停滞すると「退屈」して新たな探求を開始する、自律的な活動ループを形成します。
+* **アーキテクチャレベルの自己進化:** 自らの性能を評価し、表現力不足と判断した場合、自身のソースコード（**モデルの層数や次元数**）を自律的に修正し、より強力なアーキテクチャへと進化します。  
+* **物理法則を考慮した好奇心:** 予測が上達することに加え、自身の内部状態が\*\*物理法則（エネルギー効率や滑らかさ）\*\*に合致すること自体を「報酬」と感じる、より高度な内発的動機付けを持ちます。  
+* **行動を通じた学習（強化学習）:** 従来の思考（推論）による問題解決だけでなく、バックプロパゲーションを一切使わない生物学的な学習則（報酬変調型STDP）を用い、環境との**試行錯誤**から直接スキルを学習する能力を持ちます。
 
 ## **2\. システムアーキテクチャ**
 
-本システムの認知アーキテクチャは、複数の専門コンポーネントが階層的に連携することで実現されています。コアとなるSNNモデルは、**予測符号化モデル**と、時間情報処理に特化した**スパイキングトランスフォーマー**を切り替え可能です。
+本システムの認知アーキテクチャは、複数の専門コンポーネントが階層的に連携することで実現されています。
 
-%% README.md 内の Mermaid 図（GitHub 用に構文修正）  
 graph TD  
-  %% Phase 6: 自律的存在 (Digital Life Form)  
-  subgraph Phase6 \["Phase 6: 自律的存在 (Digital Life Form)"\]  
-    direction LR  
-    LifeForm\[/"run\_life\_form.py\<br/\>(DigitalLifeForm)"/\]  
-    Motivation\[/"snn\_research/cognitive\_architecture\<br/\>(IntrinsicMotivationSystem)"/\]  
-    Decision{探求 or 自己改善?}
+    %% Phase 6: 自律的存在 (Digital Life Form)  
+    subgraph Phase6 \["Phase 6: 自律的存在 (Digital Life Form)"\]  
+        direction LR  
+        LifeForm\[/"run\_life\_form.py\<br/\>(DigitalLifeForm)"/\]  
+        Motivation\[/"snn\_research/cognitive\_architecture\<br/\>(Physics-Aware IntrinsicMotivationSystem)"/\]  
+        Decision{"探求 or 自己改善?"}
 
-    LifeForm \--\> Motivation  
-    Motivation \--\> Decision
+        LifeForm \--\> Motivation  
+        Motivation \--\> Decision
 
-    subgraph Curiosity \["探求 (Curiosity-Driven Exploration)"\]  
-      direction TB  
-      Emergence\[/"snn\_research/cognitive\_architecture\<br/\>(EmergentSystem)\<br/\>複数専門家の対立から課題発見"/\]  
-      Planner\[/"run\_planner.py\<br/\>(HierarchicalPlanner)"/\]
+        subgraph Exploration \["探求 (Exploration)"\]  
+            direction TB  
+            ExploreDecision{"思考 or 行動?"}  
+            Planner\[/"run\_planner.py\<br/\>(HierarchicalPlanner)\<br/\>思考による探求"/\]  
+            RLAgent\[/"run\_rl\_agent.py\<br/\>(ReinforcementLearnerAgent)\<br/\>行動による探求"/\]
 
-      Decision \-- "探求 (退屈)" \--\> Emergence  
-      Emergence \--\> Planner  
+            Decision \-- "探求 (退屈)" \--\> ExploreDecision  
+            ExploreDecision \-- "思考" \--\> Planner  
+            ExploreDecision \-- "行動" \--\> RLAgent  
+        end
+
+        subgraph SelfImprove \["自己改善 (Self-Improvement)"\]  
+            direction TB  
+            Evolution\[/"run\_evolution.py\<br/\>(SelfEvolvingAgent)\<br/\>自己アーキテクチャを分析・修正"/\]  
+            Benchmark\[/"scripts/run\_benchmark.py"/\]
+
+            Decision \-- "改善 (現状満足)" \--\> Evolution  
+            Evolution \--\> Benchmark  
+        end  
     end
 
-    subgraph SelfImprove \["自己改善 (Self-Improvement)"\]  
-      direction TB  
-      Evolution\[/"run\_evolution.py\<br/\>(SelfEvolvingAgent)\<br/\>自己コードを分析・修正"/\]  
-      Benchmark\[/"scripts/run\_benchmark.py"/\]
-
-      Decision \-- "改善 (現状満足)" \--\> Evolution  
-      Evolution \--\> Benchmark  
-    end  
-  end
-
-  %% Phase 3-5: 高次認知実行コア  
-  subgraph ExecCore \["Phase 3-5: 高次認知実行コア (Cognitive Execution Core)"\]  
-    direction TB
-
-    subgraph Planning \["計画立案 (Planning)"\]  
-      PlannerSNN\[/"snn\_research/cognitive\_architecture\<br/\>(PlannerSNN)\<br/\>計画を推論"/\]  
-      Planner \--\> PlannerSNN  
+    %% Phase 3-5: 高次認知実行コア  
+    subgraph ExecCore \["Phase 3-5: 高次認知実行コア (Cognitive Execution Core)"\]  
+        direction TB  
+        Planner \--\> Workspace\[/"snn\_research/cognitive\_architecture\<br/\>(GlobalWorkspace)"/\]  
+        Workspace \--\>|サブタスク実行| Specialist\[/"専門家SNN\<br/\>(Specialist SNN)"/\]  
+        Workspace \--\>|知識が必要| RAG\[/"snn\_research/cognitive\_architecture\<br/\>(RAGSystem)\<br/\>ベクトルストア検索"/\]  
     end
 
-    subgraph TaskExec \["タスク実行 (Task Execution)"\]  
-      Workspace\[/"snn\_research/cognitive\_architecture\<br/\>(GlobalWorkspace)"/\]  
-      Specialist\[/"専門家SNN\<br/\>(Specialist SNN)"/\]  
-      RAG\[/"snn\_research/cognitive\_architecture\<br/\>(RAGSystem)\<br/\>ベクトルストア検索"/\]
-
-      PlannerSNN \--\> Workspace  
-      Workspace \--\>|サブタスク実行| Specialist  
-      Workspace \--\>|知識が必要| RAG  
-      RAG \--\> Workspace  
-      Specialist \--\> Workspace  
-    end  
-  end
-
-  %% Phase 0-2: 学習・推論エンジン  
-  subgraph LearnInfer \["Phase 0-2: 学習・推論エンジン (Learning & Inference Engine)"\]  
-    direction TB
-
-    subgraph Training \["学習 (Training)"\]  
-      TrainPy\[/"train.py"/\]  
-      DI\[/"app/containers.py\<br/\>(DI Container)"/\]  
-      Trainer\[/"snn\_research/training\<br/\>(Trainer)"/\]  
-      SNN\_Core\["snn\_research/core\<br/\>(SpikingTransformer or BreakthroughSNN)"\]  
-      Loss\[/"snn\_research/training\<br/\>(Loss Function)"/\]  
-      MetaSNN\[/"snn\_research/cognitive\_architecture\<br/\>(MetaCognitiveSNN \- SNAKE)"/\]
-
-      TrainPy \--\>|起動| DI  
-      DI \--\>|提供| Trainer  
-      Trainer \--\>|学習ループ| SNN\_Core  
-      SNN\_Core \--\>|出力| Loss  
-      Loss \--\>|誤差| MetaSNN  
-      Loss \--\>|勾配| Trainer  
-      MetaSNN \--\>|注意変調| SNN\_Core  
+    %% Phase 0-2.5: 学習・推論エンジン  
+    subgraph LearnInfer \["Phase 0-2.5: 学習・推論エンジン (Learning & Inference Engine)"\]  
+        direction TB  
+        subgraph Training \["学習 (Training)"\]  
+            TrainPy\[/"train.py"/\]  
+            SNN\_Core\["snn\_research/core\<br/\>(SpikingTransformer or BreakthroughSNN)"\]  
+            MetaSNN\[/"snn\_research/cognitive\_architecture\<br/\>(MetaCognitiveSNN \- SNAKE)"/\]  
+            TrainPy \--\> SNN\_Core  
+            SNN\_Core \--\> MetaSNN  
+        end  
+        subgraph Inference \["推論 (Inference)"\]  
+            Specialist \--\> Deployment\[/"snn\_research/deployment.py\<br/\>(SNNInferenceEngine)"/\]  
+        end  
     end
 
-    subgraph Inference \["推論 (Inference)"\]  
-      Deployment\[/"snn\_research/deployment.py\<br/\>(SNNInferenceEngine)"/\]  
-      Specialist \--\>|推論エンジン| Deployment  
+    %% On-Demand Learning  
+    subgraph OnDemand \["オンデマンド学習 (On-Demand Learning)"\]  
+        direction TB  
+        Agent\[/"run\_agent.py\<br/\>(AutonomousAgent)"/\]  
+        Agent \--\>|未知のタスク| TrainPy  
+        Agent \--\>|モデル検索| Registry\[/"snn\_research/distillation\<br/\>(ModelRegistry)"/\]  
     end  
-  end
+      
+    %% RL Loop  
+    subgraph RL\_Loop \["生物学的強化学習 (Bio-RL)"\]  
+        direction LR  
+        RLAgent \--\> RL\_BioSNN\[/"snn\_research/bio\_models\<br/\>(BioSNN)"/\]  
+        RL\_BioSNN \--\> Env\[/"snn\_research/rl\_env\<br/\>(SimpleEnvironment)"/\]  
+        Env \--\>|Reward| RL\_BioSNN  
+    end
 
-  %% On-Demand Learning  
-  subgraph OnDemand \["オンデマンド学習 (On-Demand Learning)"\]  
-    direction TB  
-    Agent\[/"run\_agent.py\<br/\>(AutonomousAgent)"/\]  
-    DistillManager\[/"snn\_research/distillation\<br/\>(KnowledgeDistillationManager)"/\]  
-    Registry\[/"snn\_research/distillation\<br/\>(ModelRegistry)"/\]
-
-    Agent \--\>|未知のタスク| DistillManager  
-    DistillManager \--\>|学習実行| TrainPy  
-    DistillManager \--\>|性能評価| Benchmark  
-    DistillManager \--\>|モデル登録| Registry  
-    Agent \--\>|モデル検索| Registry  
-  end
-
-  %% Node styles  
-  style LifeForm fill:\#cde4ff,stroke:\#333,stroke-width:2px  
-  style Planner fill:\#ffe4c4,stroke:\#333,stroke-width:2px  
-  style Agent fill:\#d4edda,stroke:\#333,stroke-width:2px  
-  style TrainPy fill:\#f8d7da,stroke:\#333,stroke-width:2px  
-  style SNN\_Core fill:\#fff2cd,stroke:\#333,stroke-width:2px
+    %% Node styles  
+    style LifeForm fill:\#cde4ff,stroke:\#333,stroke-width:2px  
+    style Planner fill:\#ffe4c4,stroke:\#333,stroke-width:1px  
+    style RLAgent fill:\#ffe4c4,stroke:\#333,stroke-width:1px  
+    style Agent fill:\#d4edda,stroke:\#333,stroke-width:2px  
+    style TrainPy fill:\#f8d7da,stroke:\#333,stroke-width:2px  
+    style SNN\_Core fill:\#fff2cd,stroke:\#333,stroke-width:2px
 
 ## **3\. 主要な実行スクリプト**
 
@@ -129,7 +107,8 @@ graph TD
 | run\_life\_form.py | **【推奨】デジタル生命体の起動** | AIに自律的に思考・学習させ、その活動を観察したい場合。 |
 | run\_planner.py | **高次認知プランナーの操作** | 「要約して分析」のような複雑なタスクをAIに解決させたい場合。 |
 | run\_agent.py | **自律エージェントの操作** | 「感情分析」のような単一のタスクを解決させたい場合（必要なら新規学習も行う）。 |
-| run\_evolution.py | **自己進化サイクルの実行** | AIに自己のコードを改善させるメタなプロセスを試したい場合。（開発者向け） |
+| run\_rl\_agent.py | **生物学的強化学習の実行** | AIが試行錯誤から学習する様子を観察したい場合。（バックプロパゲーション不使用） |
+| run\_evolution.py | **自己進化サイクルの実行** | AIに自己のコード（アーキテクチャ）を改善させるメタなプロセスを試したい場合。 |
 | app/main.py | **対話UIの起動** | 学習済みの専門家モデルとチャット形式で対話したい場合。 |
 | train.py | **専門家モデルの手動学習** | 特定のタスクの専門家SNNを自分で学習させたい場合。（開発者向け） |
 | train\_planner.py | **プランナーモデルの手動学習** | 計画立案能力を持つプランナーSNNを学習させたい場合。（開発者向け） |
@@ -146,87 +125,48 @@ pip install \-r requirements.txt
 
 #### **A) デジタル生命体の自律ループを開始する (run\_life\_form.py)**
 
-AIの自律的な思考と学習のループを開始します。AIは自身の「好奇心」レベルに基づき、新たな探求を行ったり、自己の性能改善を試みたりします。
+AIの自律的な思考と学習のループを開始します。AIは自身の「好奇心」レベルに基づき、新たな探求（思考または行動）を行ったり、自己の性能改善を試みたりします。
 
 \# 10回の「意識サイクル」を実行  
 python run\_life\_form.py \--cycles 10
 
-#### **B) 複雑なタスクをプランナーに依頼する (run\_planner.py)**
+#### **B) 生物学的強化学習を実行する (run\_rl\_agent.py)**
 
-まず、プランナーが参照する知識ベース（ベクトルストア）を構築します。
+バックプロパゲーションを使わず、エージェントが報酬だけを頼りに簡単なパターンマッチングタスクを学習する様子を観察します。
 
-python scripts/build\_knowledge\_base.py
+python run\_rl\_agent.py \--episodes 500
 
-次に、プランナーに複雑なタスクを依頼します。プランナーは学習済みのPlannerSNNを用いて計画を推論し、複数の専門家を連携させてタスクを実行します。
+#### **C) アーキテクチャレベルの自己進化を試す (run\_evolution.py)**
 
-\# プランナーが「要約 \-\> 分析」の順で専門家を呼び出す  
-python run\_planner.py \\  
-    \--task\_request "この記事を要約して、その内容の感情を分析してください。" \\  
-    \--context\_data "SNNは非常にエネルギー効率が高いことで知られているが、その性能はまだANNに及ばない点もある。"
+意図的に低い初期精度を与えることで、エージェントにモデルの表現力不足を認識させ、アーキテクチャ（d\_modelなど）を自律的に強化させます。
 
-#### **C) 単一タスクをエージェントに依頼する (run\_agent.py)**
+\# 精度0.4という厳しい状況を与え、smallモデルのアーキテクチャ改善を促す  
+python run\_evolution.py \--task\_description "高難度タスク" \--initial\_accuracy 0.4 \--model\_config "configs/models/small.yaml"
 
-エージェントは、まず既存の専門家モデルを探し、見つからない場合はオンデマンドで新しい専門家を学習します。
+#### **D) 新しいSpiking Transformerアーキテクチャで学習する (train.py)**
 
-\# 「文章要約」の専門家がいない場合、知識蒸留による学習が自動で開始される  
-python run\_agent.py \\  
-    \--task\_description "文章要約" \\  
-    \--unlabeled\_data\_path data/sample\_data.jsonl \\  
-    \--prompt "SNNは、生物の神経系における情報の伝達と処理のメカニズムを模倣したニューラルネットワークの一種である。"
+large.yamlで定義された新しいSpikingTransformerアーキテクチャでモデルを学習させます。
 
-#### **D) 学習済みモデルと対話する (app/main.py)**
-
-学習済みの専門家モデル（例: runs/specialists/文章要約/best\_model.pth）を指定して、GradioベースのWeb UIを起動します。
-
-python app/main.py \--model\_path "runs/specialists/文章要約/best\_model.pth"
-
-### **ステップ3: モデルの学習 (開発者向け)**
-
-#### **A) 学習パラダイムの選択**
-
-本プロジェクトでは、configs/base\_config.yaml 内の training.paradigm キーを書き換えることで、複数の学習アルゴリズムをシームレスに切り替えられます。
-
-* **gradient\_based (勾配ベース学習):** 高性能な標準学習方式。知識蒸留も含む。  
-* **self\_supervised (自己教師あり学習):** ラベルなしデータからの事前学習。  
-* **physics\_informed (物理情報学習):** 膜電位の滑らかさなどを制約に加え、より生物に近いダイナミクスでの学習。  
-* **biologically\_plausible (生物学的学習):** STDPなど、脳の学習ルールに近いアルゴリズム。
-
-#### **B) 専門家モデルの学習 (train.py)**
-
-新しく追加したSpikingTransformerアーキテクチャでモデルを学習させる例です。
-
-\# configs/models/large.yaml を使用してSpikingTransformerを学習  
 python train.py \\  
     \--model\_config configs/models/large.yaml \\  
     \--data\_path data/sample\_data.jsonl \\  
     \--override\_config "training.paradigm=gradient\_based" \\  
     \--override\_config "training.gradient\_based.type=standard"
 
-#### **C) プランナーモデルの学習 (train\_planner.py)**
-
-計画立案能力を持つ PlannerSNN を学習させます。
-
-python train\_planner.py
-
 ## **5\. プロジェクト構造**
 
-snn2/  
-├── app/ \# UIアプリケーションとDIコンテナ  
-│ ├── adapters/ \# LangChainなど外部ライブラリとの連携  
-│ ├── services/ \# ビジネスロジック  
-│ └── containers.py \# 依存性注入コンテナ  
-├── configs/ \# 設定ファイル  
-│ ├── base\_config.yaml \# 基本設定、学習パラダイム切り替え  
-│ └── models/ \# モデルアーキテクチャ設定  
-├── doc/ \# ドキュメント  
-│ └── ROADMAP.md \# プロジェクトロードマップ  
-├── scripts/ \# データ準備やベンチマークなどの補助スクリプト  
-├── snn\_research/ \# SNNコア研究開発コード  
-│ ├── agent/ \# 各種エージェント (自律、自己進化、生命体)  
-│ ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、ワークスペース、SNAKE等)  
-│ ├── core/ \# SNNモデルとニューロンのコア定義  
-│ ├── learning\_rules/ \# 生物学的学習則 (STDPなど)  
-│ └── training/ \# Trainerと損失関数  
-├── train.py \# 専門家モデルの学習スクリプト  
-├── train\_planner.py \# プランナーモデルの学習スクリプト  
-└── run\*.py \# 各種機能の実行スクリプト
+snn3/  
+├── app/                  \# UIアプリケーションとDIコンテナ  
+├── configs/                \# 設定ファイル (base, models/\*.yaml)  
+├── doc/                    \# ドキュメント  
+├── scripts/                \# データ準備やベンチマークなどの補助スクリプト  
+├── snn\_research/           \# SNNコア研究開発コード  
+│   ├── agent/            \# 各種エージェント (自律、自己進化、生命体、強化学習)  
+│   ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、物理評価器等)  
+│   ├── core/             \# SNNモデル (BreakthroughSNN, SpikingTransformer)  
+│   ├── learning\_rules/   \# 生物学的学習則 (STDPなど)  
+│   ├── rl\_env/           \# 強化学習環境  
+│   └── training/         \# Trainerと損失関数  
+├── train.py                \# 勾配ベース学習の実行スクリプト  
+├── run\_rl\_agent.py         \# 生物学的強化学習の実行スクリプト  
+└── run\_\*.py                \# その他の機能実行スクリプト  
