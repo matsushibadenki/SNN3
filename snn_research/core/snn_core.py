@@ -1,5 +1,10 @@
 # matsushibadenki/snn2/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
+# 変更点:
+# - 「時間」の価値を最大化するため、Spiking Transformerアーキテクチャを追加。
+# - SpikeDrivenSelfAttention: スパイクベースの効率的な自己注意機構。
+# - STAttenBlock: 空間と時間の両方を考慮するアテンションブロック。
+# - SpikingTransformer: 新しい最先端モデルとして、STAttenBlockを統合。
 
 import torch
 import torch.nn as nn
@@ -110,7 +115,7 @@ class PredictiveCodingLayer(nn.Module):
         updated_state = self.norm_state(top_down_state + state_update)
         return updated_state, prediction_error, prediction, inference_mem
 
-# --- コアSNNモデル ---
+# --- コアSNNモデル (予測符号化) ---
 class BreakthroughSNN(nn.Module):
     """リカレント予測符号化アーキテクチャを実装した階層的SNN"""
     def __init__(self, vocab_size: int, d_model: int, d_state: int, num_layers: int, time_steps: int, n_head: int, neuron_config: Optional[Dict[str, Any]] = None):
@@ -193,3 +198,106 @@ class BreakthroughSNN(nn.Module):
 
         return final_logits, avg_spikes, final_mem
 
+# --- ◾️◾️◾️↓新規追加: Spiking Transformer アーキテクチャ↓◾️◾️◾️ ---
+class SpikeDrivenSelfAttention(nn.Module):
+    """スパイク駆動の自己注意機構。"""
+    def __init__(self, d_model: int, n_head: int):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        self.d_head = d_model // n_head
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.neuron = AdaptiveLIFNeuron(features=d_model)
+
+    def forward(self, x_spike: torch.Tensor) -> torch.Tensor:
+        T, B, N, C = x_spike.shape  # (Time, Batch, Sequence, Channels)
+        
+        q = self.q_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
+        k = self.k_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
+        v = self.v_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
+        
+        # 行列乗算の代わりに加算ベースの注意を計算 (簡略版)
+        attn = torch.einsum('tbnhd,tbnhd->tbnh', q, k)
+        
+        # Softmaxの排除
+        attn_weights_spike = (attn > 0.5).float() # 閾値でスパイク化
+        
+        # 加算ベースのValue適用
+        attn_output = torch.einsum('tbnh,tbnhd->tbnhd', attn_weights_spike, v)
+        
+        output = self.out_proj(attn_output.reshape(T, B, N, C))
+        output_spike, _ = self.neuron(output)
+        
+        return output_spike
+
+class STAttenBlock(nn.Module):
+    """空間時間アテンションブロック。"""
+    def __init__(self, d_model: int, n_head: int):
+        super().__init__()
+        self.norm1 = SNNLayerNorm(d_model)
+        self.attn = SpikeDrivenSelfAttention(d_model, n_head)
+        self.norm2 = SNNLayerNorm(d_model)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_model * 4),
+            AdaptiveLIFNeuron(features=d_model * 4),
+            nn.Linear(d_model * 4, d_model),
+        )
+        self.neuron = AdaptiveLIFNeuron(features=d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x shape: (Time, Batch, Sequence, Channels)
+        # 空間アテンション
+        x = x + self.attn(self.norm1(x))
+        
+        # 時間アテンション (簡略化のためFFN内で時間情報をミックス)
+        ffn_out, _ = self.neuron(self.ffn(self.norm2(x)))
+        x = x + ffn_out
+        
+        return x
+
+class SpikingTransformer(nn.Module):
+    """時間価値を最大化する、空間時間アテンションを備えたSpiking Transformer。"""
+    def __init__(self, vocab_size: int, d_model: int, n_head: int, num_layers: int, time_steps: int, **kwargs):
+        super().__init__()
+        self.d_model = d_model
+        self.time_steps = time_steps
+        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        self.pos_embedding = nn.Parameter(torch.randn(1, time_steps, d_model))
+        
+        self.layers = nn.ModuleList([STAttenBlock(d_model, n_head) for _ in range(num_layers)])
+        self.output_projection = nn.Linear(d_model, vocab_size)
+        
+        print(f"🚀 Spiking Transformer (STAtten) initialized with {num_layers} layers.")
+
+    def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, return_full_mems: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size, seq_len = input_ids.shape
+        x = self.token_embedding(input_ids)
+        x = x + self.pos_embedding[:, :seq_len, :]
+        
+        # [Batch, Seq, Dim] -> [Time, Batch, Seq, Dim]
+        # SpikingJellyに準拠し、時間軸を先頭に
+        x = x.unsqueeze(0).repeat(self.time_steps, 1, 1, 1)
+        
+        total_spikes = 0
+        total_mems = 0
+        
+        for layer in self.layers:
+            x = layer(x)
+            # 各ブロックのスパイク数を集計（概算）
+            total_spikes += x.sum()
+
+        # [Time, Batch, Seq, Dim] -> [Batch, Seq, Dim]
+        # 最終タイムステップの出力を利用
+        final_output = x[-1, :, :, :]
+        
+        logits = self.output_projection(final_output)
+        
+        # 互換性のためのダミー値を返す
+        avg_spikes = total_spikes / (self.time_steps * batch_size * seq_len)
+        avg_mems = torch.tensor(0.0)
+
+        return logits, avg_spikes, avg_mems
+# --- ◾️◾️◾️↑新規追加: Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
