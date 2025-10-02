@@ -7,6 +7,7 @@ from .rag_snn import RAGSystem
 from .astrocyte_network import AstrocyteNetwork
 from .emergent_system import EmergentSystem
 from .intrinsic_motivation import IntrinsicMotivationSystem
+from .physics_evaluator import PhysicsEvaluator
 
 __all__ = [
     "HierarchicalPlanner", 
@@ -15,5 +16,6 @@ __all__ = [
     "RAGSystem",
     "AstrocyteNetwork",
     "EmergentSystem",
-    "IntrinsicMotivationSystem"
+    "IntrinsicMotivationSystem",
+    "PhysicsEvaluator"
 ]

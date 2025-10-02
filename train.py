@@ -9,6 +9,7 @@
 # - 分散学習 (`--distributed`) に対応。
 # - 勾配ベース学習と生物学的学習のパラダイムをconfigファイルで切り替え可能。
 # - 既存の機能をすべて維持し、省略しない完全なコード。
+# - 変更点: 不要になった古い生物学的学習(BioTrainer)のコードブロックを削除。
 
 import argparse
 import os
@@ -18,13 +19,12 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, random_split, DistributedSampler
 from dependency_injector.wiring import inject, Provide
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Callable
 
 from app.containers import TrainingContainer
 from snn_research.data.datasets import get_dataset_class, DistillationDataset, DataFormat, SNNBaseDataset
+from snn_research.training.trainers import BreakthroughTrainer
 
-from snn_research.training.trainers import BreakthroughTrainer, SelfSupervisedTrainer # ✨インポート追加
-from snn_research.training.bio_trainer import BioTrainer
 
 # DIコンテナのセットアップ
 container = TrainingContainer()
@@ -108,21 +108,14 @@ def train(
                         tokenizer_name=config.data.tokenizer_name(), config=config.model.to_dict()
                     )
 
-    elif paradigm == "biologically_plausible":
-        if is_distributed: raise NotImplementedError("Biologically plausible learning does not support DDP yet.")
-        trainer = container.bio_trainer()
-        for epoch in range(config.training.epochs()):
-            trainer.train_epoch(train_loader, epoch, config.model.time_steps())
-            if rank in [-1, 0] and (epoch % config.training.eval_interval() == 0 or epoch == config.training.epochs() - 1):
-                trainer.evaluate(val_loader, epoch, config.model.time_steps())
     else:
-        raise ValueError(f"Unknown training paradigm: '{paradigm}'")
+        raise ValueError(f"Unknown or unsupported training paradigm for this script: '{paradigm}'. Use run_rl_agent.py for 'biologically_plausible'.")
 
     if rank in [-1, 0]: print("✅ 学習が完了しました。")
 
 
-def collate_fn(tokenizer, is_distillation: bool):
-    def collate(batch: List[Tuple[torch.Tensor, ...]]):
+def collate_fn(tokenizer, is_distillation: bool) -> Callable[[List[Tuple[torch.Tensor, ...]]], Tuple[torch.Tensor, ...]]:
+    def collate(batch: List[Tuple[torch.Tensor, ...]]) -> Tuple[torch.Tensor, ...]:
         inputs = [item[0] for item in batch]
         targets = [item[1] for item in batch]
         padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=tokenizer.pad_token_id)
