@@ -8,12 +8,14 @@
 # - 自律的コード修正: 性能向上が見込めるコードの修正案を生成し、適用する。
 # - [改善] 修正案を構造化データとして生成し、実際にファイルを書き換える機能を実装。
 # - [改善] 修正後の性能をベンチマークで検証し、性能が向上しない場合は変更を元に戻すロールバック機能を追加。
+# - [進化] 自己進化の範囲をハイパーパラメータからアーキテクチャ自体（層数、次元数）に拡張。
 
 import os
 import re
 import subprocess
 import fileinput
 import shutil
+import yaml
 from typing import Dict, Any, Optional, List
 
 from .autonomous_agent import AutonomousAgent
@@ -24,9 +26,10 @@ class SelfEvolvingAgent(AutonomousAgent):
     自己のソースコードとパフォーマンスを監視し、
     自律的に自己改良を行うメタ進化エージェント。
     """
-    def __init__(self, project_root: str = "."):
+    def __init__(self, project_root: str = ".", model_config_path: str = "configs/models/small.yaml"):
         super().__init__()
         self.project_root = project_root
+        self.model_config_path = model_config_path
         # 自身のソースコードを知識源とするRAGシステム
         self.self_reference_rag = RAGSystem(vector_store_path="runs/self_reference_vector_store")
         self._setup_self_reference()
@@ -82,32 +85,50 @@ class SelfEvolvingAgent(AutonomousAgent):
     def generate_code_modification_proposal(self, analysis: str) -> Optional[Dict[str, str]]:
         """
         分析結果に基づき、具体的なコード修正案を構造化データとして生成する。
-        (注: この部分は現在ルールベースですが、将来的にはLLMに置き換え可能です)
         """
         self.memory.add_entry("CODE_MODIFICATION_PROPOSAL_STARTED", {"analysis": analysis})
         
         proposal = None
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 精度が極端に低い場合、モデルの表現力不足と判断し、アーキテクチャを強化する
+        accuracy_match = re.search(r"'accuracy': ([\d.]+)", analysis)
+        if accuracy_match and float(accuracy_match.group(1)) < 0.6:
+            print("🔬 精度が著しく低いため、アーキテクチャの強化を検討します。")
+            try:
+                full_config_path = os.path.join(self.project_root, self.model_config_path)
+                with open(full_config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                
+                # d_modelを32増やす提案
+                current_d_model = config['model']['d_model']
+                new_d_model = current_d_model + 32
+                proposal = {
+                    "file_path": self.model_config_path,
+                    "action": "replace",
+                    "target_pattern": rf"d_model:\s*{current_d_model}",
+                    "new_content": f"  d_model: {new_d_model} # Increased by agent for better accuracy"
+                }
+
+            except (IOError, yaml.YAMLError, KeyError) as e:
+                print(f"⚠️ モデル設定ファイルの解析に失敗しました: {e}")
+
         # スパイク数が多すぎる場合、正則化を強める提案
-        spike_match = re.search(r"'avg_spikes_per_sample': ([\d.]+)", analysis)
-        if spike_match is not None and float(spike_match.group(1)) > 1000.0:
+        elif (spike_match := re.search(r"'avg_spikes_per_sample': ([\d.]+)", analysis)) and float(spike_match.group(1)) > 1000.0:
             proposal = {
                 "file_path": "configs/base_config.yaml",
                 "action": "replace",
                 "target_pattern": r"spike_reg_weight:\s*[\d.]+",
                 "new_content": "    spike_reg_weight: 0.05 # Increased by agent to reduce spikes"
             }
-        # 精度が低い場合、学習率を少し下げる提案
-        elif "accuracy" in analysis:
-            accuracy_match = re.search(r"'accuracy': ([\d.]+)", analysis)
-            if accuracy_match is not None and float(accuracy_match.group(1)) < 0.8:
-                 proposal = {
-                    "file_path": "configs/base_config.yaml",
-                    "action": "replace",
-                    "target_pattern": r"learning_rate:\s*[\d.]+",
-                    "new_content": "  learning_rate: 0.0003 # Decreased by agent for stable learning"
-                }
+        # 精度がやや低い場合、学習率を少し下げる提案
+        elif accuracy_match and float(accuracy_match.group(1)) < 0.8:
+             proposal = {
+                "file_path": "configs/base_config.yaml",
+                "action": "replace",
+                "target_pattern": r"learning_rate:\s*[\d.]+",
+                "new_content": "  learning_rate: 0.0003 # Decreased by agent for stable learning"
+            }
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
         self.memory.add_entry("CODE_MODIFICATION_PROPOSAL_ENDED", {"proposal": proposal})
@@ -173,6 +194,8 @@ class SelfEvolvingAgent(AutonomousAgent):
     def verify_performance_improvement(self, initial_metrics: Dict[str, Any]) -> bool:
         """
         ベンチマークスクリプトを実行し、性能が向上したかを確認する。
+        注意: アーキテクチャ変更の場合、この検証は不完全です。
+              完全な検証には再学習ステップが必要です。
         """
         self.memory.add_entry("PERFORMANCE_VERIFICATION_STARTED", {})
         print("📊 変更後の性能をベンチマークで検証します...")
@@ -253,4 +276,3 @@ class SelfEvolvingAgent(AutonomousAgent):
             self.revert_code_modification(proposal)
         
         print("="*65)
-
