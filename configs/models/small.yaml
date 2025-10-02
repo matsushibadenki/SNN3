@@ -3,6 +3,7 @@
 
 model:
   path: "breakthrough_snn_model_small.pth" # モデルごとに保存パスを分ける
+  architecture_type: "predictive_coding" # "predictive_coding" または "spiking_transformer"
   d_model: 128
   d_state: 64
   num_layers: 4
