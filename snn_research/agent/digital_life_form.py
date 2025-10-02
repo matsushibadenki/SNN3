@@ -4,6 +4,7 @@
 # - PhysicsEvaluatorと進化したIntrinsicMotivationSystemを統合。
 # - 意識ループ内に「内省ステップ」を追加し、物理状態（膜電位など）を観測。
 # - 予測誤差だけでなく、物理法則の一致度も考慮して次の行動を決定するように進化。
+# - mypyエラー(attr-defined)を修正するため、__init__にself.device属性を追加。
 
 import time
 import torch
@@ -22,6 +23,8 @@ class DigitalLifeForm(SelfEvolvingAgent):
     """
     def __init__(self, project_root: str = "."):
         super().__init__(project_root)
+        
+        self.device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         
         # 物理法則評価器と、それを利用する新しい動機付けシステムを初期化
         self.physics_evaluator = PhysicsEvaluator()
@@ -116,3 +119,4 @@ class DigitalLifeForm(SelfEvolvingAgent):
             time.sleep(1) # サイクル間の小休止
 
         print("\n" + "="*20 + "🧬 デジタル生命体 意識ループ終了 🧬" + "="*20)
+
