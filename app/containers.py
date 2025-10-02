@@ -6,6 +6,7 @@
 # - 設定ファイルの `training.paradigm` の値に応じて、適切なコンポーネント群を構築する。
 # - 既存の全機能を維持しつつ、新しい学習方法への拡張性を確保。
 # - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
+# - 変更点: 不要になった古い生物学的学習(BioTrainer)関連のプロバイダを削除。
 
 import torch
 from dependency_injector import containers, providers
@@ -14,9 +15,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # --- プロジェクト内モジュールのインポート (既存) ---
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.core.snn_core import BreakthroughSNN, SpikingTransformer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.deployment import SNNInferenceEngine
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer
@@ -25,13 +24,6 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-
-# --- ✨新規インポート (生物学的学習則関連) ---
-from snn_research.learning_rules import get_bio_learning_rule
-from snn_research.bio_models.simple_network import BioSNN
-from snn_research.training.bio_trainer import BioTrainer
-# ---
-
 
 
 def get_auto_device() -> str:
@@ -59,7 +51,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     # --- 共通コンポーネント ---
     tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # --- アーキテクチャ選択 ---
     breakthrough_snn = providers.Factory(
         BreakthroughSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
@@ -75,7 +66,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         predictive_coding=breakthrough_snn,
         spiking_transformer=spiking_transformer,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
     meta_cognitive_snn = providers.Factory(MetaCognitiveSNN, snn_model=snn_model, **config.training.meta_cognition.to_dict())
@@ -120,19 +110,7 @@ class TrainingContainer(containers.DeclarativeContainer):
         rank=-1, use_amp=config.training.physics_informed.use_amp, log_dir=config.training.log_dir, 
         astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
     )
-
-    # === 生物学的学習 (biologically_plausible) のためのプロバイダ ===
-    bio_learning_rule = providers.Factory(
-        get_bio_learning_rule,
-        name=config.training.biologically_plausible.learning_rule,
-        params=config.training.biologically_plausible.to_dict()
-    )
-    bio_snn_model = providers.Factory(
-        BioSNN, n_input=100, n_hidden=50, n_output=10,
-        neuron_params=config.training.biologically_plausible.neuron, learning_rule=bio_learning_rule,
-    )
-    bio_trainer = providers.Factory(BioTrainer, model=bio_snn_model, device=providers.Factory(get_auto_device))
-
+    
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
     planner_snn = providers.Factory(
         PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
@@ -150,3 +128,4 @@ class AppContainer(containers.DeclarativeContainer):
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.inference.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
+
