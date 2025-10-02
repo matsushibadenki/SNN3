@@ -5,6 +5,7 @@
 # - 勾配ベース学習と生物学的学習の2つのパラダイムをDIコンテナで管理。
 # - 設定ファイルの `training.paradigm` の値に応じて、適切なコンポーネント群を構築する。
 # - 既存の全機能を維持しつつ、新しい学習方法への拡張性を確保。
+# - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -13,17 +14,15 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # --- プロジェクト内モジュールのインポート (既存) ---
-from snn_research.core.snn_core import BreakthroughSNN
-from snn_research.deployment import SNNInferenceEngine
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
+from snn_research.core.snn_core import BreakthroughSNN, SpikingTransformer
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.deployment import SNNInferenceEngine
+from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
 
@@ -59,11 +58,25 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     # --- 共通コンポーネント ---
     tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
-    snn_model = providers.Factory(
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # --- アーキテクチャ選択 ---
+    breakthrough_snn = providers.Factory(
         BreakthroughSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
         d_state=config.model.d_state, num_layers=config.model.num_layers, time_steps=config.model.time_steps,
         n_head=config.model.n_head, neuron_config=config.model.neuron,
     )
+    spiking_transformer = providers.Factory(
+        SpikingTransformer, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
+        n_head=config.model.n_head, num_layers=config.model.num_layers, time_steps=config.model.time_steps
+    )
+    snn_model = providers.Selector(
+        config.model.architecture_type,
+        predictive_coding=breakthrough_snn,
+        spiking_transformer=spiking_transformer,
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
     meta_cognitive_snn = providers.Factory(MetaCognitiveSNN, snn_model=snn_model, **config.training.meta_cognition.to_dict())
 
@@ -120,7 +133,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
     bio_trainer = providers.Factory(BioTrainer, model=bio_snn_model, device=providers.Factory(get_auto_device))
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
     planner_snn = providers.Factory(
         PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
@@ -129,7 +141,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
     planner_optimizer = providers.Factory(AdamW, lr=config.training.planner.learning_rate)
     planner_loss = providers.Factory(PlannerLoss)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AppContainer(containers.DeclarativeContainer):
