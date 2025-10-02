@@ -5,6 +5,7 @@
 # - SpikeDrivenSelfAttention: スパイクベースの効率的な自己注意機構。
 # - STAttenBlock: 空間と時間の両方を考慮するアテンションブロック。
 # - SpikingTransformer: 新しい最先端モデルとして、STAttenBlockを統合。
+# - mypyエラー修正: SpikingTransformer.forwardの戻り値の型をtorch.Tensorに統一。
 
 import torch
 import torch.nn as nn
@@ -198,7 +199,7 @@ class BreakthroughSNN(nn.Module):
 
         return final_logits, avg_spikes, final_mem
 
-# --- ◾️◾️◾️↓新規追加: Spiking Transformer アーキテクチャ↓◾️◾️◾️ ---
+# --- ◾️◾️◾️↓Spiking Transformer アーキテクチャ (mypyエラー修正済)↓◾️◾️◾️ ---
 class SpikeDrivenSelfAttention(nn.Module):
     """スパイク駆動の自己注意機構。"""
     def __init__(self, d_model: int, n_head: int):
@@ -281,13 +282,14 @@ class SpikingTransformer(nn.Module):
         # SpikingJellyに準拠し、時間軸を先頭に
         x = x.unsqueeze(0).repeat(self.time_steps, 1, 1, 1)
         
-        total_spikes = 0
-        total_mems = 0
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        total_spikes = torch.tensor(0.0, device=x.device)
         
         for layer in self.layers:
             x = layer(x)
             # 各ブロックのスパイク数を集計（概算）
-            total_spikes += x.sum()
+            if return_spikes:
+                total_spikes = total_spikes + x.sum()
 
         # [Time, Batch, Seq, Dim] -> [Batch, Seq, Dim]
         # 最終タイムステップの出力を利用
@@ -295,9 +297,11 @@ class SpikingTransformer(nn.Module):
         
         logits = self.output_projection(final_output)
         
-        # 互換性のためのダミー値を返す
-        avg_spikes = total_spikes / (self.time_steps * batch_size * seq_len)
-        avg_mems = torch.tensor(0.0)
+        # 互換性のための値を返す
+        denominator = self.time_steps * batch_size * seq_len
+        avg_spikes = total_spikes / denominator if return_spikes and denominator > 0 else torch.tensor(0.0, device=x.device)
+        avg_mems = torch.tensor(0.0, device=x.device)
 
         return logits, avg_spikes, avg_mems
-# --- ◾️◾️◾️↑新規追加: Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# --- ◾️◾️◾️↑Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
