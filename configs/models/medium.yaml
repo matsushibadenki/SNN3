@@ -3,6 +3,7 @@
 
 model:
   path: "breakthrough_snn_model_medium.pth"
+  architecture_type: "predictive_coding" # "predictive_coding" または "spiking_transformer"
   d_model: 256
   d_state: 128
   num_layers: 8
