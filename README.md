@@ -8,7 +8,7 @@
 
 このシステムは、単なるチャットボットではなく、以下の高度な認知能力を備えた自律エージェントとして動作します。
 
-* **オンデマand学習:** 未知のタスクに直面した際、大規模言語モデルから知識を蒸留し、タスクに特化した超省エネルギーな「専門家SNN」を自律的に生成します。  
+* **オンデマンド学習:** 未知のタスクに直面した際、大規模言語モデルから知識を蒸留し、タスクに特化した超省エネルギーな「専門家SNN」を自律的に生成します。  
 * **自己認識と計画立案:** 自身の能力（学習済み専門家モデル）を把握し、**学習済みのプランナーSNN**を用いて、複雑なタスクをサブタスクに分解し、最適な実行計画を動的に推論します。  
 * **高次認知:** 複数の専門家SNNとRAG（Retrieval-Augmented Generation）システムを連携させ、意見の対立から新たな知見を創発（Emergence）させることができます。  
 * **メタ認知と注意制御:** 学習プロセス全体を「メタ認知SNN (SNAKE)」が監視し、予測誤差が大きい困難なタスクに対して動的に計算リソース（アテンション）を集中させ、学習を安定・効率化させます。  
@@ -17,109 +17,108 @@
 
 ## **2\. システムアーキテクチャ**
 
-本システムの認知アーキテクチャは、複数の専門コンポーネントが階層的に連携することで実現されています。
+本システムの認知アーキテクチャは、複数の専門コンポーネントが階層的に連携することで実現されています。コアとなるSNNモデルは、**予測符号化モデル**と、時間情報処理に特化した**スパイキングトランスフォーマー**を切り替え可能です。
 
-```mermaid
-%% README.md 内の Mermaid 図（GitHub 用に構文修正）
-graph TD
-  %% Phase 6: 自律的存在 (Digital Life Form)
-  subgraph Phase6 ["Phase 6: 自律的存在 (Digital Life Form)"]
-    direction LR
-    LifeForm[/"run_life_form.py<br/>(DigitalLifeForm)"/]
-    Motivation[/"snn_research/cognitive_architecture<br/>(IntrinsicMotivationSystem)"/]
+%% README.md 内の Mermaid 図（GitHub 用に構文修正）  
+graph TD  
+  %% Phase 6: 自律的存在 (Digital Life Form)  
+  subgraph Phase6 \["Phase 6: 自律的存在 (Digital Life Form)"\]  
+    direction LR  
+    LifeForm\[/"run\_life\_form.py\<br/\>(DigitalLifeForm)"/\]  
+    Motivation\[/"snn\_research/cognitive\_architecture\<br/\>(IntrinsicMotivationSystem)"/\]  
     Decision{探求 or 自己改善?}
 
-    LifeForm --> Motivation
-    Motivation --> Decision
+    LifeForm \--\> Motivation  
+    Motivation \--\> Decision
 
-    subgraph Curiosity ["探求 (Curiosity-Driven Exploration)"]
-      direction TB
-      Emergence[/"snn_research/cognitive_architecture<br/>(EmergentSystem)<br/>複数専門家の対立から課題発見"/]
-      Planner[/"run_planner.py<br/>(HierarchicalPlanner)"/]
+    subgraph Curiosity \["探求 (Curiosity-Driven Exploration)"\]  
+      direction TB  
+      Emergence\[/"snn\_research/cognitive\_architecture\<br/\>(EmergentSystem)\<br/\>複数専門家の対立から課題発見"/\]  
+      Planner\[/"run\_planner.py\<br/\>(HierarchicalPlanner)"/\]
 
-      Decision -- "探求 (退屈)" --> Emergence
-      Emergence --> Planner
+      Decision \-- "探求 (退屈)" \--\> Emergence  
+      Emergence \--\> Planner  
     end
 
-    subgraph SelfImprove ["自己改善 (Self-Improvement)"]
-      direction TB
-      Evolution[/"run_evolution.py<br/>(SelfEvolvingAgent)<br/>自己コードを分析・修正"/]
-      Benchmark[/"scripts/run_benchmark.py"/]
+    subgraph SelfImprove \["自己改善 (Self-Improvement)"\]  
+      direction TB  
+      Evolution\[/"run\_evolution.py\<br/\>(SelfEvolvingAgent)\<br/\>自己コードを分析・修正"/\]  
+      Benchmark\[/"scripts/run\_benchmark.py"/\]
 
-      Decision -- "改善 (現状満足)" --> Evolution
-      Evolution --> Benchmark
-    end
+      Decision \-- "改善 (現状満足)" \--\> Evolution  
+      Evolution \--\> Benchmark  
+    end  
   end
 
-  %% Phase 3-5: 高次認知実行コア
-  subgraph ExecCore ["Phase 3-5: 高次認知実行コア (Cognitive Execution Core)"]
+  %% Phase 3-5: 高次認知実行コア  
+  subgraph ExecCore \["Phase 3-5: 高次認知実行コア (Cognitive Execution Core)"\]  
     direction TB
 
-    subgraph Planning ["計画立案 (Planning)"]
-      PlannerSNN[/"snn_research/cognitive_architecture<br/>(PlannerSNN)<br/>計画を推論"/]
-      Planner --> PlannerSNN
+    subgraph Planning \["計画立案 (Planning)"\]  
+      PlannerSNN\[/"snn\_research/cognitive\_architecture\<br/\>(PlannerSNN)\<br/\>計画を推論"/\]  
+      Planner \--\> PlannerSNN  
     end
 
-    subgraph TaskExec ["タスク実行 (Task Execution)"]
-      Workspace[/"snn_research/cognitive_architecture<br/>(GlobalWorkspace)"/]
-      Specialist[/"専門家SNN<br/>(Specialist SNN)"/]
-      RAG[/"snn_research/cognitive_architecture<br/>(RAGSystem)<br/>ベクトルストア検索"/]
+    subgraph TaskExec \["タスク実行 (Task Execution)"\]  
+      Workspace\[/"snn\_research/cognitive\_architecture\<br/\>(GlobalWorkspace)"/\]  
+      Specialist\[/"専門家SNN\<br/\>(Specialist SNN)"/\]  
+      RAG\[/"snn\_research/cognitive\_architecture\<br/\>(RAGSystem)\<br/\>ベクトルストア検索"/\]
 
-      PlannerSNN --> Workspace
-      Workspace -->|サブタスク実行| Specialist
-      Workspace -->|知識が必要| RAG
-      RAG --> Workspace
-      Specialist --> Workspace
-    end
+      PlannerSNN \--\> Workspace  
+      Workspace \--\>|サブタスク実行| Specialist  
+      Workspace \--\>|知識が必要| RAG  
+      RAG \--\> Workspace  
+      Specialist \--\> Workspace  
+    end  
   end
 
-  %% Phase 0-2: 学習・推論エンジン
-  subgraph LearnInfer ["Phase 0-2: 学習・推論エンジン (Learning & Inference Engine)"]
+  %% Phase 0-2: 学習・推論エンジン  
+  subgraph LearnInfer \["Phase 0-2: 学習・推論エンジン (Learning & Inference Engine)"\]  
     direction TB
 
-    subgraph Training ["学習 (Training)"]
-      TrainPy[/"train.py"/]
-      DI[/"app/containers.py<br/>(DI Container)"/]
-      Trainer[/"snn_research/training<br/>(Trainer)"/]
-      BreakthroughSNN[/"snn_research/core<br/>(BreakthroughSNN)"/]
-      Loss[/"snn_research/training<br/>(Loss Function)"/]
-      MetaSNN[/"snn_research/cognitive_architecture<br/>(MetaCognitiveSNN - SNAKE)"/]
+    subgraph Training \["学習 (Training)"\]  
+      TrainPy\[/"train.py"/\]  
+      DI\[/"app/containers.py\<br/\>(DI Container)"/\]  
+      Trainer\[/"snn\_research/training\<br/\>(Trainer)"/\]  
+      SNN\_Core\["snn\_research/core\<br/\>(SpikingTransformer or BreakthroughSNN)"\]  
+      Loss\[/"snn\_research/training\<br/\>(Loss Function)"/\]  
+      MetaSNN\[/"snn\_research/cognitive\_architecture\<br/\>(MetaCognitiveSNN \- SNAKE)"/\]
 
-      TrainPy -->|起動| DI
-      DI -->|提供| Trainer
-      Trainer -->|学習ループ| BreakthroughSNN
-      BreakthroughSNN -->|出力| Loss
-      Loss -->|誤差| MetaSNN
-      Loss -->|勾配| Trainer
-      MetaSNN -->|注意変調| BreakthroughSNN
+      TrainPy \--\>|起動| DI  
+      DI \--\>|提供| Trainer  
+      Trainer \--\>|学習ループ| SNN\_Core  
+      SNN\_Core \--\>|出力| Loss  
+      Loss \--\>|誤差| MetaSNN  
+      Loss \--\>|勾配| Trainer  
+      MetaSNN \--\>|注意変調| SNN\_Core  
     end
 
-    subgraph Inference ["推論 (Inference)"]
-      Deployment[/"snn_research/deployment.py<br/>(SNNInferenceEngine)"/]
-      Specialist -->|推論エンジン| Deployment
-    end
+    subgraph Inference \["推論 (Inference)"\]  
+      Deployment\[/"snn\_research/deployment.py\<br/\>(SNNInferenceEngine)"/\]  
+      Specialist \--\>|推論エンジン| Deployment  
+    end  
   end
 
-  %% On-Demand Learning
-  subgraph OnDemand ["オンデマンド学習 (On-Demand Learning)"]
-    direction TB
-    Agent[/"run_agent.py<br/>(AutonomousAgent)"/]
-    DistillManager[/"snn_research/distillation<br/>(KnowledgeDistillationManager)"/]
-    Registry[/"snn_research/distillation<br/>(ModelRegistry)"/]
+  %% On-Demand Learning  
+  subgraph OnDemand \["オンデマンド学習 (On-Demand Learning)"\]  
+    direction TB  
+    Agent\[/"run\_agent.py\<br/\>(AutonomousAgent)"/\]  
+    DistillManager\[/"snn\_research/distillation\<br/\>(KnowledgeDistillationManager)"/\]  
+    Registry\[/"snn\_research/distillation\<br/\>(ModelRegistry)"/\]
 
-    Agent -->|未知のタスク| DistillManager
-    DistillManager -->|学習実行| TrainPy
-    DistillManager -->|性能評価| Benchmark
-    DistillManager -->|モデル登録| Registry
-    Agent -->|モデル検索| Registry
+    Agent \--\>|未知のタスク| DistillManager  
+    DistillManager \--\>|学習実行| TrainPy  
+    DistillManager \--\>|性能評価| Benchmark  
+    DistillManager \--\>|モデル登録| Registry  
+    Agent \--\>|モデル検索| Registry  
   end
 
-  %% Node styles
-  style LifeForm fill:#cde4ff,stroke:#333,stroke-width:2px
-  style Planner fill:#ffe4c4,stroke:#333,stroke-width:2px
-  style Agent fill:#d4edda,stroke:#333,stroke-width:2px
-  style TrainPy fill:#f8d7da,stroke:#333,stroke-width:2px
-```
+  %% Node styles  
+  style LifeForm fill:\#cde4ff,stroke:\#333,stroke-width:2px  
+  style Planner fill:\#ffe4c4,stroke:\#333,stroke-width:2px  
+  style Agent fill:\#d4edda,stroke:\#333,stroke-width:2px  
+  style TrainPy fill:\#f8d7da,stroke:\#333,stroke-width:2px  
+  style SNN\_Core fill:\#fff2cd,stroke:\#333,stroke-width:2px
 
 ## **3\. 主要な実行スクリプト**
 
@@ -194,19 +193,14 @@ python app/main.py \--model\_path "runs/specialists/文章要約/best\_model.pth
 
 #### **B) 専門家モデルの学習 (train.py)**
 
-gradient\_based (知識蒸留) を用いて、新しい専門家SNNを学習させる例です。
+新しく追加したSpikingTransformerアーキテクチャでモデルを学習させる例です。
 
-\# 1\. 知識蒸留のための教師データ（ロジット）を事前計算  
-python scripts/prepare\_distillation\_data.py \\  
-    \--input\_file data/sample\_data.jsonl \\  
-    \--output\_dir precomputed\_data/sample\_distill
-
-\# 2\. configのparadigmを "gradient\_based", typeを "distillation" に設定
-
-\# 3\. 事前計算データを使ってSNNモデルを学習  
+\# configs/models/large.yaml を使用してSpikingTransformerを学習  
 python train.py \\  
-    \--model\_config configs/models/small.yaml \\  
-    \--data\_path precomputed\_data/sample\_distill
+    \--model\_config configs/models/large.yaml \\  
+    \--data\_path data/sample\_data.jsonl \\  
+    \--override\_config "training.paradigm=gradient\_based" \\  
+    \--override\_config "training.gradient\_based.type=standard"
 
 #### **C) プランナーモデルの学習 (train\_planner.py)**
 
@@ -217,22 +211,22 @@ python train\_planner.py
 ## **5\. プロジェクト構造**
 
 snn2/  
-├── app/                  \# UIアプリケーションとDIコンテナ  
-│   ├── adapters/         \# LangChainなど外部ライブラリとの連携  
-│   ├── services/         \# ビジネスロジック  
-│   └── containers.py     \# 依存性注入コンテナ  
-├── configs/                \# 設定ファイル  
-│   ├── base\_config.yaml  \# 基本設定、学習パラダイム切り替え  
-│   └── models/           \# モデルアーキテクチャ設定  
-├── doc/                    \# ドキュメント  
-│   └── ROADMAP.md        \# プロジェクトロードマップ  
-├── scripts/                \# データ準備やベンチマークなどの補助スクリプト  
-├── snn\_research/           \# SNNコア研究開発コード  
-│   ├── agent/            \# 各種エージェント (自律、自己進化、生命体)  
-│   ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、ワークスペース、SNAKE等)  
-│   ├── core/             \# SNNモデルとニューロンのコア定義  
-│   ├── learning\_rules/   \# 生物学的学習則 (STDPなど)  
-│   └── training/         \# Trainerと損失関数  
-├── train.py                \# 専門家モデルの学習スクリプト  
-├── train\_planner.py        \# プランナーモデルの学習スクリプト  
-└── run\_\*.py                \# 各種機能の実行スクリプト  
+├── app/ \# UIアプリケーションとDIコンテナ  
+│ ├── adapters/ \# LangChainなど外部ライブラリとの連携  
+│ ├── services/ \# ビジネスロジック  
+│ └── containers.py \# 依存性注入コンテナ  
+├── configs/ \# 設定ファイル  
+│ ├── base\_config.yaml \# 基本設定、学習パラダイム切り替え  
+│ └── models/ \# モデルアーキテクチャ設定  
+├── doc/ \# ドキュメント  
+│ └── ROADMAP.md \# プロジェクトロードマップ  
+├── scripts/ \# データ準備やベンチマークなどの補助スクリプト  
+├── snn\_research/ \# SNNコア研究開発コード  
+│ ├── agent/ \# 各種エージェント (自律、自己進化、生命体)  
+│ ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、ワークスペース、SNAKE等)  
+│ ├── core/ \# SNNモデルとニューロンのコア定義  
+│ ├── learning\_rules/ \# 生物学的学習則 (STDPなど)  
+│ └── training/ \# Trainerと損失関数  
+├── train.py \# 専門家モデルの学習スクリプト  
+├── train\_planner.py \# プランナーモデルの学習スクリプト  
+└── run\*.py \# 各種機能の実行スクリプト
