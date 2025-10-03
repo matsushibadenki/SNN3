@@ -118,8 +118,12 @@ def collate_fn(tokenizer, is_distillation: bool) -> Callable[[List[Tuple[torch.T
     def collate(batch: List[Tuple[torch.Tensor, ...]]) -> Tuple[torch.Tensor, ...]:
         inputs = [item[0] for item in batch]
         targets = [item[1] for item in batch]
-        padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=tokenizer.pad_token_id)
-        padded_targets = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=tokenizer.pad_token_id)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # pad_token_idがないトークナイザー（GPT2など）の場合、eos_token_idを代わりに使用する
+        padding_value = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=padding_value)
+        padded_targets = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=padding_value)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if is_distillation:
             logits = [item[2] for item in batch]
             padded_logits = torch.nn.utils.rnn.pad_sequence(logits, batch_first=True, padding_value=0.0)
@@ -147,7 +151,7 @@ def main():
     container.config.from_yaml(args.config)
     if args.model_config: container.config.from_yaml(args.model_config)
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     if args.override_config:
         for override in args.override_config:
             key, value = override.split('=', 1)
