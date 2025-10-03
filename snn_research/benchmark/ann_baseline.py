@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn_research/benchmark/ann_baseline.py
+# matsushibadenki/snn/benchmark/ann_baseline.py
 #
 # SNNモデルとの性能比較を行うためのANNベースラインモデル
 #
@@ -14,7 +14,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from typing import Optional
+from typing import Optional, Tuple
 
 class ANNBaselineModel(nn.Module):
     """
@@ -41,14 +41,14 @@ class ANNBaselineModel(nn.Module):
         self.classifier.bias.data.zero_()
         self.classifier.weight.data.uniform_(-initrange, initrange)
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
+    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Args:
             input_ids (torch.Tensor): 入力シーケンス (batch_size, seq_len)
             attention_mask (torch.Tensor): パディングマスク (batch_size, seq_len)
 
         Returns:
-            torch.Tensor: 分類ロジット (batch_size, num_classes)
+            Tuple[torch.Tensor, Optional[torch.Tensor]]: 分類ロジットとNone (SNNとの互換性のため)
         """
         # 互換性のための引数名マッピング
         src = input_ids
@@ -65,7 +65,7 @@ class ANNBaselineModel(nn.Module):
         encoded = self.transformer_encoder(embedded, src_key_padding_mask=src_key_padding_mask)
         
         # パディングを考慮した平均プーリング
-        if src_key_padding_mask is not None:
+        if attention_mask is not None:
             # attention_maskはパディングが0なので、それを反転してマスクとして使用
             mask = attention_mask.unsqueeze(-1).expand_as(encoded)
             masked_encoded = encoded * mask.float()
@@ -76,3 +76,4 @@ class ANNBaselineModel(nn.Module):
         logits = self.classifier(pooled)
         # SNN評価との互換性のため、タプルで返す
         return logits, None
+
