@@ -1,4 +1,4 @@
-# matsushibadenki/snn/snn_research/deployment.py
+# matsushibadenki/snn3/snn_research/deployment.py
 # SNNの実用デプロイメントのための最適化、監視、継続学習システム
 #
 # 変更点:

@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/cognitive_architecture/intrinsic_motivation.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/intrinsic_motivation.py
 # Phase 6: 内発的動機付けシステム
 #
 # 機能:

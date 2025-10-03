@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/agent/autonomous_agent.py
+# matsushibadenki/snn3/snn_research/agent/autonomous_agent.py
 # Phase 0 の自律エージェント
 #
 # 変更点:

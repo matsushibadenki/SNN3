@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/distillation/knowledge_distillation_manager.py
+# matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
 # 自律的な知識蒸留プロセスを管理するクラス
 #
 # 変更点:

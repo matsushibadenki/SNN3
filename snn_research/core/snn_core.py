@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/core/snn_core.py
+# matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
 # 変更点:
 # - 「時間」の価値を最大化するため、Spiking Transformerアーキテクチャを追加。

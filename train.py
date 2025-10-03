@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/train.py
+# matsushibadenki/snn3/train.py
 # (旧 snn_research/training/main.py)
 #
 # 新しい統合学習実行スクリプト (完全版)

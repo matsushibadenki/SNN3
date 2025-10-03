@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/conversion/ann_to_snn_converter.py
+# matsushibadenki/snn3/snn_research/conversion/ann_to_snn_converter.py
 # GGUF/Safetensors形式のANNモデルからSNNへの変換・蒸留を行うコンバータ
 #
 # 機能:

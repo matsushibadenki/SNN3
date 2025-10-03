@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/cognitive_architecture/hierarchical_planner.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/hierarchical_planner.py
 # Phase 3: 階層的思考プランナー
 #
 # 変更点:

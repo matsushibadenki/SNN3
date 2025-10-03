@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/agent/memory.py
+# matsushibadenki/snn3/snn_research/agent/memory.py
 # 自律エージェントの長期記憶システム
 
 import json

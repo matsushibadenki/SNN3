@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/benchmark/tasks.py
+# matsushibadenki/snn3/snn_research/benchmark/tasks.py
 # ベンチマークタスクの定義ファイル
 #
 # 変更点:

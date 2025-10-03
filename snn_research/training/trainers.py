@@ -1,4 +1,4 @@
-# matsushibadenki/snn/snn_research/training/trainers.py
+# matsushibadenki/snn3/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
 
 import torch

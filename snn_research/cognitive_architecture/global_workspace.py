@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/cognitive_architecture/global_workspace.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/global_workspace.py
 # Phase 3: グローバル・ワークスペース
 
 from snn_research.distillation.model_registry import ModelRegistry

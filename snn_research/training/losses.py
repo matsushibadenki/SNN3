@@ -1,4 +1,4 @@
-# matsushibadenki/snn/snn_research/training/losses.py
+# matsushibadenki/snn3/snn_research/training/losses.py
 # SNN学習で使用する損失関数
 # 
 # 機能:

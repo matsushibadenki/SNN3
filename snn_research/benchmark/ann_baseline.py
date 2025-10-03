@@ -1,4 +1,4 @@
-# matsushibadenki/snn/benchmark/ann_baseline.py
+# matsushibadenki/snn3/benchmark/ann_baseline.py
 #
 # SNNモデルとの性能比較を行うためのANNベースラインモデル
 #
@@ -76,3 +76,4 @@ class ANNBaselineModel(nn.Module):
         logits = self.classifier(pooled)
         # SNN評価との互換性のため、タプルで返す
         return logits, None
+

@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/cognitive_architecture/emergent_system.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/emergent_system.py
 # Phase 6: 複数の専門家SNNを統合し、新たな概念を創発させるシステム
 #
 # 機能:

@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/agent/digital_life_form.py
+# matsushibadenki/snn3/snn_research/agent/digital_life_form.py
 # Phase 6: 全ての認知機能を統合し、自律的に活動するデジタル生命体
 # 変更点:
 # - PhysicsEvaluatorと進化したIntrinsicMotivationSystemを統合。

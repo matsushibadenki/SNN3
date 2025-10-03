@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/benchmark/metrics.py
+# matsushibadenki/snn3/snn_research/benchmark/metrics.py
 # ベンチマーク評価用のメトリクス関数
 
 from typing import List

@@ -1,5 +1,5 @@
 #!/bin/bash
-# matsushibadenki/snn2/setup_colab.sh
+# matsushibadenki/snn3/setup_colab.sh
 # Google Colab環境でプロジェクトを実行するためのセットアップスクリプト
 
 # エラーが発生した場合はスクリプトを終了
@@ -7,8 +7,8 @@ set -e
 
 echo " clonando el repositorio del proyecto SNN..."
 # (Colabは通常プロジェクトルートから始まるため、リポジトリをクローンする想定)
-# git clone https://github.com/your-repo/SNN2-project.git
-# cd SNN2-project
+# git clone https://github.com/your-repo/snn3-project.git
+# cd snn3-project
 
 echo " instalando las dependencias necesarias desde requirements.txt..."
 # Colabの基本環境に含まれないライブラリをインストール

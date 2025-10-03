@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/distillation/model_registry.py
+# matsushibadenki/snn3/snn_research/distillation/model_registry.py
 # 学習済みの専門家SNNモデルの情報を管理する登録簿
 
 import json

@@ -1,4 +1,4 @@
-# matsushibadenki/snn/snn_research/data/datasets.py
+# matsushibadenki/snn3/snn_research/data/datasets.py
 # 各種データ形式に対応するデータセットクラス
 # 
 # 機能:

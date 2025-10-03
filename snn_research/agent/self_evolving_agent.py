@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/agent/self_evolving_agent.py
+# matsushibadenki/snn3/snn_research/agent/self_evolving_agent.py
 # Phase 5: メタ進化 - AIによる自己開発を担うエージェント
 #
 # 機能:

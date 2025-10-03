@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/benchmark/__init__.py
+# matsushibadenki/snn3/snn_research/benchmark/__init__.py
 
 from .ann_baseline import ANNBaselineModel
 from .tasks import SST2Task
