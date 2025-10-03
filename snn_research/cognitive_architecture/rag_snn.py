@@ -1,11 +1,13 @@
-# matsushibadenki/snn2/snn_research/cognitive_architecture/rag_snn.py
+# snn_research/cognitive_architecture/rag_snn.py
 # Phase 3: RAG-SNN (Retrieval-Augmented Generation) システム
 
 import os
 from typing import List, Optional
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.document_loaders import DirectoryLoader, TextLoader
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 class RAGSystem:
@@ -24,7 +26,7 @@ class RAGSystem:
         """ベクトルストアをディスクから読み込む。"""
         if os.path.exists(self.vector_store_path):
             print(f"📚 既存のベクトルストアをロード中: {self.vector_store_path}")
-            return FAISS.load_local(self.vector_store_path, self.embedding_model)
+            return FAISS.load_local(self.vector_store_path, self.embedding_model, allow_dangerous_deserialization=True)
         return None
 
     def setup_vector_store(self, knowledge_dir: str = "doc", memory_file: str = "runs/agent_memory.jsonl"):
