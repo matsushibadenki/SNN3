@@ -4,23 +4,25 @@
 
 import argparse
 import sys
-import os
 from pathlib import Path
 
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
 
-
 # --- 各機能のコアロジックをインポート ---
 from snn_research.agent import AutonomousAgent, SelfEvolvingAgent, DigitalLifeForm, ReinforcementLearnerAgent
-from snn_research.cognitive_architecture import HierarchicalPlanner
-
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.rl_env.simple_env import SimpleEnvironment
 import train as gradient_based_trainer # train.pyをインポート
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 def handle_agent(args):
     """自律エージェントの機能を処理する"""
-    agent = AutonomousAgent()
+    # コマンドラインから受け取った品質基準でエージェントを初期化
+    agent = AutonomousAgent(
+        accuracy_threshold=args.min_accuracy,
+        energy_budget=args.max_spikes
+    )
     selected_model_info = agent.handle_task(
         task_description=args.task,
         unlabeled_data_path=args.unlabeled_data_path,
@@ -33,6 +35,7 @@ def handle_agent(args):
     elif not selected_model_info:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
         print("タスクを完了できませんでした。")
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def handle_planner(args):
     """階層的プランナーの機能を処理する"""
@@ -114,6 +117,10 @@ def main():
     parser_agent.add_argument("--prompt", type=str, help="推論を実行する場合の入力プロンプト")
     parser_agent.add_argument("--unlabeled_data_path", type=str, help="新規学習時に使用するデータパス")
     parser_agent.add_argument("--force_retrain", action="store_true", help="モデル登録簿を無視して強制的に再学習")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    parser_agent.add_argument("--min_accuracy", type=float, default=0.6, help="専門家モデルを選択するための最低精度要件 (デフォルト: 0.6)")
+    parser_agent.add_argument("--max_spikes", type=float, default=10000.0, help="専門家モデルを選択するための平均スパイク数上限 (デフォルト: 10000.0)")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     parser_agent.set_defaults(func=handle_agent)
 
     # --- Planner Subcommand ---
