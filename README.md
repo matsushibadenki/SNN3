@@ -107,110 +107,107 @@ python snn-cli.py \--help
 
 ### **A) データ読み込みと学習**
 
-SNNモデルに知性を与えるための、様々な学習方法を紹介します。
+#### **A-1.【推奨】Webからの自律学習サイクルを開始する (run\_web\_learning.py)**
 
-#### **A-1. 手動でのモデル学習**
+AIに全く新しいトピックを自律的に学習させる、最も強力な機能です。Webクローリングから専門家モデルの育成までを全自動で行います。
 
-研究者が意図した設定でモデルを学習させる、最も基本的な方法です。アーキテクチャや学習方法を自由に組み合わせて実験できます。
+\# 例: AIに「最新の半導体技術」について学習させる  
+python run\_web\_learning.py \\  
+    \--topic "最新の半導体技術" \\  
+    \--start\_url "\[https://pc.watch.impress.co.jp/\](https://pc.watch.impress.co.jp/)" \\  
+    \--max\_pages 10
 
-例：新しいSpiking Transformerアーキテクチャでモデルを学習させる  
-large.yamlで定義された大規模なSpiking Transformerモデルを、gradient\_based（勾配ベース）という標準的な方法で学習させます。  
+#### **A-2. 既存データで新しい専門家を育成する (agent solve)**
+
+ローカルにあるデータ（data/sample\_data.jsonlなど）を使って、新しい専門家モデルをオンデマンドで育成します。
+
+\# "文章要約"モデルを新規に学習させる  
+python snn-cli.py agent solve \\  
+    \--task "文章要約" \\  
+    \--unlabeled\_data\_path data/sample\_data.jsonl
+
+#### **A-3. 新しいアーキテクチャで手動学習する (train)**
+
+large.yamlで定義された新しいSpikingTransformerアーキテクチャなどで、モデルを手動で学習させます。
+
 python snn-cli.py train \\  
     \--model\_config configs/models/large.yaml \\  
     \--data\_path data/sample\_data.jsonl \\  
     \--override\_config "training.paradigm=gradient\_based" \\  
     \--override\_config "training.gradient\_based.type=standard"
 
-#### **A-2. AIによるオンデマンド学習**
-
-AI自身が必要だと判断した際に、自律的に新しい能力（専門家モデル）を獲得させる方法です。
-
-例：「文章要約」の専門家モデルをAIに自動で学習させる  
-エージェントに「文章要約」タスクを依頼します。もし対応する専門家モデルが存在しない場合、エージェントは提供されたデータ (--unlabeled\_data\_path) を使い、大規模言語モデルから知識を蒸留して、新しい専門家を自動で育成します。  
-python snn-cli.py agent solve \\  
-    \--task "文章要約" \\  
-    \--unlabeled\_data\_path data/sample\_data.jsonl
-
-#### **A-3. 行動を通じた学習（強化学習）**
-
-バックプロパゲーション（勾配計算）を一切使わず、生物のように環境との試行錯誤（行動と報酬）から直接スキルを学習させる、全く異なるパラダイムです。
-
-例：強化学習エージェントにパターンマッチングを学習させる  
-エージェントは、環境から与えられた目標パターンと自身が出力したパターンを比較し、「報酬」を頼りに、正解のパターンを自力で見つけ出すように学習します。  
-python snn-cli.py rl run \--episodes 100
-
 ### **B) 推論**
 
-学習済みのモデルを使って、実際にタスクを実行したり、対話したりする方法です。
+#### **B-1. 学習済みの専門家モデルと対話する (agent solve)**
 
-#### **B-1. 対話UIによる推論**
+run\_web\_learning.pyやagent solveで育成した専門家モデルを呼び出して、特定のタスクに関する質問に答えさせます。
 
-学習済みの専門家モデルとチャット形式で対話するためのWeb UIを起動します。最も手軽にAIの能力を体験できる方法です。
-
-**例：標準モデル（small）と対話する**
-
-python app/main.py
-
-例：中規模モデル（medium）と対話する  
-\--model\_config を変更することで、対話するモデルを切り替えられます。  
-python app/main.py \--model\_config configs/models/medium.yaml
-
-#### **B-2. CLIによる単一タスクの推論**
-
-コマンドラインから直接、特定のタスクを実行させます。
-
-例：「感情分析」タスクを実行する  
-学習済みの感情分析モデルを呼び出し、与えられたプロンプトがポジティブかネガティブかを推論させます。  
+\# (注: 学習直後のモデルは精度が低い場合があります。その場合は \--min\_accuracy で閾値を調整してください)  
 python snn-cli.py agent solve \\  
-    \--task "感情分析" \\  
-    \--prompt "この映画は本当に素晴らしかった！"
+    \--task "最新のAI技術" \\  
+    \--prompt "SNNとは何ですか？" \\  
+    \--min\_accuracy 0.4  
 
-#### **B-3. 複雑なタスクの推論（プランナー）**
+#### **B-2. 複雑なタスクをプランナーに依頼する (planner execute)**
 
-複数のスキルを組み合わせる必要がある複雑な要求を、AIに計画させて実行させます。
+「要約」と「感情分析」を組み合わせたような、複数のステップが必要なタスクを実行させます。
 
-例：「要約」と「感情分析」を組み合わせたタスクを実行する  
-AIはタスク要求を理解し、「まず文章を要約し、次にその要約文の感情を分析する」という計画を自ら立て、2つの専門家モデルを順番に呼び出してタスクを遂行します。  
 python snn-cli.py planner execute \\  
     \--request "この記事を要約して、その内容の感情を分析してください。" \\  
     \--context "SNNは非常にエネルギー効率が高いことで知られているが、その性能はまだANNに及ばない点もある。"
 
-#### **B-4. 自律的思考ループ（デジタル生命体）**
+#### **B-3. 対話UIを起動する (app/main.py)**
 
-AIに特定のタスクを与えるのではなく、自らの「好奇心」に基づき、何をすべきかを自律的に考えさせ、行動させる、最も高度な実行モードです。
+学習済みの専門家モデルとチャット形式で対話するためのWeb UIを起動します。
 
-例：デジタル生命体の「意識」ループを開始する  
-AIは自身の内部状態を観測し、「退屈している」と感じれば、新しい知識を探求したり（プランナーや強化学習の実行）、自己の性能が低いと感じれば、自身のアーキテクチャを改善（自己進化）したりします。  
+\# small.yamlで指定されたモデル（デフォルト）と対話  
+python app/main.py
+
+\# medium.yamlで指定されたモデルと対話  
+python app/main.py \--model\_config configs/models/medium.yaml
+
+### **C) AI自身の操作**
+
+#### **C-1. デジタル生命体の自律ループを開始する (life-form start)**
+
+AIの自律的な思考と学習のループを開始します。AIは自身の「好奇心」レベルに基づき、新たな探求を行ったり、自己の性能改善を試みたりします。
+
+\# 10回の「意識サイクル」を実行  
 python snn-cli.py life-form start \--cycles 10
+
+#### **C-2. アーキテクチャレベルの自己進化を試す (evolve run)**
+
+意図的に低い初期精度を与えることで、エージェントにモデルの表現力不足を認識させ、アーキテクチャ（d\_modelなど）を自律的に強化させます。
+
+\# 精度0.4という厳しい状況を与え、smallモデルのアーキテクチャ改善を促す  
+python snn-cli.py evolve run \\  
+    \--task\_description "高難度タスク" \\  
+    \--initial\_accuracy 0.4 \\  
+    \--model\_config "configs/models/small.yaml"
 
 ## **4\. プロジェクト構造**
 
-snn3/
-
-├── app/ \# UIアプリケーションとDIコンテナ
-
-├── configs/ \# 設定ファイル (base, models/.yaml)
-
-├── doc/ \# ドキュメント
-
-├── scripts/ \# データ準備やベンチマークなどの補助スクリプト
-
-├── snn\_research/ \# SNNコア研究開発コード
-
-│ ├── agent/ \# 各種エージェント (自律、自己進化、生命体、強化学習)
-
-│ ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、物理評価器等)
-
-│ ├── core/ \# SNNモデル (BreakthroughSNN, SpikingTransformer)
-
-│ ├── learning\_rules/ \# 生物学的学習則 (STDPなど)
-
-│ ├── rl\_env/ \# 強化学習環境
-
-│ └── training/ \# Trainerと損失関数
-
-├── snn-cli.py \# ✨ 新規: 統合CLIツール
-
-├── train.py \# 勾配ベース学習の実行スクリプト (CLIから呼び出される)
-
-└── ... (その他のrun\_.pyスクリプトは内部的に利用、または将来的に廃止)
+snn3/  
+├── app/                  \# UIアプリケーションとDIコンテナ  
+├── configs/              \# 設定ファイル (base, models/\*.yaml)  
+├── data/                 \# 学習用データセット  
+├── doc/                  \# ドキュメント  
+├── precomputed\_data/     \# (自動生成) 知識蒸留用の中間データ  
+├── runs/                 \# (自動生成) 学習ログ、チェックポイント、モデル登録簿  
+├── scripts/              \# データ準備やベンチマークなどの補助スクリプト  
+├── snn\_research/         \# SNNコア研究開発コード  
+│   ├── agent/            \# 各種エージェント (自律、自己進化、生命体、強化学習)  
+│   ├── benchmark/        \# SNN vs ANN 性能評価  
+│   ├── cognitive\_architecture/ \# 高次認知機能 (プランナー、物理評価器等)  
+│   ├── core/             \# SNNモデル (BreakthroughSNN, SpikingTransformer)  
+│   ├── data/             \# データセット定義  
+│   ├── deployment.py     \# 推論エンジン  
+│   ├── distillation/     \# 知識蒸留とモデル登録簿  
+│   ├── learning\_rules/   \# 生物学的学習則 (STDPなど)  
+│   ├── rl\_env/           \# 強化学習環境  
+│   ├── tools/            \# 外部ツール (Webクローラーなど)  
+│   └── training/         \# Trainerと損失関数  
+├── snn-cli.py            \# ✨ 統合CLIツール  
+├── train.py              \# 勾配ベース学習の実行スクリプト (CLIから呼び出される)  
+├── run\_web\_learning.py   \# ✨ Webからの自律学習実行スクリプト  
+└── requirements.txt      \# 必要なライブラリ  
