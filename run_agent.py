@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/run_agent.py
+# matsushibadenki/snn3/run_agent.py
 # 自律エージェントを起動し、タスクを実行させるためのインターフェース
 #
 # 変更点:

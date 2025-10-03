@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/run_distillation.py
+# matsushibadenki/snn3/run_distillation.py
 # Phase 0: Neuromorphic Knowledge Distillation を実行するためのメインスクリプト
 #
 # 変更点:

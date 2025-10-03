@@ -6,3 +6,11 @@
 {"timestamp": "2025-09-29T07:59:58.764955", "event_type": "MODEL_SELECTION_STARTED", "details": {"task": "文章要約"}}
 {"timestamp": "2025-09-29T07:59:58.764985", "event_type": "MODEL_SELECTION_ENDED", "details": {"result": "no_candidates_found"}}
 {"timestamp": "2025-09-29T07:59:58.765012", "event_type": "TRAINING_INITIATED", "details": {"task": "文章要約"}}
+{"timestamp": "2025-10-03T08:41:46.697468", "event_type": "TASK_RECEIVED", "details": {"task": "最新のAI技術", "unlabeled_data_path": null, "force_retrain": false}}
+{"timestamp": "2025-10-03T08:41:46.698110", "event_type": "MODEL_SELECTION_STARTED", "details": {"task": "最新のAI技術"}}
+{"timestamp": "2025-10-03T08:41:46.698158", "event_type": "MODEL_SELECTION_ENDED", "details": {"task": "最新のAI技術", "best_model_found": "None", "score": -1}}
+{"timestamp": "2025-10-03T08:41:46.698189", "event_type": "ERROR_ENCOUNTERED", "details": {"reason": "新しいモデルを学習するためには --unlabeled_data_path が必要です。"}}
+{"timestamp": "2025-10-03T08:54:11.250744", "event_type": "TASK_RECEIVED", "details": {"task": "最新のAI技術", "unlabeled_data_path": null, "force_retrain": false}}
+{"timestamp": "2025-10-03T08:54:11.251045", "event_type": "MODEL_SELECTION_STARTED", "details": {"task": "最新のAI技術"}}
+{"timestamp": "2025-10-03T08:54:11.251083", "event_type": "MODEL_SELECTION_ENDED", "details": {"task": "最新のAI技術", "best_model_found": "None", "score": -1}}
+{"timestamp": "2025-10-03T08:54:11.251114", "event_type": "ERROR_ENCOUNTERED", "details": {"reason": "新しいモデルを学習するためには --unlabeled_data_path が必要です。"}}

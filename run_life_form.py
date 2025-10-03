@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/run_life_form.py
+# matsushibadenki/snn3/run_life_form.py
 # Phase 6: デジタル生命体の自律的意識ループを開始する
 
 import argparse

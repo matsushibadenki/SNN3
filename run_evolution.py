@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/run_evolution.py
+# matsushibadenki/snn3/run_evolution.py
 # Script to run the self-evolving agent and execute a meta-evolution cycle.
 
 import argparse

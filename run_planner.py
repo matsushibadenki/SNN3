@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/run_planner.py
+# matsushibadenki/snn3/run_planner.py
 # Phase 3: 高次認知アーキテクチャの実行インターフェース
 
 import argparse
