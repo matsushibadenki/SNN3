@@ -1,4 +1,4 @@
-# matsushibadenki/snn/app/langchain_main.py
+# matsushibadenki/snn3/app/langchain_main.py
 # LangChainと連携したSNNチャットアプリケーション
 #
 # 機能:

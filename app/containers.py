@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/app/containers.py
+# matsushibadenki/snn3/app/containers.py
 # DIコンテナの定義ファイル (完全版)
 #
 # 機能:

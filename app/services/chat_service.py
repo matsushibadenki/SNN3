@@ -1,4 +1,4 @@
-# matsushibadenki/snn/app/services/chat_service.py
+# matsushibadenki/snn3/app/services/chat_service.py
 # チャット機能のビジネスロジックを担うサービス
 #
 # 機能:

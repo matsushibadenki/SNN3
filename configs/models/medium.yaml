@@ -1,4 +1,4 @@
-# matsushibadenki/snn/configs/models/medium.yaml
+# matsushibadenki/snn3/configs/models/medium.yaml
 # 中規模モデルのアーキテクチャ設定
 
 model:

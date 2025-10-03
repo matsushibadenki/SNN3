@@ -1,4 +1,4 @@
-# matsushibadenki/snn/app/utils.py
+# matsushibadenki/snn3/app/utils.py
 # Gradioアプリケーション用の共通ユーティリティ
 #
 # 機能:

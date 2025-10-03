@@ -1,4 +1,4 @@
-# matsushibadenki/snn/app/main.py
+# matsushibadenki/snn3/app/main.py
 # DIコンテナを利用した、Gradioリアルタイム対話UIの起動スクリプト
 #
 # 機能:

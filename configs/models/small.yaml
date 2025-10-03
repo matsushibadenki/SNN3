@@ -1,4 +1,4 @@
-# matsushibadenki/snn/configs/models/small.yaml
+# matsushibadenki/snn3/configs/models/small.yaml
 # 小規模なデバッグ・開発用モデルのアーキテクチャ設定
 
 model:

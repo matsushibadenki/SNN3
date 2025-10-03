@@ -1,4 +1,4 @@
-# matsushibadenki/snn/app/adapters/snn_langchain_adapter.py
+# matsushibadenki/snn3/app/adapters/snn_langchain_adapter.py
 # SNNモデルをLangChainのLLMインターフェースに適合させるアダプタ
 #
 # 機能:

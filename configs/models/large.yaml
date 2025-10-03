@@ -1,4 +1,4 @@
-# matsushibadenki/snn/configs/models/large.yaml
+# matsushibadenki/snn3/configs/models/large.yaml
 # 新しいSpiking Transformer用の大規模モデル設定
 
 model:
