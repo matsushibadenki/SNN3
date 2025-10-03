@@ -76,4 +76,3 @@ class ANNBaselineModel(nn.Module):
         logits = self.classifier(pooled)
         # SNN評価との互換性のため、タプルで返す
         return logits, None
-
