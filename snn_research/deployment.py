@@ -26,9 +26,7 @@ from dataclasses import dataclass
 from transformers import AutoTokenizer
 import torch.nn.functional as F
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- SNN 推論エンジン ---
 class SNNInferenceEngine:
@@ -53,7 +51,6 @@ class SNNInferenceEngine:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # モデルのアーキテクチャに応じてインスタンス化を分岐
         architecture_type = self.config.get('architecture_type', 'predictive_coding')
         
@@ -76,7 +73,6 @@ class SNNInferenceEngine:
         
         else:
             raise ValueError(f"サポートされていないアーキテクチャタイプです: {architecture_type}")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         self.model.eval()
@@ -203,3 +199,4 @@ class NeuromorphicDeploymentManager:
 
         print(f"✅ デプロイメント完了: {name}")
         return optimized_model
+
