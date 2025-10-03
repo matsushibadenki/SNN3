@@ -96,8 +96,12 @@ class SST2Task(BenchmarkTask):
             
             def forward(self, input_ids, **kwargs):
                 # NOTE: SNNの出力から最後のタイムステップの特徴量を取得して分類
-                logits, spikes, mem = self.snn_backbone(input_ids, return_spikes=True)
-                pooled_output = logits[:, -1, :] # 最後のトークンの特徴量を使用
+                hidden_states, spikes, mem = self.snn_backbone(
+                    input_ids,
+                    return_spikes=True,
+                    output_hidden_states=True
+                )
+                pooled_output = hidden_states[:, -1, :] # 最後のトークンの特徴量を使用
                 return self.classifier(pooled_output), spikes
 
         if model_type == 'SNN':
@@ -200,4 +204,3 @@ class XSumTask(BenchmarkTask):
                 total_gen_len += generated_ids.shape[1]
                 
         return {"avg_summary_length": total_gen_len / len(cast(Sized, loader.dataset))}
-
