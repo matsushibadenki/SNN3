@@ -32,7 +32,7 @@ container = TrainingContainer()
 @inject
 def train(
     args,
-    config=Provide[TrainingContainer.config],
+    config: Dict[str, Any] = Provide[TrainingContainer.config],
     tokenizer=Provide[TrainingContainer.tokenizer],
 ):
     """学習プロセスを実行するメイン関数"""
@@ -40,31 +40,31 @@ def train(
     rank = int(os.environ.get("LOCAL_RANK", -1))
     device = f'cuda:{rank}' if is_distributed and torch.cuda.is_available() else get_auto_device()
     
-    paradigm = config.training.paradigm()
-    is_distillation = paradigm == "gradient_based" and config.training.gradient_based.type() == "distillation"
+    paradigm = config['training']['paradigm']
+    is_distillation = paradigm == "gradient_based" and config['training']['gradient_based']['type'] == "distillation"
     
     # データパスが指定されていなければconfigの値を使用
-    data_path = args.data_path or config.data.path()
+    data_path = args.data_path or config['data']['path']
     
-    DatasetClass = get_dataset_class(DataFormat(config.data.format()))
+    DatasetClass = get_dataset_class(DataFormat(config['data']['format']))
     dataset = DistillationDataset(
         file_path=os.path.join(data_path, "distillation_data.jsonl"), data_dir=data_path,
-        tokenizer=tokenizer, max_seq_len=config.model.time_steps()
+        tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
     ) if is_distillation else DatasetClass(
-        file_path=data_path, tokenizer=tokenizer, max_seq_len=config.model.time_steps()
+        file_path=data_path, tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
     )
         
-    train_size = int((1.0 - config.data.split_ratio()) * len(dataset))
+    train_size = int((1.0 - config['data']['split_ratio']) * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_sampler = DistributedSampler(train_dataset) if is_distributed else None
     train_loader = DataLoader(
-        train_dataset, batch_size=config.training.batch_size(), shuffle=(train_sampler is None),
+        train_dataset, batch_size=config['training']['batch_size'], shuffle=(train_sampler is None),
         sampler=train_sampler, collate_fn=collate_fn(tokenizer, is_distillation)
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=config.training.batch_size(), shuffle=False,
+        val_dataset, batch_size=config['training']['batch_size'], shuffle=False,
         collate_fn=collate_fn(tokenizer, is_distillation)
     )
 
@@ -83,29 +83,29 @@ def train(
         trainer: BreakthroughTrainer
         if paradigm == "gradient_based":
             optimizer = container.optimizer(params=snn_model.parameters())
-            scheduler = container.scheduler(optimizer=optimizer) if config.training.gradient_based.use_scheduler() else None
+            scheduler = container.scheduler(optimizer=optimizer) if config['training']['gradient_based']['use_scheduler'] else None
             trainer_provider = container.distillation_trainer if is_distillation else container.standard_trainer
             trainer = trainer_provider(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
         elif paradigm == "self_supervised":
             optimizer = container.ssl_optimizer(params=snn_model.parameters())
-            scheduler = container.ssl_scheduler(optimizer=optimizer) if config.training.self_supervised.use_scheduler() else None
+            scheduler = container.ssl_scheduler(optimizer=optimizer) if config['training']['self_supervised']['use_scheduler'] else None
             trainer = container.self_supervised_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
         else: # physics_informed
             optimizer = container.pi_optimizer(params=snn_model.parameters())
-            scheduler = container.pi_scheduler(optimizer=optimizer) if config.training.physics_informed.use_scheduler() else None
+            scheduler = container.pi_scheduler(optimizer=optimizer) if config['training']['physics_informed']['use_scheduler'] else None
             trainer = container.physics_informed_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
         
         start_epoch = trainer.load_checkpoint(args.resume_path) if args.resume_path and paradigm == "gradient_based" else 0
-        for epoch in range(start_epoch, config.training.epochs()):
+        for epoch in range(start_epoch, config['training']['epochs']):
             if train_sampler: train_sampler.set_epoch(epoch)
             trainer.train_epoch(train_loader, epoch)
-            if rank in [-1, 0] and (epoch % config.training.eval_interval() == 0 or epoch == config.training.epochs() - 1):
+            if rank in [-1, 0] and (epoch % config['training']['eval_interval'] == 0 or epoch == config['training']['epochs'] - 1):
                 val_metrics = trainer.evaluate(val_loader, epoch)
-                if paradigm == "gradient_based" and epoch % config.training.log_interval() == 0:
-                    checkpoint_path = os.path.join(config.training.log_dir(), f"checkpoint_epoch_{epoch}.pth")
+                if paradigm == "gradient_based" and epoch % config['training']['log_interval'] == 0:
+                    checkpoint_path = os.path.join(config['training']['log_dir'], f"checkpoint_epoch_{epoch}.pth")
                     trainer.save_checkpoint(
                         path=checkpoint_path, epoch=epoch, metric_value=val_metrics.get('total', float('inf')),
-                        tokenizer_name=config.data.tokenizer_name(), config=config.model.to_dict()
+                        tokenizer_name=config['data']['tokenizer_name'], config=config['model']
                     )
 
     else:
@@ -146,19 +146,50 @@ def main():
 
     container.config.from_yaml(args.config)
     if args.model_config: container.config.from_yaml(args.model_config)
-    if args.data_path: container.config.data.path.from_value(args.data_path)
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     if args.override_config:
         for override in args.override_config:
             key, value = override.split('=', 1)
-            container.config.from_dict({key: value})
+            # ドット記法のキーをネストした辞書に変換してマージする
+            keys = key.split('.')
+            d = {}
+            ref = d
+            for k in keys[:-1]:
+                ref[k] = {}
+                ref = ref[k]
+            
+            # 値を適切な型に変換しようと試みる (例: "true" -> True)
+            if value.lower() == 'true':
+                ref[keys[-1]] = True
+            elif value.lower() == 'false':
+                ref[keys[-1]] = False
+            else:
+                try:
+                    # 整数や浮動小数点数に変換
+                    ref[keys[-1]] = int(value)
+                except ValueError:
+                    try:
+                        ref[keys[-1]] = float(value)
+                    except ValueError:
+                        # 変換できない場合は文字列のまま
+                        ref[keys[-1]] = value
+            
+            container.config.from_dict(d)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            
     if args.distributed: dist.init_process_group(backend="nccl")
     
     # DIコンテナのwiring: main関数内で行うことで、設定読み込み後に依存関係を解決
     container.wire(modules=[__name__])
     
-    train(args)
+    # DIコンテナから注入されたconfigはdictとして扱われるため、アクセス方法を変更
+    # @injectデコレータが適用された関数内では、configは通常の辞書として振る舞う
+    injected_config = container.config()
+    injected_tokenizer = container.tokenizer()
+    train(args, config=injected_config, tokenizer=injected_tokenizer)
+    
     if args.distributed: dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()
-
