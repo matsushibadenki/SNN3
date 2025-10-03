@@ -19,75 +19,77 @@
 
 本システムの認知アーキテクチャは、複数の専門コンポーネントが階層的に連携することで実現されています。
 
-graph TD  
-    CLI\[snn-cli.py 統合CLIツール\]
+```mermaid
+graph TD
+    CLI[snn-cli.py 統合CLIツール]
 
-    subgraph Phase6\[Phase 6: 自律的存在\]  
-        LifeForm\[life-form start\]  
-        Motivation\[Physics-Aware IntrinsicMotivationSystem\]  
+    subgraph Phase6[Phase 6: 自律的存在]
+        LifeForm[life-form start]
+        Motivation[Physics-Aware IntrinsicMotivationSystem]
         Decision{探求 or 自己改善?}
 
-        LifeForm \--\> Motivation  
-        Motivation \--\> Decision
+        LifeForm --> Motivation
+        Motivation --> Decision
 
-        subgraph Exploration\[探求\]  
-            ExploreDecision{思考 or 行動?}  
-            Planner\[planner execute 思考による探求\]  
-            RLAgent\[rl run 行動による探求\]
+        subgraph Exploration[探求]
+            ExploreDecision{思考 or 行動?}
+            Planner[planner execute 思考による探求]
+            RLAgent[rl run 行動による探求]
 
-            Decision \--\>|探求 退屈| ExploreDecision  
-            ExploreDecision \--\>|思考| Planner  
-            ExploreDecision \--\>|行動| RLAgent  
+            Decision -->|探求 退屈| ExploreDecision
+            ExploreDecision -->|思考| Planner
+            ExploreDecision -->|行動| RLAgent
         end
 
-        subgraph SelfImprove\[自己改善\]  
-            Evolution\[evolve run 自己アーキテクチャを分析修正\]  
-            Benchmark\[run\_benchmark.py\]
+        subgraph SelfImprove[自己改善]
+            Evolution[evolve run 自己アーキテクチャを分析修正]
+            Benchmark[run_benchmark.py]
 
-            Decision \--\>|改善 現状満足| Evolution  
-            Evolution \--\> Benchmark  
-        end  
+            Decision -->|改善 現状満足| Evolution
+            Evolution --> Benchmark
+        end
     end
 
-    subgraph ExecCore\[Phase 3-5: 高次認知実行コア\]  
-        Planner \--\> Workspace\[GlobalWorkspace\]  
-        Workspace \--\>|サブタスク実行| Specialist\[専門家SNN\]  
-        Workspace \--\>|知識が必要| RAG\[RAGSystem ベクトルストア検索\]  
+    subgraph ExecCore[Phase 3-5: 高次認知実行コア]
+        Planner --> Workspace[GlobalWorkspace]
+        Workspace -->|サブタスク実行| Specialist[専門家SNN]
+        Workspace -->|知識が必要| RAG[RAGSystem ベクトルストア検索]
     end
 
-    subgraph LearnInfer\[Phase 0-2.5: 学習推論エンジン\]  
-        subgraph Training\[学習\]  
-            TrainPy\[train.py\]  
-            SNN\_Core\[SpikingTransformer or BreakthroughSNN\]  
-            MetaSNN\[MetaCognitiveSNN SNAKE\]  
-            TrainPy \--\> SNN\_Core  
-            SNN\_Core \--\> MetaSNN  
-        end  
-        subgraph Inference\[推論\]  
-            Specialist \--\> Deployment\[SNNInferenceEngine\]  
-        end  
+    subgraph LearnInfer[Phase 0-2.5: 学習推論エンジン]
+        subgraph Training[学習]
+            TrainPy[train.py]
+            SNN_Core[SpikingTransformer or BreakthroughSNN]
+            MetaSNN[MetaCognitiveSNN SNAKE]
+            TrainPy --> SNN_Core
+            SNN_Core --> MetaSNN
+        end
+        subgraph Inference[推論]
+            Specialist --> Deployment[SNNInferenceEngine]
+        end
     end
 
-    subgraph OnDemand\[オンデマンド学習\]  
-        Agent\[agent solve\]  
-        Agent \--\>|未知のタスク| TrainPy  
-        Agent \--\>|モデル検索| Registry\[ModelRegistry\]  
+    subgraph OnDemand[オンデマンド学習]
+        Agent[agent solve]
+        Agent -->|未知のタスク| TrainPy
+        Agent -->|モデル検索| Registry[ModelRegistry]
     end
 
-    CLI \--\> LifeForm  
-    CLI \--\> Planner  
-    CLI \--\> RLAgent  
-    CLI \--\> Evolution  
-    CLI \--\> Agent  
-    CLI \--\> TrainPy
+    CLI --> LifeForm
+    CLI --> Planner
+    CLI --> RLAgent
+    CLI --> Evolution
+    CLI --> Agent
+    CLI --> TrainPy
 
-    style CLI fill:\#b39ddb,stroke:\#333,stroke-width:3px  
-    style LifeForm fill:\#cde4ff,stroke:\#333,stroke-width:1px  
-    style Planner fill:\#ffe4c4,stroke:\#333,stroke-width:1px  
-    style RLAgent fill:\#ffe4c4,stroke:\#333,stroke-width:1px  
-    style Agent fill:\#d4edda,stroke:\#333,stroke-width:1px  
-    style TrainPy fill:\#f8d7da,stroke:\#333,stroke-width:1px  
-    style SNN\_Core fill:\#fff2cd,stroke:\#333,stroke-width:2px
+    style CLI fill:#b39ddb,stroke:#333,stroke-width:3px
+    style LifeForm fill:#cde4ff,stroke:#333,stroke-width:1px
+    style Planner fill:#ffe4c4,stroke:#333,stroke-width:1px
+    style RLAgent fill:#ffe4c4,stroke:#333,stroke-width:1px
+    style Agent fill:#d4edda,stroke:#333,stroke-width:1px
+    style TrainPy fill:#f8d7da,stroke:#333,stroke-width:1px
+    style SNN_Core fill:#fff2cd,stroke:#333,stroke-width:2px
+```
 
 ## **3\. システムの実行方法**
 
