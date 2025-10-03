@@ -25,7 +25,6 @@ from app.containers import TrainingContainer
 from snn_research.data.datasets import get_dataset_class, DistillationDataset, DataFormat, SNNBaseDataset
 from snn_research.training.trainers import BreakthroughTrainer
 
-
 # DIコンテナのセットアップ
 container = TrainingContainer()
 
@@ -58,7 +57,7 @@ def train(
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_sampler = DistributedSampler(train_dataset) if is_distributed else None
+    train_sampler: Optional[DistributedSampler] = DistributedSampler(train_dataset) if is_distributed else None
     train_loader = DataLoader(
         train_dataset, batch_size=config['training']['batch_size'], shuffle=(train_sampler is None),
         sampler=train_sampler, collate_fn=collate_fn(tokenizer, is_distillation)
@@ -116,19 +115,19 @@ def train(
 
 def collate_fn(tokenizer, is_distillation: bool) -> Callable[[List[Tuple[torch.Tensor, ...]]], Tuple[torch.Tensor, ...]]:
     def collate(batch: List[Tuple[torch.Tensor, ...]]) -> Tuple[torch.Tensor, ...]:
+        padding_val = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        
         inputs = [item[0] for item in batch]
         targets = [item[1] for item in batch]
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # pad_token_idがないトークナイザー（GPT2など）の場合、eos_token_idを代わりに使用する
-        padding_value = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-        padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=padding_value)
-        padded_targets = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=padding_value)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        
+        padded_inputs = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=float(padding_val))
+        padded_targets = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=float(padding_val))
+
         if is_distillation:
             logits = [item[2] for item in batch]
             padded_logits = torch.nn.utils.rnn.pad_sequence(logits, batch_first=True, padding_value=0.0)
-            return padded_inputs, padded_targets, padded_logits
-        return padded_inputs, padded_targets
+            return padded_inputs.long(), padded_targets.long(), padded_logits
+        return padded_inputs.long(), padded_targets.long()
     return collate
     
 def get_auto_device() -> str:
@@ -150,45 +149,38 @@ def main():
 
     container.config.from_yaml(args.config)
     if args.model_config: container.config.from_yaml(args.model_config)
+    if args.data_path: container.config.data.path.from_value(args.data_path)
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # コマンドラインからの上書きを処理
     if args.override_config:
         for override in args.override_config:
-            key, value = override.split('=', 1)
-            # ドット記法のキーをネストした辞書に変換してマージする
-            keys = key.split('.')
-            d = {}
-            ref = d
-            for k in keys[:-1]:
-                ref[k] = {}
-                ref = ref[k]
-            
-            # 値を適切な型に変換しようと試みる (例: "true" -> True)
-            if value.lower() == 'true':
-                ref[keys[-1]] = True
-            elif value.lower() == 'false':
-                ref[keys[-1]] = False
-            else:
-                try:
-                    # 整数や浮動小数点数に変換
-                    ref[keys[-1]] = int(value)
+            keys, value = override.split('=', 1)
+            # evalの代わりに安全な型変換を試みる
+            try: value = int(value)
+            except ValueError:
+                try: value = float(value)
                 except ValueError:
-                    try:
-                        ref[keys[-1]] = float(value)
-                    except ValueError:
-                        # 変換できない場合は文字列のまま
-                        ref[keys[-1]] = value
+                    if value.lower() in ['true', 'false']:
+                        value = value.lower() == 'true'
             
-            container.config.from_dict(d)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            
+            # ドット記法をネストした辞書に変換
+            config_dict = {}
+            temp_dict = config_dict
+            key_parts = keys.split('.')
+            for i, part in enumerate(key_parts):
+                if i == len(key_parts) - 1:
+                    temp_dict[part] = value
+                else:
+                    temp_dict[part] = {}
+                    temp_dict = temp_dict[part]
+            container.config.from_dict(config_dict)
+
     if args.distributed: dist.init_process_group(backend="nccl")
     
     # DIコンテナのwiring: main関数内で行うことで、設定読み込み後に依存関係を解決
     container.wire(modules=[__name__])
     
-    # DIコンテナから注入されたconfigはdictとして扱われるため、アクセス方法を変更
-    # @injectデコレータが適用された関数内では、configは通常の辞書として振る舞う
+    # DIコンテナから解決済みのオブジェクトを取得してtrain関数に渡す
     injected_config = container.config()
     injected_tokenizer = container.tokenizer()
     train(args, config=injected_config, tokenizer=injected_tokenizer)
@@ -197,3 +189,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
