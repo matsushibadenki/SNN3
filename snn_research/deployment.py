@@ -26,14 +26,16 @@ from dataclasses import dataclass
 from transformers import AutoTokenizer
 import torch.nn.functional as F
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .core.snn_core import BreakthroughSNN, SpikingTransformer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 # --- SNN 推論エンジン ---
 class SNNInferenceEngine:
     """SNNモデルでテキスト生成を行う推論エンジン"""
     def __init__(self, model_path: str, device: str):
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"モデルファイルが見つかりません: {model_path}")
-
-        from .core.snn_core import BreakthroughSNN
 
         self.model_path = model_path
         self.device = torch.device(device)
@@ -44,15 +46,38 @@ class SNNInferenceEngine:
             tokenizer_name = checkpoint.get('tokenizer_name', 'gpt2')
         else:
             print("⚠️ 古い形式のチェックポイントです。デフォルト設定を使用します。")
-            self.config = {'d_model': 128, 'd_state': 64, 'num_layers': 4, 'time_steps': 20, 'n_head': 2}
+            self.config = {'architecture_type': 'predictive_coding', 'd_model': 128, 'd_state': 64, 'num_layers': 4, 'time_steps': 20, 'n_head': 2}
             tokenizer_name = 'gpt2'
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
-        self.model = BreakthroughSNN(vocab_size=self.tokenizer.vocab_size, **self.config).to(self.device)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # モデルのアーキテクチャに応じてインスタンス化を分岐
+        architecture_type = self.config.get('architecture_type', 'predictive_coding')
         
+        # モデルのコンストラクタに渡す引数をフィルタリング
+        model_kwargs = self.config.copy()
+        model_kwargs.pop('path', None)
+        model_kwargs.pop('architecture_type', None)
+        
+        if architecture_type == 'spiking_transformer':
+            # SpikingTransformerに不要な引数を削除
+            model_kwargs.pop('d_state', None)
+            model_kwargs.pop('neuron', None) # SpikingTransformerは内部でニューロンを定義
+            self.model = SpikingTransformer(vocab_size=self.tokenizer.vocab_size, **model_kwargs).to(self.device)
+        
+        elif architecture_type == 'predictive_coding':
+            # BreakthroughSNNの引数名を調整
+            if 'neuron' in model_kwargs:
+                model_kwargs['neuron_config'] = model_kwargs.pop('neuron')
+            self.model = BreakthroughSNN(vocab_size=self.tokenizer.vocab_size, **model_kwargs).to(self.device)
+        
+        else:
+            raise ValueError(f"サポートされていないアーキテクチャタイプです: {architecture_type}")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
         self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         self.model.eval()
         self.last_inference_stats: Dict[str, Any] = {}
