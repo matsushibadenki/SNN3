@@ -173,7 +173,10 @@ class BreakthroughSNN(nn.Module):
             
             for j in range(self.num_layers):
                 states[j], error, _, mem = self.pc_layers[j](bottom_up_input, states[j])
-                bottom_up_input = F.relu(states[j])
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # 次の層への入力は、現在の層の予測誤差（error）とする
+                bottom_up_input = error
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 layer_errors.append(error)
                 layer_mems.append(mem)
             
