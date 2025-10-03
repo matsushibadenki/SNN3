@@ -1,4 +1,4 @@
-# matsushibadenki/snn/benchmark/ann_baseline.py
+# matsushibadenki/snn3/snn_research/benchmark/ann_baseline.py
 #
 # SNNモデルとの性能比較を行うためのANNベースラインモデル
 #
@@ -41,27 +41,38 @@ class ANNBaselineModel(nn.Module):
         self.classifier.bias.data.zero_()
         self.classifier.weight.data.uniform_(-initrange, initrange)
 
-    def forward(self, src: torch.Tensor, src_padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
         """
         Args:
-            src (torch.Tensor): 入力シーケンス (batch_size, seq_len)
-            src_padding_mask (torch.Tensor): パディングマスク (batch_size, seq_len)
+            input_ids (torch.Tensor): 入力シーケンス (batch_size, seq_len)
+            attention_mask (torch.Tensor): パディングマスク (batch_size, seq_len)
 
         Returns:
             torch.Tensor: 分類ロジット (batch_size, num_classes)
         """
+        # 互換性のための引数名マッピング
+        src = input_ids
+        # 注意: TransformerEncoder は (N, E) または (S, N, E) を期待します。
+        # attention_mask は src_key_padding_mask として使用されます。
+        # (batch_size, seq_len) の形状で、パディング位置がTrueである必要があります。
+        # 現在のTokenizerはパディング位置を1、非パディングを0としていますが、
+        # PyTorchのTransformerは逆（パディングがTrue）を期待するため、変換が必要です。
+        src_key_padding_mask = attention_mask == 0 if attention_mask is not None else None
+
         embedded = self.embedding(src) * torch.sqrt(torch.tensor(self.d_model, dtype=torch.float32))
         
         # Transformerエンコーダに入力
-        encoded = self.transformer_encoder(embedded, src_key_padding_mask=src_padding_mask)
+        encoded = self.transformer_encoder(embedded, src_key_padding_mask=src_key_padding_mask)
         
         # パディングを考慮した平均プーリング
-        if src_padding_mask is not None:
-            mask = ~src_padding_mask.unsqueeze(-1).expand_as(encoded)
+        if src_key_padding_mask is not None:
+            # attention_maskはパディングが0なので、それを反転してマスクとして使用
+            mask = attention_mask.unsqueeze(-1).expand_as(encoded)
             masked_encoded = encoded * mask.float()
             pooled = masked_encoded.sum(dim=1) / mask.float().sum(dim=1).clamp(min=1e-9)
         else:
             pooled = encoded.mean(dim=1)
 
         logits = self.classifier(pooled)
-        return logits
+        # SNN評価との互換性のため、タプルで返す
+        return logits, None
