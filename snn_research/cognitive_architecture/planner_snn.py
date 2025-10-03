@@ -31,7 +31,8 @@ class PlannerSNN(BreakthroughSNN):
         self, 
         input_ids: torch.Tensor, 
         return_spikes: bool = False, 
-        return_full_mems: bool = False
+        return_full_mems: bool = False,
+        output_hidden_states: bool = False  # 親クラスとの互換性のために追加
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         フォワードパスを実行し、スキル予測ロジット、スパイク、膜電位を返す。
@@ -41,7 +42,8 @@ class PlannerSNN(BreakthroughSNN):
         skill_logits_over_time, spikes, mem = super().forward(
             input_ids, 
             return_spikes=return_spikes, 
-            return_full_mems=return_full_mems
+            return_full_mems=return_full_mems,
+            output_hidden_states=output_hidden_states
         )
         
         # 最終タイムステップのロジットをプーリングして、最終的な計画予測とする
