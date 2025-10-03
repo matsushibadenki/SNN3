@@ -3,7 +3,7 @@
 # Description: 指定されたURLからWebページのコンテンツを取得し、HTMLからテキストデータを抽出するツール。
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from urllib.parse import urljoin, urlparse
 from typing import Set, List, Optional
 import time
@@ -75,9 +75,15 @@ class WebCrawler:
                     # ページ内の新しいリンクを探す
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for link in soup.find_all('a', href=True):
-                        absolute_link = urljoin(current_url, link['href'])
-                        if self._is_valid_url(absolute_link, base_domain):
-                            urls_to_visit.append(absolute_link)
+                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                        # mypyがlink['href']でエラーを出すため、より安全な方法で属性を取得
+                        if isinstance(link, Tag):
+                            href = link.get('href')
+                            if isinstance(href, str):
+                                absolute_link = urljoin(current_url, href)
+                                if self._is_valid_url(absolute_link, base_domain):
+                                    urls_to_visit.append(absolute_link)
+                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     
                     time.sleep(1)  # サーバーへの負荷を軽減
 
@@ -86,3 +92,4 @@ class WebCrawler:
 
         print(f"✅ クロール完了。{page_count}ページのデータを '{output_filepath}' に保存しました。")
         return output_filepath
+
