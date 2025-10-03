@@ -3,6 +3,7 @@
 # Description: アイドル時にWebを巡回し、新しい知識を自律的に学習するサイクルを実行するスクリプト。
 
 import argparse
+import os
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
 
@@ -64,3 +65,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
