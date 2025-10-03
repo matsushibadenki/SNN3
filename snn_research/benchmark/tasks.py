@@ -147,64 +147,8 @@ class SST2Task(BenchmarkTask):
             "avg_spikes": avg_spikes
         }
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- 文章要約タスク (XSum) ---
-class XSumTask(BenchmarkTask):
-    """XSumデータセットを用いた文章要約タスク。"""
-    
-    def prepare_data(self, data_dir: str = "data") -> Tuple[Dataset, Dataset]:
-        os.makedirs(data_dir, exist_ok=True)
-        dataset = load_dataset("xsum", split="validation[:1%]") # 検証用に一部データを使用
-        
-        data = [{"document": ex['document'], "summary": ex['summary']} for ex in dataset]
-        return GenericDataset(data), GenericDataset(data) # Train/Valに同じデータを使用
-
-    def get_collate_fn(self) -> Callable:
-        def collate_fn(batch: List[Dict[str, Any]]):
-            inputs = [item['document'] for item in batch]
-            targets = [item['summary'] for item in batch]
-            
-            tokenized_inputs = self.tokenizer(
-                inputs, padding=True, truncation=True, max_length=256, return_tensors="pt"
-            )
-            # ターゲットは評価時にデコードするため、ここではテキストのまま保持
-            return {
-                "input_ids": tokenized_inputs['input_ids'],
-                "attention_mask": tokenized_inputs['attention_mask'],
-                "summaries": targets
-            }
-        return collate_fn
-
-    def build_model(self, model_type: str, vocab_size: int) -> nn.Module:
-        # 生成タスクなので、ベースモデルをそのまま使用
-        if model_type == 'SNN':
-            return BreakthroughSNN(
-                vocab_size=vocab_size,
-                d_model=64,
-                d_state=32,
-                num_layers=2,
-                time_steps=256,
-                n_head=2,
-                neuron_config={'type': 'lif'}
-            )
-        else:
-            # ANNのベースラインも生成モデルである必要がある
-            ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2, 'num_classes': vocab_size}
-            return ANNBaselineModel(vocab_size=vocab_size, **ann_params)
-
-    def evaluate(self, model: nn.Module, loader: DataLoader) -> Dict[str, Any]:
-        model.eval()
-        # ROUGEスコアの代わりに、生成されたテキストの平均長を簡易的なメトリクスとする
-        total_gen_len = 0
-        with torch.no_grad():
-            for batch in tqdm(loader, desc="Evaluating XSum"):
-                inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'summaries'}
-                
-                # ダミーの生成ロジック
-                # 本来は generate メソッドを実装する必要がある
-                outputs, _  = model(**inputs)
-                generated_ids = torch.argmax(outputs, dim=-1)
-                
-                total_gen_len += generated_ids.shape[1]
-                
-        return {"avg_summary_length": total_gen_len / len(cast(Sized, loader.dataset))}
+# datasetsライブラリの仕様変更によりエラーが発生するため、クラス全体を無効化
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
