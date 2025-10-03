@@ -54,24 +54,22 @@ class KnowledgeDistillationManager:
         finally:
             print("="*60 + "\n")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️◾️
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _parse_benchmark_results(self, output: str) -> Dict[str, float]:
         """ベンチマークスクリプト（pandas DataFrame）の出力からSNNの性能指標を抽出する。"""
         metrics = {}
         try:
-            lines = output.strip().split('\n')
-            # '0   SNN'で始まる行を探す
-            for line in lines:
-                if line.strip().startswith('0   SNN'):
-                    parts = line.split()
-                    # 想定されるカラム: index, model, task, eval_time_sec, accuracy, avg_spikes
-                    if len(parts) >= 6:
-                        metrics = {
-                            "accuracy": float(parts[4]),
-                            "avg_spikes_per_sample": float(parts[5]),
-                            # eval_time_secも取得可能だが、必須ではない
-                        }
-                        break
+            # SNNモデルの結果が含まれる行を正規表現で検索 (より堅牢な方法)
+            snn_line_match = re.search(r"^\s*0\s+SNN.*$", output, re.MULTILINE)
+            if snn_line_match:
+                snn_line = snn_line_match.group(0)
+                parts = snn_line.split()
+                # 想定されるカラム: index, model, task, eval_time_sec, accuracy, avg_spikes
+                if len(parts) >= 6:
+                    metrics = {
+                        "accuracy": float(parts[4]),
+                        "avg_spikes_per_sample": float(parts[5]),
+                    }
         except (ValueError, IndexError) as e:
             print(f"⚠️ ベンチマーク結果のパースに失敗しました: {e}\nOutput:\n{output}")
         
