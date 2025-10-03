@@ -153,7 +153,8 @@ class BreakthroughSNN(nn.Module):
         self,
         input_ids: torch.Tensor,
         return_spikes: bool = False,
-        return_full_mems: bool = False
+        return_full_mems: bool = False,
+        output_hidden_states: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
         token_emb = self.token_embedding(input_ids)
@@ -161,7 +162,7 @@ class BreakthroughSNN(nn.Module):
         
         total_spikes = torch.tensor(0.0, device=input_ids.device)
         total_mem_potential = torch.tensor(0.0, device=input_ids.device)
-        all_logits = []
+        all_hidden_states: List[torch.Tensor] = []
         all_mems_list: List[torch.Tensor] = []
 
         for i in range(seq_len):
@@ -178,24 +179,12 @@ class BreakthroughSNN(nn.Module):
                 layer_errors.append(error)
                 layer_mems.append(mem)
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️
-            # トップダウンの生成パスを修正。
-            # 最上位層の状態から直接予測を生成する、より単純で正しいロジックに変更。
-            
-            # The top-down generative pass for producing the final output logits.
-            # It starts from the highest-level state computed in the bottom-up pass.
-            top_most_state = states[-1]  # Shape: (batch_size, d_state)
-
-            # Generate a prediction from the top-most layer. The bottom-up input for this pure
-            # generative step is conceptually zero.
+            top_most_state = states[-1]
             _, _, final_prediction, _ = self.pc_layers[-1](
-                torch.zeros_like(bottom_up_input, device=input_ids.device),  # Zero input, shape (batch_size, d_model)
+                torch.zeros_like(bottom_up_input, device=input_ids.device),
                 top_most_state
-            ) # final_prediction has shape (batch_size, d_model)
-            
-            logits = self.output_projection(final_prediction)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            all_logits.append(logits)
+            )
+            all_hidden_states.append(final_prediction)
 
             if return_spikes or return_full_mems:
                 total_spikes += sum(err.mean() for err in layer_errors)
@@ -204,12 +193,18 @@ class BreakthroughSNN(nn.Module):
                 if return_full_mems:
                     all_mems_list.append(current_mem_avg)
 
-        final_logits = torch.stack(all_logits, dim=1)
+        final_hidden_states = torch.stack(all_hidden_states, dim=1)
+        
+        if output_hidden_states:
+            final_output = final_hidden_states
+        else:
+            final_output = self.output_projection(final_hidden_states)
+
         avg_spikes = total_spikes / seq_len if return_spikes and seq_len > 0 else torch.tensor(0.0)
         
         final_mem = torch.stack(all_mems_list) if return_full_mems and all_mems_list else total_mem_potential / seq_len if seq_len > 0 else torch.tensor(0.0)
 
-        return final_logits, avg_spikes, final_mem
+        return final_output, avg_spikes, final_mem
 
 # --- ◾️◾️◾️↓Spiking Transformer アーキテクチャ (mypyエラー修正済)↓◾️◾️◾️ ---
 class SpikeDrivenSelfAttention(nn.Module):
