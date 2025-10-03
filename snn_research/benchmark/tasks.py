@@ -1,4 +1,4 @@
-# matsushibadenki/snn2/snn_research/benchmark/tasks.py
+# matsushibadenki/snn3/snn_research/benchmark/tasks.py
 # ベンチマークタスクの定義ファイル
 #
 # 変更点:
@@ -105,19 +105,22 @@ class SST2Task(BenchmarkTask):
                 return self.classifier(pooled_output), spikes
 
         if model_type == 'SNN':
+            # 知識蒸留で学習したモデルをロードする想定
+            # ここではダミーのアーキテクチャを返す
+            # 実際の評価では --model_path で指定されたモデルが使われる
             backbone = BreakthroughSNN(
                 vocab_size=vocab_size,
-                d_model=64,
+                d_model=64, # small.yaml に合わせるのが望ましい
                 d_state=32,
-                num_layers=2,
+                num_layers=4,
                 time_steps=64,
                 n_head=2,
                 neuron_config={'type': 'lif'}
             )
             return SNNClassifier(backbone)
         else:
-            ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2}
-            return ANNBaselineModel(vocab_size=vocab_size, **ann_params, num_classes=2)
+            ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2, 'num_classes': 2}
+            return ANNBaselineModel(vocab_size=vocab_size, **ann_params)
 
     def evaluate(self, model: nn.Module, loader: DataLoader) -> Dict[str, Any]:
         model.eval()
@@ -184,9 +187,9 @@ class XSumTask(BenchmarkTask):
                 neuron_config={'type': 'lif'}
             )
         else:
-            # ANNのベースラインも生成モデルである必要がある (ここではダミーとして分類器を流用)
-            ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2}
-            return ANNBaselineModel(vocab_size=vocab_size, **ann_params, num_classes=vocab_size)
+            # ANNのベースラインも生成モデルである必要がある
+            ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2, 'num_classes': vocab_size}
+            return ANNBaselineModel(vocab_size=vocab_size, **ann_params)
 
     def evaluate(self, model: nn.Module, loader: DataLoader) -> Dict[str, Any]:
         model.eval()
@@ -198,9 +201,10 @@ class XSumTask(BenchmarkTask):
                 
                 # ダミーの生成ロジック
                 # 本来は generate メソッドを実装する必要がある
-                outputs, _ , _ = model(**inputs)
+                outputs, _  = model(**inputs)
                 generated_ids = torch.argmax(outputs, dim=-1)
                 
                 total_gen_len += generated_ids.shape[1]
                 
         return {"avg_summary_length": total_gen_len / len(cast(Sized, loader.dataset))}
+
