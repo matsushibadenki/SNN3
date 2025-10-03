@@ -50,3 +50,4 @@ class PlannerSNN(BreakthroughSNN):
         final_skill_logits = skill_logits_over_time[:, -1, :]
         
         return final_skill_logits, spikes, mem
+
