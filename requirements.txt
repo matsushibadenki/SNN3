@@ -1,4 +1,5 @@
 # matsushibadenki/snn/requirements.txt
+
 torch>=2.0
 numpy<2.0
 spikingjelly
@@ -20,3 +21,5 @@ safetensors
 gguf
 requests
 beautifulsoup4
+types-tqdm
+types-beautifulsoup4
