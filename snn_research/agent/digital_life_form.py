@@ -14,7 +14,9 @@ from typing import Dict, Any
 from .self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.emergent_system import EmergentSystem
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
-from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner # 循環参照を避けるためコメントアウト
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
@@ -38,7 +40,11 @@ class DigitalLifeForm(SelfEvolvingAgent):
         )
         
         self.emergent_system = EmergentSystem()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 循環参照を避けるため、メソッド内でローカルインポートする
+        from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
         self.planner = HierarchicalPlanner()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 自律学習のためのコンポーネント
         self.web_crawler = WebCrawler()
