@@ -68,20 +68,20 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     meta_cognitive_snn = providers.Factory(
         MetaCognitiveSNN,
         snn_model=snn_model,
         # configセクションが存在しない場合にNoneになるのを防ぐため、デフォルトの空辞書を指定
         **(config.training.meta_cognition.to_dict() or {})
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # === 勾配ベース学習 (gradient_based) のためのプロバイダ ===
     optimizer = providers.Factory(AdamW, lr=config.training.gradient_based.learning_rate)
     scheduler = providers.Factory(_create_scheduler, optimizer=optimizer, epochs=config.training.epochs, warmup_epochs=config.training.gradient_based.warmup_epochs)
-    standard_loss = providers.Factory(CombinedLoss, tokenizer=tokenizer, **config.training.gradient_based.loss.to_dict())
-    distillation_loss = providers.Factory(DistillationLoss, tokenizer=tokenizer, **config.training.gradient_based.distillation.loss.to_dict())
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    standard_loss = providers.Factory(CombinedLoss, tokenizer=tokenizer, **(config.training.gradient_based.loss.to_dict() or {}))
+    distillation_loss = providers.Factory(DistillationLoss, tokenizer=tokenizer, **(config.training.gradient_based.distillation.loss.to_dict() or {}))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     teacher_model = providers.Factory(AutoModelForCausalLM.from_pretrained, pretrained_model_name_or_path=config.training.gradient_based.distillation.teacher_model)
     standard_trainer = providers.Factory(
         BreakthroughTrainer, model=snn_model, optimizer=optimizer, criterion=standard_loss, scheduler=scheduler,
@@ -99,7 +99,9 @@ class TrainingContainer(containers.DeclarativeContainer):
     # === 自己教師あり学習 (self_supervised) のためのプロバイダ ===
     ssl_optimizer = providers.Factory(AdamW, lr=config.training.self_supervised.learning_rate)
     ssl_scheduler = providers.Factory(_create_scheduler, optimizer=ssl_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.self_supervised.warmup_epochs)
-    self_supervised_loss = providers.Factory(SelfSupervisedLoss, tokenizer=tokenizer, **config.training.self_supervised.loss.to_dict())
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    self_supervised_loss = providers.Factory(SelfSupervisedLoss, tokenizer=tokenizer, **(config.training.self_supervised.loss.to_dict() or {}))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     self_supervised_trainer = providers.Factory(
         SelfSupervisedTrainer, model=snn_model, optimizer=ssl_optimizer, criterion=self_supervised_loss, scheduler=ssl_scheduler,
         device=providers.Factory(get_auto_device), grad_clip_norm=config.training.self_supervised.grad_clip_norm,
@@ -110,7 +112,9 @@ class TrainingContainer(containers.DeclarativeContainer):
     # === 物理情報学習 (physics_informed) のためのプロバイダ ===
     pi_optimizer = providers.Factory(AdamW, lr=config.training.physics_informed.learning_rate)
     pi_scheduler = providers.Factory(_create_scheduler, optimizer=pi_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.physics_informed.warmup_epochs)
-    physics_informed_loss = providers.Factory(PhysicsInformedLoss, tokenizer=tokenizer, **config.training.physics_informed.loss.to_dict())
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    physics_informed_loss = providers.Factory(PhysicsInformedLoss, tokenizer=tokenizer, **(config.training.physics_informed.loss.to_dict() or {}))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     physics_informed_trainer = providers.Factory(
         PhysicsInformedTrainer, model=snn_model, optimizer=pi_optimizer, criterion=physics_informed_loss, scheduler=pi_scheduler,
         device=providers.Factory(get_auto_device), grad_clip_norm=config.training.physics_informed.grad_clip_norm,
@@ -135,3 +139,4 @@ class AppContainer(containers.DeclarativeContainer):
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.inference.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
+
