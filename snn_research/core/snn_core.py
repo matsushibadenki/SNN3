@@ -173,19 +173,28 @@ class BreakthroughSNN(nn.Module):
             
             for j in range(self.num_layers):
                 states[j], error, _, mem = self.pc_layers[j](bottom_up_input, states[j])
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # 次の層への入力は、現在の層の予測誤差（error）とする
                 bottom_up_input = error
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 layer_errors.append(error)
                 layer_mems.append(mem)
             
-            top_down_signal = states[-1]
-            for j in reversed(range(self.num_layers)):
-                 _, _, prediction, _ = self.pc_layers[j](torch.zeros_like(bottom_up_input, device=input_ids.device), top_down_signal)
-                 top_down_signal = prediction
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️
+            # トップダウンの生成パスを修正。
+            # 最上位層の状態から直接予測を生成する、より単純で正しいロジックに変更。
             
-            logits = self.output_projection(top_down_signal)
+            # The top-down generative pass for producing the final output logits.
+            # It starts from the highest-level state computed in the bottom-up pass.
+            top_most_state = states[-1]  # Shape: (batch_size, d_state)
+
+            # Generate a prediction from the top-most layer. The bottom-up input for this pure
+            # generative step is conceptually zero.
+            _, _, final_prediction, _ = self.pc_layers[-1](
+                torch.zeros_like(bottom_up_input, device=input_ids.device),  # Zero input, shape (batch_size, d_model)
+                top_most_state
+            ) # final_prediction has shape (batch_size, d_model)
+            
+            logits = self.output_projection(final_prediction)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             all_logits.append(logits)
 
             if return_spikes or return_full_mems:
@@ -308,3 +317,4 @@ class SpikingTransformer(nn.Module):
         return logits, avg_spikes, avg_mems
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- ◾️◾️◾️↑Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
+
