@@ -12,21 +12,21 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from typing import Dict, Any, List, Tuple, Callable, Sized, cast
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import sys
 from pathlib import Path
 
 # プロジェクトルートをPythonパスに追加
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-from snn_research.benchmark.tasks import SST2Task, XSumTask
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.benchmark.tasks import SST2Task
 
 # タスク名とクラスのマッピング
 TASK_REGISTRY = {
     "sst2": SST2Task,
-    "xsum": XSumTask,
+    # "xsum": XSumTask, # datasetsライブラリの仕様変更によりエラーが発生するため一時的に無効化
 }
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def run_single_task(task_name: str, device: str):
     """単一のベンチマークタスクを実行する。"""
@@ -72,10 +72,8 @@ def main():
         choices=["all"] + list(TASK_REGISTRY.keys()),
         help="実行するベンチマークタスクを選択します。"
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # --model_path引数を追加
     parser.add_argument("--model_path", type=str, help="評価する学習済みSNNモデルのパス。")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,3 +92,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
