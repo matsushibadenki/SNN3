@@ -13,6 +13,7 @@ import re
 import subprocess
 import yaml
 from typing import Dict, Any
+
 from .model_registry import ModelRegistry
 
 class KnowledgeDistillationManager:
@@ -53,27 +54,29 @@ class KnowledgeDistillationManager:
         finally:
             print("="*60 + "\n")
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️◾️
     def _parse_benchmark_results(self, output: str) -> Dict[str, float]:
-        """ベンチマークスクリプトの出力からSNNの性能指標を抽出する。"""
-        # (既存のコード)
+        """ベンチマークスクリプト（pandas DataFrame）の出力からSNNの性能指標を抽出する。"""
         metrics = {}
         try:
-            # SNNの結果行を見つける (より柔軟な正規表現)
-            snn_results_str = re.search(r"SNN\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.,NA/]+)", output, re.IGNORECASE)
-            if snn_results_str:
-                accuracy = float(snn_results_str.group(1))
-                avg_latency_ms = float(snn_results_str.group(2))
-                spikes_str = snn_results_str.group(3).replace(',', '')
-                avg_spikes = float(spikes_str) if 'n/a' not in spikes_str.lower() else 0.0
-                
-                metrics = {
-                    "accuracy": accuracy,
-                    "avg_latency_ms": avg_latency_ms,
-                    "avg_spikes_per_sample": avg_spikes
-                }
-        except (AttributeError, IndexError, ValueError) as e:
+            lines = output.strip().split('\n')
+            # '0   SNN'で始まる行を探す
+            for line in lines:
+                if line.strip().startswith('0   SNN'):
+                    parts = line.split()
+                    # 想定されるカラム: index, model, task, eval_time_sec, accuracy, avg_spikes
+                    if len(parts) >= 6:
+                        metrics = {
+                            "accuracy": float(parts[4]),
+                            "avg_spikes_per_sample": float(parts[5]),
+                            # eval_time_secも取得可能だが、必須ではない
+                        }
+                        break
+        except (ValueError, IndexError) as e:
             print(f"⚠️ ベンチマーク結果のパースに失敗しました: {e}\nOutput:\n{output}")
+        
         return metrics
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _evaluate_and_register_model(self, task_description: str, task_run_dir: str):
         """学習済みモデルを評価し、結果を登録簿に登録する。"""
@@ -128,7 +131,6 @@ class KnowledgeDistillationManager:
         ])
 
         # --- ステップ2: 専門家SNNの学習 ---
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self._run_command([
             "python", "train.py",
             "--config", self.base_config_path,
@@ -138,7 +140,6 @@ class KnowledgeDistillationManager:
             "--override_config", "training.gradient_based.type=distillation",
             "--override_config", f"training.log_dir={task_run_dir}"
         ])
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         print("✅ 専門家SNNモデルの学習が完了しました。")
 
@@ -146,3 +147,4 @@ class KnowledgeDistillationManager:
         self._evaluate_and_register_model(task_description, task_run_dir)
 
         print("🎉 全てのパイプラインが正常に完了しました。")
+
