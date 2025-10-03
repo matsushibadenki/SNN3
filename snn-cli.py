@@ -10,8 +10,11 @@ from pathlib import Path
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
 
+
 # --- 各機能のコアロジックをインポート ---
-from snn_research.agent import AutonomousAgent, HierarchicalPlanner, SelfEvolvingAgent, DigitalLifeForm, ReinforcementLearnerAgent
+from snn_research.agent import AutonomousAgent, SelfEvolvingAgent, DigitalLifeForm, ReinforcementLearnerAgent
+from snn_research.cognitive_architecture import HierarchicalPlanner
+
 from snn_research.rl_env.simple_env import SimpleEnvironment
 import train as gradient_based_trainer # train.pyをインポート
 
