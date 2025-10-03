@@ -108,14 +108,12 @@ class KnowledgeDistillationManager:
     def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, teacher_model_name: str, force_retrain: bool = False):
         """未知のタスクに対し、自律的に専門家SNNを生成するパイプライン。"""
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # Step 0: Check model registry unless retraining is forced
         if not force_retrain:
             existing_models = self.registry.find_models_for_task(task_description)
             if existing_models:
                 print(f"✅ タスク '{task_description}' の学習済みモデルが既に存在します。学習をスキップします。")
                 return
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         task_id = task_description.replace(' ', '_').lower()
         distillation_data_dir = f"precomputed_data/{task_id}"
@@ -130,14 +128,17 @@ class KnowledgeDistillationManager:
         ])
 
         # --- ステップ2: 専門家SNNの学習 ---
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self._run_command([
             "python", "train.py",
             "--config", self.base_config_path,
             "--model_config", self.model_config_path,
             "--data_path", distillation_data_dir,
-            "--override_config", f"training.type=distillation",
+            "--override_config", "training.paradigm=gradient_based",
+            "--override_config", "training.gradient_based.type=distillation",
             "--override_config", f"training.log_dir={task_run_dir}"
         ])
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         print("✅ 専門家SNNモデルの学習が完了しました。")
 
