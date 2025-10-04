@@ -26,11 +26,9 @@ training:
     error_threshold: 0.8       # この損失値を超えると介入
     modulation_strength: 0.05  # 注意変調の強さ
 
-  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
   # --- 学習可能プランナーの設定 ---
   planner:
     learning_rate: 0.001
-  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   # --- 勾配ベース学習 (gradient_based) の設定 ---
   gradient_based:
@@ -103,11 +101,10 @@ training:
   log_interval: 1
   
 model_registry:
-  provider: redis # 'file' or 'redis'
+  provider: file # 'file' or 'redis'
   file:
     path: "runs/model_registry.json"
   redis:
-    # provider: redis # 'file' or 'redis' # この行は不要なので削除
     host: localhost
     port: 6379
     db: 0
