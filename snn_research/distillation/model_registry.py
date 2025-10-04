@@ -5,10 +5,11 @@
 #              RedisModelRegistry: Redisベースのレジストリ
 #              mypyエラー修正: register_modelの引数を追加し、具象クラスと一致させた。
 #              mypyエラー修正: Redisの非同期メソッドにawaitを追加し、json.loadsの型安全性を確保。
+#              mypyエラー修正: 抽象ベースクラスのメソッドをasyncに変更し、具象クラスとの互換性を確保。
 
 import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Awaitable
 from pathlib import Path
 import redis.asyncio as redis  # type: ignore
 import asyncio
@@ -17,7 +18,7 @@ class ModelRegistry(ABC):
     """訓練済みモデルのメタデータを管理するための抽象ベースクラス。"""
     
     @abstractmethod
-    def register_model(
+    async def register_model(
         self,
         task_description: str,
         model_id: str,
@@ -29,17 +30,17 @@ class ModelRegistry(ABC):
         pass
 
     @abstractmethod
-    def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
+    async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         """モデルIDに基づいてモデル情報を取得する。"""
         pass
 
     @abstractmethod
-    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+    async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
         """タスク記述に最も関連するモデルを検索する。"""
         pass
 
     @abstractmethod
-    def list_models(self) -> List[Dict[str, Any]]:
+    async def list_models(self) -> List[Dict[str, Any]]:
         """レジストリ内のすべてのモデルをリストする。"""
         pass
 
@@ -66,7 +67,7 @@ class FileModelRegistry(ModelRegistry):
         with open(self.registry_path, 'w') as f:
             json.dump(self.registry, f, indent=4)
 
-    def register_model(
+    async def register_model(
         self,
         task_description: str,
         model_id: str,
@@ -87,20 +88,19 @@ class FileModelRegistry(ModelRegistry):
         self._save_registry()
         print(f"Model '{model_id}' registered successfully to {self.registry_path}")
 
-    def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
+    async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         """モデルIDに基づいてモデル情報を取得する。"""
         return self.registry.get(model_id)
 
-    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+    async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
         """タスク記述に最も関連するモデルを検索する（単純な部分文字列検索）。"""
-        # より高度な検索（例：ベクトル検索）は将来の実装で検討
         found_models = []
         for model_id, info in self.registry.items():
             if task_description.lower() in info.get("task_description", "").lower():
                 found_models.append({"model_id": model_id, **info})
         return found_models
 
-    def list_models(self) -> List[Dict[str, Any]]:
+    async def list_models(self) -> List[Dict[str, Any]]:
         """レジストリ内のすべてのモデルをリストする。"""
         return [{"model_id": model_id, **info} for model_id, info in self.registry.items()]
 
@@ -128,22 +128,22 @@ class RedisModelRegistry(ModelRegistry):
             "config": config
         }
         await self.redis.set(f"{self.model_key_prefix}{model_id}", json.dumps(model_data))
-        await self.redis.sadd(self.task_key, task_description)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        sadd_result = self.redis.sadd(self.task_key, task_description)
+        if isinstance(sadd_result, Awaitable):
+            await sadd_result
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print(f"Model '{model_id}' registered successfully to Redis.")
 
     async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         """Redisからモデル情報を非同期で取得する。"""
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         data = await self.redis.get(f"{self.model_key_prefix}{model_id}")
         if isinstance(data, (str, bytes)):
             return json.loads(data)
         return None
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
         """タスク記述に基づいてモデルを検索する (実装は簡略化)。"""
-        # この実装は全てのモデルを取得してフィルタリングするため、大規模なデータセットには非効率。
-        # 本番環境ではRedis Searchなどのより高度な検索機能を利用すべき。
         all_models = await self.list_models()
         return [
             model for model in all_models
@@ -155,18 +155,21 @@ class RedisModelRegistry(ModelRegistry):
         model_keys = await self.redis.keys(f"{self.model_key_prefix}*")
         models = []
         for key in model_keys:
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             model_data = await self.redis.get(key)
             if isinstance(model_data, (str, bytes)):
                 model_info = json.loads(model_data)
                 model_info["model_id"] = key.decode('utf-8').replace(self.model_key_prefix, "")
                 models.append(model_info)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return models
 
     async def get_all_tasks(self) -> List[str]:
         """登録されているすべてのタスク記述をリストする。"""
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        tasks = await self.redis.smembers(self.task_key)
+        tasks_result = self.redis.smembers(self.task_key)
+        tasks: set[Any] = set()
+        if isinstance(tasks_result, Awaitable):
+            tasks = await tasks_result
+        else:
+            tasks = tasks_result
         return [task.decode('utf-8') for task in tasks]
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
