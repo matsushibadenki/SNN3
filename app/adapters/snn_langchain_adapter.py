@@ -6,6 +6,7 @@
 # - これにより、SNNをLangChainエコシステム（Chain, Agentなど）で利用可能になる。
 # - ストリーミング応答をサポート (`_stream` メソッドを実装)。
 # - `_stream` が `GenerationChunk` を返すように修正し、mypyエラーを解消。
+# - mypyエラー修正: generateの引数の型を修正。
 
 from langchain_core.language_models.llms import LLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
@@ -43,10 +44,12 @@ class SNNLangChainAdapter(LLM):
         **kwargs: Any,
     ) -> Iterator[GenerationChunk]:
         """SNNエンジンからテキストをストリーミングし、LangChainコールバックを呼び出す。"""
-        max_len = self.snn_engine.config.get("max_len", 50)
+        max_len = self.snn_engine.config.deployment.get("max_len", 50)
         
         # SNNInferenceEngineのジェネレータを直接使用
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         for chunk_text in self.snn_engine.generate(prompt, max_len=max_len, stop_sequences=stop):
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             chunk = GenerationChunk(text=chunk_text)
             yield chunk
             if run_manager:
@@ -55,5 +58,4 @@ class SNNLangChainAdapter(LLM):
     @property
     def _identifying_params(self) -> Mapping[str, Any]:
         """モデルの識別パラメータを返す。"""
-        return {"model_path": self.snn_engine.config.get("path")}
-
+        return {"model_path": self.snn_engine.config.deployment.get("path")}
