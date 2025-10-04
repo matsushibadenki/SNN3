@@ -1,91 +1,71 @@
 # matsushibadenki/snn3/snn_research/cognitive_architecture/emergent_system.py
-# Phase 6: 複数の専門家SNNを統合し、新たな概念を創発させるシステム
-#
-# 機能:
-# - 複数の専門家モデルからの応答を統合し、より高次の判断を下す。
-# - 個々の専門家では説明できない（予測誤差が大きい）場合に、それらを
-#   統合する新しい概念モデルの必要性を検知する。
-# - 将来的には、新しい上位モデルを自己組織化する学習プロセスをトリガーする。
+# Title: 創発システム
+# Description: 異なる認知コンポーネント間の相互作用を管理し、創発的な振る舞いを引き出すシステム。
+#              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 
-from typing import List, Dict, Any, Optional
-from snn_research.deployment import SNNInferenceEngine
+from typing import List
+from .global_workspace import GlobalWorkspace
+from .hierarchical_planner import HierarchicalPlanner
+from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.distillation.model_registry import ModelRegistry
 
-class EmergentSystem:
+class EmergentCognitiveSystem:
     """
-    複数の専門家モデルの出力を競合・協調させ、
-    単一モデルの能力を超える創発的な解を生成するシステム。
+    複数の認知コンポーネントを統合し、協調させることで
+    創発的な高次機能を実現するシステム。
     """
-    def __init__(self, confidence_threshold: float = 0.7):
-        self.registry = ModelRegistry()
-        self.active_specialists: Dict[str, SNNInferenceEngine] = {}
-        self.confidence_threshold = confidence_threshold
 
-    def _load_specialists_for_domain(self, domain: str) -> List[SNNInferenceEngine]:
+    def __init__(self, planner: HierarchicalPlanner, agents: List[AutonomousAgent], global_workspace: GlobalWorkspace, model_registry: ModelRegistry):
+        self.planner = planner
+        self.agents = {agent.name: agent for agent in agents}
+        self.global_workspace = global_workspace
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.model_registry = model_registry
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    def execute_task(self, high_level_goal: str) -> str:
         """
-        指定されたドメイン（例: "言語理解"）に関連する全ての専門家をロードする。
+        高レベルの目標を受け取り、計画、実行、情報統合のサイクルを実行する。
         """
-        # 現状はタスク名=ドメインとして扱う
-        loaded_engines = []
-        candidate_models = self.registry.find_models_for_task(domain)
-        for model_info in candidate_models:
-            path = model_info['model_path']
-            if path not in self.active_specialists:
-                # CPUでロードしてメモリを節約
-                self.active_specialists[path] = SNNInferenceEngine(model_path=path, device="cpu")
-            loaded_engines.append(self.active_specialists[path])
-        return loaded_engines
+        print(f"--- Emergent System: Executing Goal: {high_level_goal} ---")
 
-    def synthesize_responses(self, prompt: str, domain: str) -> str:
+        # 1. 計画
+        plan = self.planner.create_plan(high_level_goal)
+        self.global_workspace.broadcast("plan", f"New plan created: {plan.task_list}")
+
+        # 2. 実行
+        results = []
+        for task in plan.task_list:
+            # タスクに最適なエージェントを選択（ここでは簡略化）
+            agent_name = task.get("agent", "default_agent")
+            agent = self.agents.get(agent_name)
+
+            if not agent:
+                error_msg = f"Agent '{agent_name}' not found."
+                print(error_msg)
+                results.append(error_msg)
+                continue
+
+            # エージェントがタスクを実行
+            task_description = task.get("description", "")
+            result = agent.execute(task_description)
+            results.append(result)
+
+            # 結果をグローバルワークスペースにブロードキャスト
+            self.global_workspace.broadcast(agent.name, result)
+
+        # 3. 統合と要約
+        final_report = self._synthesize_results(results)
+        self.global_workspace.broadcast("system", f"Goal '{high_level_goal}' completed. Final report generated.")
+        print(f"--- Emergent System: Goal Execution Finished ---")
+        return final_report
+
+    def _synthesize_results(self, results: List[str]) -> str:
         """
-        特定ドメインの全専門家に同じプロンプトを入力し、その応答を統合する。
+        各エージェントからの結果を統合し、最終的なレポートを生成する。
         """
-        specialists = self._load_specialists_for_domain(domain)
-        if not specialists:
-            return f"ドメイン「{domain}」に関する専門家が見つかりませんでした。"
-
-        responses: List[Dict[str, Any]] = []
-        print(f"🌟 創発システムが {len(specialists)} 人の専門家（ドメイン: {domain}）に意見を求めています...")
-
-        for i, engine in enumerate(specialists):
-            full_response = ""
-            # generateはイテレータなので、内容を結合する
-            for chunk in engine.generate(prompt, max_len=50):
-                full_response += chunk
-            
-            # 応答の信頼度を計算 (ダミーロジック)
-            # スパイク数が少ないほど効率的で確信度が高いと仮定
-            total_spikes = engine.last_inference_stats.get("total_spikes", 1000)
-            confidence = 1.0 - (1 / (1 + (1000 / (total_spikes + 1e-5))))
-            
-            print(f"  - 専門家 {i+1} の応答: 「{full_response.strip()}」 (信頼度: {confidence:.2f})")
-            responses.append({"text": full_response.strip(), "confidence": confidence})
-
-        # 応答の統合ロジック
-        # 最も信頼度の高い応答を選択する
-        best_response = max(responses, key=lambda r: r['confidence'])
-
-        # 応答の多様性をチェック
-        response_texts = {r['text'] for r in responses}
-        if len(response_texts) > 1 and best_response['confidence'] < self.confidence_threshold:
-            conflicting_info = (
-                f"専門家の間で意見の対立が見られます。最も確からしい応答は「{best_response['text']}」ですが、"
-                "この問題には複数の側面がある可能性が示唆されます。より高次の分析が必要です。"
-            )
-            # 将来的には、ここで新しい上位概念モデルの学習をトリガーする
-            self._trigger_new_concept_learning(domain, responses)
-            return conflicting_info
-
-        return best_response['text']
-
-    def _trigger_new_concept_learning(self, domain: str, conflicting_responses: List[Dict[str, Any]]):
-        """
-        意見の対立から、新しい上位概念の学習が必要であると判断し、
-        学習プロセスを開始する（プレースホルダー）。
-        """
-        print(f"🚨 創発システム: ドメイン「{domain}」において予測の不一致を検知。")
-        print("  - 新しい上位概念モデルの自己組織化プロセスを開始する必要があります。")
-        # (将来的な実装)
-        # 1. 対立した応答を学習データとして整形
-        # 2. 新しいSNNモデルを初期化
-        # 3. これらの応答を統合できるように蒸留学習を実行
+        # ここでは単純に結果を結合するが、将来的には要約SNNなどを利用できる
+        report = "Execution Summary:\n"
+        for i, res in enumerate(results):
+            report += f"- Step {i+1}: {res}\n"
+        return report
