@@ -1,31 +1,26 @@
-# matsushibadenki/snn3/run_life_form.py
-# Phase 6: デジタル生命体の自律的意識ループを開始する
-
-import argparse
+# run_life_form.py
+# デジタル生命体 起動スクリプト
+# 概要：DigitalLifeFormインスタンスを生成し、その活動を開始・停止する。
+import time
 from snn_research.agent.digital_life_form import DigitalLifeForm
 
 def main():
     """
-    デジタル生命体を起動し、指定されたサイクル数だけ
-    自律的な思考と学習のループを実行させる。
+    デジタル生命体を起動し、指定時間（または無限に）活動させる。
     """
-    parser = argparse.ArgumentParser(
-        description="デジタル生命体 実行フレームワーク",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument(
-        "--cycles",
-        type=int,
-        default=5,
-        help="実行する意識サイクルの回数。"
-    )
-    args = parser.parse_args()
-
-    # デジタル生命体をインスタンス化
-    life_form = DigitalLifeForm(project_root=".")
+    life_form = DigitalLifeForm()
     
-    # 意識ループを開始
-    life_form.awareness_loop(cycles=args.cycles)
+    try:
+        life_form.start()
+        # ここではデモのために60秒後に停止する
+        # 実際の運用では、外部からのシャットダウン信号を受け取るまでループさせる
+        time.sleep(60)
+        
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received. Shutting down.")
+    finally:
+        life_form.stop()
+        print("DigitalLifeForm has been deactivated.")
 
 if __name__ == "__main__":
     main()
