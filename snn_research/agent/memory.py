@@ -1,5 +1,6 @@
 # matsushibadenki/snn3/snn_research/agent/memory.py
 # 自律エージェントの長期記憶システム
+# mypyエラー修正: FileBasedAgentMemoryをMemoryにクラス名を変更
 
 import json
 import os
@@ -14,6 +15,13 @@ class Memory:
     def __init__(self, memory_path: str = "runs/agent_memory.jsonl"):
         self.memory_path = memory_path
         os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
+
+    def add_experience(self, task: str, result: str, status: str):
+        """
+        エージェントの経験を記録する。
+        """
+        self.add_entry("EXPERIENCE", {"task": task, "result": result, "status": status})
+
 
     def add_entry(self, event_type: str, details: Dict[str, Any]):
         """
