@@ -7,6 +7,7 @@
 #              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、execute_taskメソッドを追加。
 # 改善点: ハードコードされた計画立案ロジックを、学習済みPlannerSNNを利用する形式に置き換え。
 #         Tokenizerをコンストラクタで受け取るように変更。
+# mypyエラー修正: .item()が返す型の曖昧さを解消するため、int()でキャストする。
 
 from typing import List, Dict, Any, Optional
 import torch
@@ -48,7 +49,7 @@ class HierarchicalPlanner:
             self.planner_model.to(self.device)
 
         # ダミーのスキルリスト（実際のスキルセットに応じて要変更）
-        self.SKILL_MAP = {
+        self.SKILL_MAP: Dict[int, Dict[str, Any]] = {
             0: {"task": "summarization", "description": "Summarize the input text.", "expert_id": "expert_summarizer_v1"},
             1: {"task": "sentiment_analysis", "description": "Analyze the sentiment of the text.", "expert_id": "expert_sentiment_v2"},
             2: {"task": "translation", "description": "Translate the summary to Japanese.", "expert_id": "expert_translator_v1"},
@@ -74,7 +75,11 @@ class HierarchicalPlanner:
                 skill_logits, _, _ = self.planner_model(input_ids)
                 
                 # 最も可能性の高いスキルを一つ選択（シーケンス予測は将来の拡張）
-                predicted_skill_id = torch.argmax(skill_logits, dim=-1).item()
+                predicted_skill_id_val = torch.argmax(skill_logits, dim=-1).item()
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # mypyエラーを解消するため、int()で明示的にキャスト
+                predicted_skill_id = int(predicted_skill_id_val)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 # 予測されたIDからタスクを構築
                 task = self.SKILL_MAP.get(predicted_skill_id)
