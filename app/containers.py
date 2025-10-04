@@ -25,6 +25,8 @@ from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
 
+from snn_research.distillation.model_registry import FileModelRegistry, RedisModelRegistry, ModelRegistry
+import redis
 
 def get_auto_device() -> str:
     """実行環境に最適なデバイスを自動的に選択する。"""
@@ -166,10 +168,28 @@ class TrainingContainer(containers.DeclarativeContainer):
     planner_optimizer = providers.Factory(AdamW, lr=config.training.planner.learning_rate)
     planner_loss = providers.Factory(PlannerLoss)
 
+    # Redisクライアントのプロバイダ
+    redis_client = providers.Singleton(
+        redis.Redis,
+        host=config.redis.host,
+        port=config.redis.port,
+        db=config.redis.db,
+        decode_responses=True,
+    )
+
+    # ModelRegistryのプロバイダ
+    model_registry = providers.Selector(
+        config.model_registry.provider,
+        file=providers.Singleton(FileModelRegistry, registry_path=config.model_registry.file.path),
+        redis=providers.Singleton(RedisModelRegistry, redis_client=redis_client),
+    )
+
 
 class AppContainer(containers.DeclarativeContainer):
     """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
     config = providers.Configuration()
+    # Tools
+    web_crawler = providers.Singleton(WebCrawler)
     device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.inference.device)
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.inference.max_len)
