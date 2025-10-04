@@ -2,11 +2,11 @@
 # DIコンテナの定義ファイル (完全版)
 #
 # 機能:
-# - 勾配ベース学習と生物学的学習の2つのパラダイムをDIコンテナで管理。
+# - 勾配ベース学習と生物学的学習を含む複数の学習パラダイムをDIコンテナで管理。
 # - 設定ファイルの `training.paradigm` の値に応じて、適切なコンポーネント群を構築する。
 # - 既存の全機能を維持しつつ、新しい学習方法への拡張性を確保。
 # - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
-# - 変更点: 不要になった古い生物学的学習(BioTrainer)関連のプロバイダを削除。
+# - 変更点: 生物学的強化学習(BioRLTrainer)関連のプロバイダを再統合し、完全な状態に復元。
 
 import torch
 from dependency_injector import containers, providers
@@ -14,7 +14,7 @@ from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, LRScheduler
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# --- プロジェクト内モジュールのインポート (既存) ---
+# --- プロジェクト内モジュールのインポート ---
 from snn_research.core.snn_core import BreakthroughSNN, SpikingTransformer
 from snn_research.deployment import SNNInferenceEngine
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
@@ -24,11 +24,18 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-
-from snn_research.distillation.model_registry import FileModelRegistry, RedisModelRegistry, ModelRegistry
+from snn_research.distillation.model_registry import FileModelRegistry, RedisModelRegistry
 import redis
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.tools.web_crawler import WebCrawler
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# --- 生物学的学習のためのインポート ---
+from snn_research.learning_rules.stdp import STDP
+from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
+from snn_research.bio_models.simple_network import SimpleBioSNN
+from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+from snn_research.rl_env.simple_env import SimpleEnvironment
+from snn_research.training.bio_trainer import BioRLTrainer
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def get_auto_device() -> str:
@@ -76,7 +83,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     meta_cognitive_snn = providers.Factory(
         MetaCognitiveSNN,
         snn_model=snn_model,
-        # configセクションが存在しない場合にNoneになるのを防ぐため、デフォルトの空辞書を指定
         **(config.training.meta_cognition.to_dict() or {})
     )
 
@@ -155,7 +161,54 @@ class TrainingContainer(containers.DeclarativeContainer):
         rank=-1, use_amp=config.training.physics_informed.use_amp, log_dir=config.training.log_dir,
         astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
     )
-    
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # === 生物学的学習 (biologically_plausible) のためのプロバイダ ===
+    bio_learning_rule = providers.Selector(
+        config.training.biologically_plausible.learning_rule,
+        STDP=providers.Factory(
+            STDP,
+            learning_rate=config.training.biologically_plausible.stdp.learning_rate,
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
+        REWARD_MODULATED_STDP=providers.Factory(
+            RewardModulatedSTDP,
+            learning_rate=config.training.biologically_plausible.reward_modulated_stdp.learning_rate,
+            tau_eligibility=config.training.biologically_plausible.reward_modulated_stdp.tau_eligibility,
+            # STDPの設定を継承して利用
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
+    )
+
+    bio_snn_model = providers.Factory(
+        SimpleBioSNN,
+        # 仮の値を設定。実際の利用シーンに応じて設定を見直す必要があります。
+        input_size=10,
+        hidden_size=50,
+        output_size=2,
+        neuron_params=config.training.biologically_plausible.neuron,
+        learning_rule=bio_learning_rule,
+    )
+
+    rl_environment = providers.Factory(SimpleEnvironment)
+
+    rl_agent = providers.Factory(
+        ReinforcementLearnerAgent,
+        model=bio_snn_model,
+        device=providers.Factory(get_auto_device),
+    )
+
+    bio_rl_trainer = providers.Factory(
+        BioRLTrainer,
+        agent=rl_agent,
+        env=rl_environment,
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
     planner_snn = providers.Factory(
         PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
@@ -168,9 +221,9 @@ class TrainingContainer(containers.DeclarativeContainer):
     # Redisクライアントのプロバイダ
     redis_client = providers.Singleton(
         redis.Redis,
-        host=config.redis.host,
-        port=config.redis.port,
-        db=config.redis.db,
+        host=config.model_registry.redis.host,
+        port=config.model_registry.redis.port,
+        db=config.model_registry.redis.db,
         decode_responses=True,
     )
 
@@ -187,7 +240,7 @@ class AppContainer(containers.DeclarativeContainer):
     config = providers.Configuration()
     # Tools
     web_crawler = providers.Singleton(WebCrawler)
-    device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.inference.device)
+    device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
-    chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.inference.max_len)
+    chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
