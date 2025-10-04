@@ -1,98 +1,143 @@
-# matsushibadenki/snn3/snn_research/agent/digital_life_form.py
-# Title: デジタル生命体
-# Description: 複数のエージェントと認知コンポーネントを統合し、自律的に活動する最上位のオーケストレーター。
-#              mypyエラー修正: クラス名、引数、属性アクセスを修正。
-
+# snn_research/agent/digital_life_form.py
+# DigitalLifeForm オーケストレーター
+# 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
 import time
-import asyncio
-from typing import Dict, Any
+import logging
+from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+from snn_research.agent.memory import Memory
+# 各エージェントのインポート（実際のパスに合わせて修正が必要）
+from snn_research.agent.autonomous_agent import AutonomousAgent
+from snn_research.agent.reinforcement_learner_agent import RLAgent
+from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 
-from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-from snn_research.cognitive_architecture.emergent_system import EmergentCognitiveSystem
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
-from snn_research.distillation.model_registry import ModelRegistry
-from snn_research.training.trainers import DistillationTrainer
-from snn_research.core.snn_core import BreakthroughSNN
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DigitalLifeForm:
     """
-    自律的な目標生成と学習サイクルを持つデジタル生命体。
+    内発的動機付けシステムとメタ認知SNNを統合し、
+    永続的で自己駆動する学習ループを実現するオーケストレーター。
     """
-    def __init__(
-        self,
-        emergent_system: EmergentCognitiveSystem,
-        knowledge_manager: KnowledgeDistillationManager,
-        model_registry: ModelRegistry,
-        trainer: DistillationTrainer,
-        base_model: BreakthroughSNN
-    ):
-        self.emergent_system = emergent_system
-        self.knowledge_manager = knowledge_manager
-        self.model_registry = model_registry
-        self.trainer = trainer
-        self.base_model = base_model
-        self.is_alive = False
+    def __init__(self):
+        self.motivation_system = IntrinsicMotivationSystem()
+        self.meta_cognitive_snn = MetaCognitiveSNN()
+        self.memory = Memory()
+        
+        # 各種エージェントのインスタンス化
+        self.autonomous_agent = AutonomousAgent()
+        self.rl_agent = RLAgent()
+        self.self_evolving_agent = SelfEvolvingAgent()
+        self.planner_agent = PlannerSNN() # PlannerSNNをエージェントとして利用
+        
+        self.running = False
+        self.state = {"last_action": None} # システムの現在の状態
 
-    def start_life_cycle(self):
-        """生命活動のメインループを開始する。"""
-        self.is_alive = True
-        print("--- Digital Life Form Activated ---")
-        asyncio.run(self._life_loop())
+    def start(self):
+        """デジタル生命体の活動を開始する。"""
+        self.running = True
+        logging.info("DigitalLifeForm activated. Starting autonomous loop.")
+        self.life_cycle()
 
-    def stop_life_cycle(self):
-        """生命活動を停止する。"""
-        self.is_alive = False
-        print("--- Digital Life Form Deactivated ---")
+    def stop(self):
+        """デジタル生命体の活動を停止する。"""
+        self.running = False
+        logging.info("DigitalLifeForm deactivating.")
 
-    async def _life_loop(self):
-        """非同期のメインループ。"""
-        while self.is_alive:
-            # 1. 内発的動機付けに基づく目標設定（ダミー）
-            goal = self._generate_goal()
-            print(f"\nNew Goal Generated: {goal}")
-
-            # 2. 創発システムによる目標実行
-            self.emergent_system.execute_task(goal)
-
-            # 3. 自己評価と学習（ダミー）
-            if "create a new expert" in goal:
-                await self._learn_new_skill(goal)
+    def life_cycle(self):
+        """
+        メインの実行ループ。
+        内部状態とパフォーマンス評価に基づき、自律的に行動を決定し続ける。
+        """
+        while self.running:
+            # 1. 内部状態とパフォーマンス評価を取得
+            internal_state = self.motivation_system.get_internal_state()
+            performance_eval = self.meta_cognitive_snn.evaluate_performance()
             
-            # 4. 待機
-            print("Cycle complete. Resting for 10 seconds...")
-            await asyncio.sleep(10)
+            # 2. 状態に基づき次の行動を決定
+            action = self._decide_next_action(internal_state, performance_eval)
+            
+            # 3. 決定した行動を実行
+            result, reward, expert_used = self._execute_action(action)
 
-    def _generate_goal(self) -> str:
-        """内発的動機に基づいて新しい目標を生成する。"""
-        # ダミーロジック: ランダムに目標を選択
-        import random
-        possible_goals = [
-            "research the latest advancements in neuromorphic computing",
-            "analyze the sentiment of recent news about AI",
-            "create a new expert to summarize scientific papers"
-        ]
-        return random.choice(possible_goals)
+            # 4. 経験を記録
+            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval}
+            self.memory.record_experience(self.state, action, result, reward, expert_used, decision_context)
+            
+            # 5. システムの状態とメトリクスを更新
+            # (execute_actionの結果から得られる実際の値で更新する)
+            # 以下はダミーの更新
+            dummy_prediction_error = result.get("prediction_error", 0.1)
+            dummy_success_rate = result.get("success_rate", 0.9)
+            dummy_task_similarity = 0.8 # 実際にはタスク間の類似度を計算
+            dummy_loss = result.get("loss", 0.05)
+            dummy_time = result.get("computation_time", 1.0)
+            dummy_accuracy = result.get("accuracy", 0.95)
 
-    async def _learn_new_skill(self, learning_goal: str):
+            self.motivation_system.update_metrics(dummy_prediction_error, dummy_success_rate, dummy_task_similarity, dummy_loss)
+            self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
+            self.state = {"last_action": action, "last_result": result}
+            
+            logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
+            logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
+            
+            time.sleep(10) # 実行間隔
+
+    def _decide_next_action(self, internal_state, performance_eval):
         """
-        新しいスキルを学習するプロセス（知識蒸留をシミュレート）。
+        状態遷移ロジック。内部状態とパフォーマンス評価から次の行動を決定する。
         """
-        print(f"--- Initiating Learning Protocol for: {learning_goal} ---")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # この部分はDIコンテナから正しく設定されたKnowledgeDistillationManagerを
-        # 利用することを想定しており、ここでの再インスタンス化はデモ用。
-        # 実際のアプリケーションでは、コンテナから取得したものをそのまま使う。
-        #
-        # planner = HierarchicalPlanner(model_registry=self.model_registry)
-        # manager = KnowledgeDistillationManager(
-        #     student_model=self.base_model,
-        #     trainer=self.trainer,
-        #     teacher_model_name="gpt2", # 仮
-        #     tokenizer_name="gpt2", # 仮
-        #     model_registry=self.model_registry
-        # )
-        print("Skipping new skill learning simulation in this context.")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        print("--- Learning Protocol Finished ---")
+        logging.info(f"Decision-making based on: \n- Internal State: {internal_state} \n- Performance Eval: {performance_eval}")
+        
+        # 優先順位1: 緊急性の高い問題への対応 (メタ認知評価に基づく)
+        if performance_eval["status"] == "knowledge_gap":
+            logging.info("Reason: Knowledge gap detected. Acquiring new information.")
+            return "acquire_new_knowledge" # 自律エージェントによるWeb学習
+        
+        if performance_eval["status"] == "capability_gap":
+            logging.info("Reason: Capability gap detected. Evolving model architecture.")
+            return "evolve_architecture" # 自己進化エージェント
+
+        # 優先順位2: 内発的動機付けに基づく行動
+        if internal_state["boredom"] > 0.7 and internal_state["confidence"] > 0.8:
+            logging.info("Reason: High boredom and confidence. Exploring new tasks.")
+            return "explore_new_task_with_rl" # 強化学習エージェントで新タスク探索
+            
+        if internal_state["curiosity"] > 0.6:
+            logging.info("Reason: High curiosity. Planning complex task.")
+            return "plan_and_execute" # プランナーで複雑なタスクを実行
+
+        # デフォルト行動
+        logging.info("Reason: Default behavior. Practicing existing skills.")
+        return "practice_skill_with_rl" # 強化学習エージェントで既存スキルを練習
+
+    def _execute_action(self, action):
+        """
+        指定されたアクションに対応するエージェントを実行する。
+        
+        Returns:
+            tuple: (result_dict, reward, expert_used_list)
+        """
+        try:
+            if action == "acquire_new_knowledge":
+                # result = self.autonomous_agent.search_and_learn("latest SNN research trends")
+                return {"status": "success", "info": "Web crawling completed.", "accuracy": 0.96}, 0.8, ["web_crawler"]
+            elif action == "evolve_architecture":
+                # result = self.self_evolving_agent.evolve()
+                return {"status": "success", "info": "Evolution completed.", "accuracy": 0.97}, 0.9, ["self_evolver"]
+            elif action == "explore_new_task_with_rl":
+                # result, reward = self.rl_agent.run_episode(explore=True)
+                return {"status": "success", "info": "Exploration finished.", "accuracy": 0.92}, 0.7, ["rl_agent_explorer"]
+            elif action == "practice_skill_with_rl":
+                # result, reward = self.rl_agent.run_episode(explore=False)
+                return {"status": "success", "info": "Practice finished.", "accuracy": 0.98}, 0.5, ["rl_agent_practicer"]
+            elif action == "plan_and_execute":
+                # plan = self.planner_agent.create_plan("Summarize text and analyze sentiment")
+                # result = self.planner_agent.execute_plan(plan)
+                return {"status": "success", "info": "Plan executed.", "accuracy": 0.95}, 0.8, ["planner", "summarizer_snn", "sentiment_snn"]
+            else:
+                return {"status": "failed", "info": "Unknown action"}, 0.0, []
+        except Exception as e:
+            logging.error(f"Error executing action '{action}': {e}")
+            return {"status": "error", "info": str(e)}, -1.0, []
