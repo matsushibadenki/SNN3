@@ -24,3 +24,8 @@ beautifulsoup4
 types-tqdm
 types-beautifulsoup4
 langchain-community
+hydra-core
+torch
+torchvision
+torchaudio
+firebase-admin
