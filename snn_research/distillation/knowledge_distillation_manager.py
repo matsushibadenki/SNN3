@@ -3,11 +3,12 @@
 # Description: 教師モデルから生徒モデルへの知識蒸留プロセス全体を管理・実行するクラス。
 # mypyエラー修正: 存在しない`get`メソッド呼び出しを修正。
 # mypyエラー修正: register_modelの引数をキーワード引数に変更。
+# mypyエラー修正: __init__を修正し、必要な依存関係をすべて受け取るように変更。
 
 import torch
-from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM
-from typing import Dict, Any, Optional
+from torch.utils.data import DataLoader, Dataset
+from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
+from typing import Dict, Any, Optional, List
 import asyncio
 import os
 from tqdm import tqdm
@@ -22,27 +23,49 @@ class KnowledgeDistillationManager:
     """
     def __init__(
         self,
-        base_config_path: str,
-        model_config_path: str,
-    ):
-        self.base_config_path = base_config_path
-        self.model_config_path = model_config_path
-
-    def run_on_demand_pipeline(
-        self,
-        task_description: str,
-        unlabeled_data_path: str,
+        student_model: torch.nn.Module,
+        trainer: DistillationTrainer,
         teacher_model_name: str,
-        force_retrain: bool,
-    ) -> None:
+        tokenizer_name: str,
+        model_registry: ModelRegistry,
+        device: str
+    ):
+        self.student_model = student_model.to(device)
+        self.distillation_trainer = trainer
+        self.teacher_model = AutoModelForCausalLM.from_pretrained(teacher_model_name).to(device)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.model_registry = model_registry
+        self.device = device
+
+    def prepare_dataset(self, texts: List[str], max_length: int, batch_size: int) -> DataLoader:
         """
-        オンデマンドで知識蒸留パイプラインを実行する。
+        テキストデータから知識蒸留用のデータセットとデータローダーを準備する。
         """
-        print(f"--- Running On-Demand Knowledge Distillation for: {task_description} ---")
-        # ここにパイプラインの完全な実装が入る
-        # (DIコンテナからのオブジェクト取得、データセット準備、学習実行など)
-        print(" (Placeholder for on-demand pipeline implementation) ")
-        print("--- On-Demand Knowledge Distillation Finished ---")
+        class _DistillationTextDataset(Dataset):
+            def __init__(self, tokenizer, texts, max_length):
+                self.tokenizer = tokenizer
+                self.texts = texts
+                self.max_length = max_length
+
+            def __len__(self):
+                return len(self.texts)
+
+            def __getitem__(self, idx):
+                text = self.texts[idx]
+                tokenized = self.tokenizer(
+                    text,
+                    padding='max_length',
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors='pt'
+                )
+                return {
+                    'input_ids': tokenized['input_ids'].squeeze(),
+                    'attention_mask': tokenized['attention_mask'].squeeze()
+                }
+
+        dataset = _DistillationTextDataset(self.tokenizer, texts, max_length)
+        return DataLoader(dataset, batch_size=batch_size)
 
 
     async def run_distillation(
@@ -52,13 +75,13 @@ class KnowledgeDistillationManager:
         epochs: int,
         model_id: str,
         task_description: str,
-        save_path: str
+        student_config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         知識蒸留の全プロセスを実行し、学習済みモデルを登録する。
         """
         print(f"--- Starting Knowledge Distillation for model: {model_id} ---")
-        
+
         # 1. 知識蒸留の実行
         print("Step 1: Running distillation training...")
         final_metrics = self.distillation_trainer.train(
@@ -76,8 +99,10 @@ class KnowledgeDistillationManager:
         print(f"Evaluation finished. Metrics: {final_metrics}")
 
         # 3. モデルの保存
+        save_dir = os.path.join("runs", "specialists", task_description.replace(" ", "_"))
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         torch.save(self.student_model.state_dict(), save_path)
         print("Model saved.")
 
@@ -88,10 +113,10 @@ class KnowledgeDistillationManager:
             task_description=task_description,
             metrics=final_metrics,
             model_path=save_path,
-            config=self.student_model.config if hasattr(self.student_model, 'config') else {}
+            config=student_config
         )
         print(f"Model '{model_id}' successfully registered.")
-        
+
         print("--- Knowledge Distillation Finished ---")
         return {"model_id": model_id, "metrics": final_metrics, "path": save_path}
 
@@ -102,21 +127,26 @@ class KnowledgeDistillationManager:
         self.student_model.eval()
         total_spikes = 0
         total_samples = 0
-        
+
         # 簡易的な評価ループ
         progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
         for batch in progress_bar:
-            inputs, _, _ = batch
-            inputs = inputs.to(self.device)
-            
+            inputs = batch['input_ids'].to(self.device)
+
             with torch.no_grad():
-                _, spikes, _ = self.student_model(inputs, return_spikes=True)
-            
+                outputs = self.student_model(inputs, return_spikes=True)
+                if isinstance(outputs, tuple) and len(outputs) > 1:
+                    _, spikes, _ = outputs
+                else:
+                    # Handle cases where the model might not return spikes
+                    spikes = torch.tensor(0.0)
+
+
             total_spikes += spikes.sum().item()
             total_samples += inputs.size(0)
 
         avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
-        
+
         # TODO: より正確なパープレキシティとエネルギー消費の計算
         perplexity = calculate_perplexity(self.student_model, dataloader, self.device)
         energy = calculate_energy_consumption(avg_spikes_per_sample)
