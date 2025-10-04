@@ -7,6 +7,7 @@
 # - SpikingTransformer: 新しい最先端モデルとして、STAttenBlockを統合。
 # - mypyエラー修正: SpikingTransformer.forwardの戻り値の型をtorch.Tensorに統一。
 # - mypyエラー修正: SpikingTransformerの重複定義を解消。
+# 改善点: SpikeDrivenSelfAttentionを簡略版から、より標準的なドット積ベースの自己注意計算に修正。
 
 import torch
 import torch.nn as nn
@@ -225,26 +226,40 @@ class SpikeDrivenSelfAttention(nn.Module):
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
-        self.neuron = AdaptiveLIFNeuron(features=d_model)
+        self.neuron_q = AdaptiveLIFNeuron(features=d_model)
+        self.neuron_k = AdaptiveLIFNeuron(features=d_model)
+        self.neuron_out = AdaptiveLIFNeuron(features=d_model)
 
-    def forward(self, x_spike: torch.Tensor) -> torch.Tensor:
-        T, B, N, C = x_spike.shape  # (Time, Batch, Sequence, Channels)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        T, B, N, C = x.shape  # (Time, Batch, Sequence, Channels)
         
-        q = self.q_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
-        k = self.k_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
-        v = self.v_proj(x_spike).reshape(T, B, N, self.n_head, self.d_head)
+        # 射影層を適用
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+
+        # QとKをスパイク化
+        q_spike, _ = self.neuron_q(q)
+        k_spike, _ = self.neuron_k(k)
+
+        # マルチヘッドに分割
+        q_spike = q_spike.reshape(T, B, N, self.n_head, self.d_head).permute(0, 1, 3, 2, 4)
+        k_spike = k_spike.reshape(T, B, N, self.n_head, self.d_head).permute(0, 1, 3, 4, 2) # 転置
+        v = v.reshape(T, B, N, self.n_head, self.d_head).permute(0, 1, 3, 2, 4)
         
-        # 行列乗算の代わりに加算ベースの注意を計算 (簡略版)
-        attn = torch.einsum('tbnhd,tbnhd->tbnh', q, k)
+        # スパイクベースのドット積アテンション
+        attn_scores = torch.matmul(q_spike, k_spike) / math.sqrt(self.d_head)
         
-        # Softmaxの排除
-        attn_weights_spike = (attn > 0.5).float() # 閾値でスパイク化
+        # Softmaxの代わりにスパイク化（代理勾配で学習可能）
+        attn_weights_spike = torch.sigmoid(attn_scores) # 簡易的な代替
+
+        # Valueに適用
+        attn_output = torch.matmul(attn_weights_spike, v)
         
-        # 加算ベースのValue適用
-        attn_output = torch.einsum('tbnh,tbnhd->tbnhd', attn_weights_spike, v)
-        
-        output = self.out_proj(attn_output.reshape(T, B, N, C))
-        output_spike, _ = self.neuron(output)
+        # ヘッドを結合して出力
+        attn_output = attn_output.permute(0, 1, 3, 2, 4).contiguous().reshape(T, B, N, C)
+        output = self.out_proj(attn_output)
+        output_spike, _ = self.neuron_out(output)
         
         return output_spike
 
