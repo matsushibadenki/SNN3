@@ -13,7 +13,9 @@ from tqdm import tqdm  # type: ignore
 from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 import time
+from torch.optim import Adam
 
+from snn_research.training.losses import SpikeRateLoss
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
@@ -307,3 +309,57 @@ class PlannerTrainer:
             self.optimizer.step()
             
             progress_bar.set_postfix({"loss": loss.item()})
+            
+            
+class BPTTTrainer:
+    # ... (既存の__init__メソッド)
+    def __init__(self, model, config):
+        self.model = model
+        self.config = config
+        self.optimizer = Adam(self.model.parameters(), lr=config.training.learning_rate)
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.spike_loss = SpikeRateLoss(target_rate=config.training.get("target_spike_rate", 0.02))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.use_sltt = self.config.training.get("use_sltt", False)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    def train_step(self, data, targets):
+        self.optimizer.zero_grad()
+        
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if self.use_sltt:
+            # SLTT: 各タイムステップで勾配を計算し、時間方向の伝播は行わない
+            total_loss = 0
+            # モデルがSpikingTransformerの場合、時間ステップのループは不要
+            if self.config.model.type == "spiking_transformer":
+                outputs = self.model(data) # (Batch, Time, Vocab)
+                # 損失計算のために次元を調整
+                loss = self.criterion(outputs.view(-1, outputs.size(-1)), targets.view(-1))
+                loss.backward() # 各ステップの勾配は保持されない
+                total_loss = loss
+            else: # SimpleSNNのようなリカレントなモデルの場合
+                for t in range(data.size(0)): # Timeステップでループ
+                    output_t = self.model(data[t].unsqueeze(0))
+                    loss = self.criterion(output_t.squeeze(0), targets)
+                    loss.backward() # 各ステップで逆伝播
+                    total_loss += loss.item()
+
+            # パラメータの更新
+            self.optimizer.step()
+            return total_loss / (data.size(0) if self.config.model.type != "spiking_transformer" else 1)
+
+        else: # Standard BPTT
+            outputs = self.model(data)
+            
+            # トランスフォーマーは (B, T, V), SimpleSNNは (T, B, V)
+            if self.config.model.type == "spiking_transformer":
+                 loss = self.criterion(outputs.view(-1, outputs.size(-1)), targets.view(-1))
+            else:
+                 loss = self.criterion(outputs.view(-1, outputs.size(-1)), targets.view(-1))
+
+            spike_regularization = self.spike_loss(self.model)
+            total_loss = loss + self.config.training.spike_regularization_coeff * spike_regularization
+            total_loss.backward()
+            self.optimizer.step()
+            return total_loss.item()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
