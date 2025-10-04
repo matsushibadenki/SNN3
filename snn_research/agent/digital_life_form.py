@@ -1,6 +1,8 @@
-# snn_research/agent/digital_life_form.py
+# matsushibadenki/snn3/snn_research/agent/digital_life_form.py
 # DigitalLifeForm オーケストレーター
 # 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
+# mypyエラー修正: RLAgentをReinforcementLearnerAgentに修正。
+
 import time
 import logging
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
@@ -8,7 +10,9 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.agent.memory import Memory
 # 各エージェントのインポート（実際のパスに合わせて修正が必要）
 from snn_research.agent.autonomous_agent import AutonomousAgent
-from snn_research.agent.reinforcement_learner_agent import RLAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 
@@ -26,10 +30,13 @@ class DigitalLifeForm:
         self.memory = Memory()
         
         # 各種エージェントのインスタンス化
-        self.autonomous_agent = AutonomousAgent()
-        self.rl_agent = RLAgent()
+        # TODO: 依存性注入（DI）コンテナから取得するようにリファクタリングする
+        self.autonomous_agent = AutonomousAgent(name="AutonomousAgent", planner=None, model_registry=None, memory=self.memory, web_crawler=None) # Dummy
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu") # Dummy sizes
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.self_evolving_agent = SelfEvolvingAgent()
-        self.planner_agent = PlannerSNN() # PlannerSNNをエージェントとして利用
+        self.planner_agent = PlannerSNN(input_dim=128, num_skills=10, hidden_dim=256) # Dummy
         
         self.running = False
         self.state = {"last_action": None} # システムの現在の状態
@@ -121,20 +128,24 @@ class DigitalLifeForm:
         """
         try:
             if action == "acquire_new_knowledge":
-                # result = self.autonomous_agent.search_and_learn("latest SNN research trends")
-                return {"status": "success", "info": "Web crawling completed.", "accuracy": 0.96}, 0.8, ["web_crawler"]
+                result_str = self.autonomous_agent.learn_from_web("latest SNN research trends")
+                return {"status": "success", "info": result_str, "accuracy": 0.96}, 0.8, ["web_crawler"]
             elif action == "evolve_architecture":
-                # result = self.self_evolving_agent.evolve()
+                # result = self.self_evolving_agent.evolve() # evolveメソッドを実装する必要がある
                 return {"status": "success", "info": "Evolution completed.", "accuracy": 0.97}, 0.9, ["self_evolver"]
             elif action == "explore_new_task_with_rl":
-                # result, reward = self.rl_agent.run_episode(explore=True)
+                # state = torch.rand(10) # ダミーの状態
+                # action_spikes = self.rl_agent.get_action(state)
+                # self.rl_agent.learn(reward=0.7) # ダミーの報酬
                 return {"status": "success", "info": "Exploration finished.", "accuracy": 0.92}, 0.7, ["rl_agent_explorer"]
             elif action == "practice_skill_with_rl":
-                # result, reward = self.rl_agent.run_episode(explore=False)
+                # state = torch.rand(10) # ダミーの状態
+                # action_spikes = self.rl_agent.get_action(state)
+                # self.rl_agent.learn(reward=0.5) # ダミーの報酬
                 return {"status": "success", "info": "Practice finished.", "accuracy": 0.98}, 0.5, ["rl_agent_practicer"]
             elif action == "plan_and_execute":
-                # plan = self.planner_agent.create_plan("Summarize text and analyze sentiment")
-                # result = self.planner_agent.execute_plan(plan)
+                # plan = self.planner_agent.create_plan("Summarize text and analyze sentiment") # create_planメソッドを実装する必要がある
+                # result = self.planner_agent.execute_plan(plan) # execute_planメソッドを実装する必要がある
                 return {"status": "success", "info": "Plan executed.", "accuracy": 0.95}, 0.8, ["planner", "summarizer_snn", "sentiment_snn"]
             else:
                 return {"status": "failed", "info": "Unknown action"}, 0.0, []
