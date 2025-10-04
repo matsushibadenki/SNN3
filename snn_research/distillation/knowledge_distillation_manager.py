@@ -5,7 +5,7 @@
 #              - データセットの準備
 #              - 生徒モデル（SNN）の訓練
 #              - 訓練済みモデルのレジストリへの登録
-#              mypyエラー修正: 型安全性を高めるためのチェックを追加。
+#              mypyエラー修正: 最終的な型互換性エラーをキャストで解決。
 
 import torch
 import torch.nn as nn
@@ -41,11 +41,9 @@ class KnowledgeDistillationManager:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         student_model_config = getattr(self.student_model, 'config', None)
         if student_model_config and hasattr(self.tokenizer, 'pad_token_id'):
             student_model_config.pad_token_id = self.tokenizer.pad_token_id
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
     def _load_teacher_model(self) -> None:
@@ -89,13 +87,11 @@ class KnowledgeDistillationManager:
         print(f"Starting knowledge distillation for model '{model_id}'...")
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # `AutoModelForCausalLM`は`nn.Module`を継承しているので、型チェックはパスするはず
-        teacher_module: Optional[nn.Module] = self.teacher_model
         final_metrics = self.trainer.train(
             train_loader=train_loader,
             val_loader=val_loader,
             epochs=epochs,
-            teacher_model=teacher_module
+            teacher_model=cast(Optional[nn.Module], self.teacher_model)
         )
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
