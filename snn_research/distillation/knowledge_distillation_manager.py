@@ -1,112 +1,121 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
 # Title: 知識蒸留マネージャー
-# Description: 知識蒸留プロセス全体を統括するクラス。
-#              - 教師モデルの選択
-#              - データセットの準備
-#              - 生徒モデル（SNN）の訓練
-#              - 訓練済みモデルのレジストリへの登録
-#              mypyエラー修正: 最終的な型互換性エラーをキャストで解決。
+# Description: 教師モデルから生徒モデルへの知識蒸留プロセス全体を管理・実行するクラス。
+# mypyエラー修正: 存在しない`get`メソッド呼び出しを修正。
+# mypyエラー修正: register_modelの引数をキーワード引数に変更。
 
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from tqdm import tqdm  # type: ignore
-from typing import Dict, Any, Optional, cast
+from torch.utils.data import DataLoader
+from transformers import PreTrainedModel, PreTrainedTokenizer
+from typing import Dict, Any, Optional
+import asyncio
+import os
+from tqdm import tqdm
 
-from snn_research.core.snn_core import BreakthroughSNN
 from snn_research.training.trainers import DistillationTrainer
 from snn_research.distillation.model_registry import ModelRegistry
-import asyncio
+from snn_research.benchmark.metrics import calculate_perplexity, calculate_energy_consumption
 
 class KnowledgeDistillationManager:
-    """知識蒸留プロセスを管理するクラス。"""
+    """
+    知識蒸留プロセスを統括するマネージャークラス。
+    """
     def __init__(
         self,
-        student_model: BreakthroughSNN,
-        trainer: DistillationTrainer,
-        teacher_model_name: str,
-        tokenizer_name: str,
+        teacher_model: PreTrainedModel,
+        student_model: torch.nn.Module,
+        tokenizer: PreTrainedTokenizer,
+        distillation_trainer: DistillationTrainer,
         model_registry: ModelRegistry,
-        device: str = "cpu"
+        device: str
     ):
+        self.teacher_model = teacher_model.to(device)
         self.student_model = student_model.to(device)
-        self.trainer = trainer
-        self.teacher_model_name = teacher_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = tokenizer
+        self.distillation_trainer = distillation_trainer
         self.model_registry = model_registry
         self.device = device
-        self.teacher_model: Optional[AutoModelForCausalLM] = None
-        
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        student_model_config = getattr(self.student_model, 'config', None)
-        if student_model_config and hasattr(self.tokenizer, 'pad_token_id'):
-            student_model_config.pad_token_id = self.tokenizer.pad_token_id
 
-
-    def _load_teacher_model(self) -> None:
-        """教師モデルをロードする。"""
-        print(f"Loading teacher model: {self.teacher_model_name}...")
-        self.teacher_model = AutoModelForCausalLM.from_pretrained(self.teacher_model_name).to(self.device)
-        if hasattr(self.teacher_model, 'eval'):
-            self.teacher_model.eval()
-        print("Teacher model loaded successfully.")
-
-    def prepare_dataset(self, texts: list[str], max_length: int, batch_size: int) -> DataLoader:
-        """教師モデルのロジットをラベルとしてデータセットを準備する。"""
-        if self.teacher_model is None:
-            self._load_teacher_model()
-        
-        assert self.teacher_model is not None, "Teacher model is not loaded."
-
-        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
-        input_ids = inputs["input_ids"].to(self.device)
-        attention_mask = inputs["attention_mask"].to(self.device)
-
-        print("Generating teacher logits...")
-        with torch.no_grad():
-            outputs = cast(Any, self.teacher_model)(input_ids=input_ids, attention_mask=attention_mask)
-            teacher_logits = outputs.logits.detach()
-        print("Teacher logits generated.")
-        
-        dataset = TensorDataset(input_ids, attention_mask, teacher_logits)
-        return DataLoader(dataset, batch_size=batch_size)
-
-    def run_distillation(
+    async def run_distillation(
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
         epochs: int,
         model_id: str,
         task_description: str,
-        student_config: Dict[str, Any]
-    ) -> str:
-        """蒸留プロセスを実行し、訓練済みモデルを登録する。"""
-        print(f"Starting knowledge distillation for model '{model_id}'...")
+        save_path: str
+    ) -> Dict[str, Any]:
+        """
+        知識蒸留の全プロセスを実行し、学習済みモデルを登録する。
+        """
+        print(f"--- Starting Knowledge Distillation for model: {model_id} ---")
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        final_metrics = self.trainer.train(
+        # 1. 知識蒸留の実行
+        print("Step 1: Running distillation training...")
+        final_metrics = self.distillation_trainer.train(
             train_loader=train_loader,
             val_loader=val_loader,
             epochs=epochs,
-            teacher_model=cast(Optional[nn.Module], self.teacher_model)
+            teacher_model=self.teacher_model
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        
-        output_dir = f"runs/distilled_models/{model_id}"
-        torch.save(self.student_model.state_dict(), f"{output_dir}/pytorch_model.bin")
-        self.tokenizer.save_pretrained(output_dir)
-        
-        print(f"Distillation finished. Model saved to {output_dir}")
-        
-        asyncio.run(self.model_registry.register_model(
+        print("Distillation training finished.")
+
+        # 2. モデルの評価
+        print("Step 2: Evaluating the distilled model...")
+        evaluation_results = await self.evaluate_model(val_loader)
+        final_metrics.update(evaluation_results)
+        print(f"Evaluation finished. Metrics: {final_metrics}")
+
+        # 3. モデルの保存
+        print(f"Step 3: Saving the model to {save_path}...")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        torch.save(self.student_model.state_dict(), save_path)
+        print("Model saved.")
+
+        # 4. モデルレジストリへの登録
+        print("Step 4: Registering the model...")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        await self.model_registry.register_model(
             model_id=model_id,
             task_description=task_description,
-            model_path=output_dir,
             metrics=final_metrics,
-            config=student_config
-        ))
+            model_path=save_path,
+            config=self.student_model.config.to_dict() if hasattr(self.student_model, 'config') else {}
+        )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        print(f"Model '{model_id}' successfully registered.")
         
-        return output_dir
+        print("--- Knowledge Distillation Finished ---")
+        return {"model_id": model_id, "metrics": final_metrics, "path": save_path}
+
+    async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
+        """
+        蒸留済みモデルの性能を評価する。
+        """
+        self.student_model.eval()
+        total_spikes = 0
+        total_samples = 0
+        
+        # 簡易的な評価ループ
+        progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
+        for batch in progress_bar:
+            inputs, _, _ = batch
+            inputs = inputs.to(self.device)
+            
+            with torch.no_grad():
+                _, spikes, _ = self.student_model(inputs, return_spikes=True)
+            
+            total_spikes += spikes.sum().item()
+            total_samples += inputs.size(0)
+
+        avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
+        
+        # TODO: より正確なパープレキシティとエネルギー消費の計算
+        perplexity = calculate_perplexity(self.student_model, dataloader, self.device)
+        energy = calculate_energy_consumption(avg_spikes_per_sample)
+
+        return {
+            "perplexity": perplexity,
+            "avg_spikes_per_sample": avg_spikes_per_sample,
+            "estimated_energy_consumption": energy
+        }

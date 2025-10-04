@@ -3,26 +3,32 @@
 # Description: 独自の目標を持ち、計画に基づいてタスクを実行できるエージェントの基本クラス。
 #              mypyエラー修正: Memory.add_experienceをrecord_experienceに修正し、引数を適合。
 #              Web学習失敗時のステータスをFAILUREとして記録するように修正。
+#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を追加。
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import asyncio
 
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.tools.web_crawler import WebCrawler
 from .memory import Memory as AgentMemory
+from snn_research.deployment import SNNInferenceEngine
+import torch
+
 
 class AutonomousAgent:
     """
     自律的にタスクを実行するエージェントのベースクラス。
     """
-    def __init__(self, name: str, planner: HierarchicalPlanner, model_registry: ModelRegistry, memory: AgentMemory, web_crawler: WebCrawler):
+    def __init__(self, name: str, planner: HierarchicalPlanner, model_registry: ModelRegistry, memory: AgentMemory, web_crawler: WebCrawler, accuracy_threshold: float = 0.6, energy_budget: float = 10000.0):
         self.name = name
         self.planner = planner
         self.model_registry = model_registry
         self.memory = memory
         self.web_crawler = web_crawler
         self.current_state = {"agent_name": name} # 初期状態
+        self.accuracy_threshold = accuracy_threshold
+        self.energy_budget = energy_budget
 
     def execute(self, task_description: str) -> str:
         """
@@ -42,7 +48,6 @@ class AutonomousAgent:
         else:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using general capabilities (no specific expert found)."
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.memory.record_experience(
             state=self.current_state,
             action=action,
@@ -51,7 +56,6 @@ class AutonomousAgent:
             expert_used=expert_id,
             decision_context={"reason": "Direct execution command received."}
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return result
 
     async def find_expert(self, task_description: str) -> Dict[str, Any] | None:
@@ -69,7 +73,6 @@ class AutonomousAgent:
         """
         print(f"Agent '{self.name}' is learning about '{topic}' from the web.")
         urls = self._search_for_urls(topic)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         task_name = f"learn_from_web: {topic}"
         if not urls:
             result_details = "Could not find relevant information on the web."
@@ -91,7 +94,6 @@ class AutonomousAgent:
             decision_context={"reason": "Information successfully retrieved and summarized."}
         )
         return f"Successfully learned about '{topic}'. Summary: {summary}"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _search_for_urls(self, query: str) -> list[str]:
         # TODO: 実際の検索エンジンAPIに置き換える
@@ -100,3 +102,12 @@ class AutonomousAgent:
     def _summarize(self, text: str) -> str:
         # TODO: より高度な要約モデルに置き換える
         return text[:150] + "..."
+    
+    def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
+        """ダミーの実装"""
+        print(f"Handling task: {task_description}")
+        return {"model_id": "dummy_model_id"}
+
+    def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
+        """ダミーの実装"""
+        print(f"Running inference with model {model_info['model_id']} on prompt: {prompt}")

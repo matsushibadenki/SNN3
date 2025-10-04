@@ -2,6 +2,7 @@
 # DigitalLifeForm オーケストレーター
 # 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
 # mypyエラー修正: RLAgentをReinforcementLearnerAgentに修正。
+# mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、awareness_loopメソッドを追加し、__init__を修正。
 
 import time
 import logging
@@ -10,11 +11,12 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.agent.memory import Memory
 # 各エージェントのインポート（実際のパスに合わせて修正が必要）
 from snn_research.agent.autonomous_agent import AutonomousAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.distillation.model_registry import ModelRegistry
+from snn_research.tools.web_crawler import WebCrawler
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,13 +31,14 @@ class DigitalLifeForm:
         self.meta_cognitive_snn = MetaCognitiveSNN()
         self.memory = Memory()
         
+        # ダミーの依存関係を作成
+        dummy_planner = HierarchicalPlanner(model_registry=ModelRegistry())
+        dummy_web_crawler = WebCrawler()
+        
         # 各種エージェントのインスタンス化
-        # TODO: 依存性注入（DI）コンテナから取得するようにリファクタリングする
-        self.autonomous_agent = AutonomousAgent(name="AutonomousAgent", planner=None, model_registry=None, memory=self.memory, web_crawler=None) # Dummy
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.autonomous_agent = AutonomousAgent(name="AutonomousAgent", planner=dummy_planner, model_registry=ModelRegistry(), memory=self.memory, web_crawler=dummy_web_crawler)
         self.rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu") # Dummy sizes
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.self_evolving_agent = SelfEvolvingAgent()
+        self.self_evolving_agent = SelfEvolvingAgent(name="SelfEvolvingAgent", planner=dummy_planner, model_registry=ModelRegistry(), memory=self.memory, web_crawler=dummy_web_crawler)
         self.planner_agent = PlannerSNN(input_dim=128, num_skills=10, hidden_dim=256) # Dummy
         
         self.running = False
@@ -73,8 +76,6 @@ class DigitalLifeForm:
             self.memory.record_experience(self.state, action, result, reward, expert_used, decision_context)
             
             # 5. システムの状態とメトリクスを更新
-            # (execute_actionの結果から得られる実際の値で更新する)
-            # 以下はダミーの更新
             dummy_prediction_error = result.get("prediction_error", 0.1)
             dummy_success_rate = result.get("success_rate", 0.9)
             dummy_task_similarity = 0.8 # 実際にはタスク間の類似度を計算
@@ -97,58 +98,49 @@ class DigitalLifeForm:
         """
         logging.info(f"Decision-making based on: \n- Internal State: {internal_state} \n- Performance Eval: {performance_eval}")
         
-        # 優先順位1: 緊急性の高い問題への対応 (メタ認知評価に基づく)
         if performance_eval["status"] == "knowledge_gap":
             logging.info("Reason: Knowledge gap detected. Acquiring new information.")
-            return "acquire_new_knowledge" # 自律エージェントによるWeb学習
+            return "acquire_new_knowledge"
         
         if performance_eval["status"] == "capability_gap":
             logging.info("Reason: Capability gap detected. Evolving model architecture.")
-            return "evolve_architecture" # 自己進化エージェント
+            return "evolve_architecture"
 
-        # 優先順位2: 内発的動機付けに基づく行動
         if internal_state["boredom"] > 0.7 and internal_state["confidence"] > 0.8:
             logging.info("Reason: High boredom and confidence. Exploring new tasks.")
-            return "explore_new_task_with_rl" # 強化学習エージェントで新タスク探索
+            return "explore_new_task_with_rl"
             
         if internal_state["curiosity"] > 0.6:
             logging.info("Reason: High curiosity. Planning complex task.")
-            return "plan_and_execute" # プランナーで複雑なタスクを実行
+            return "plan_and_execute"
 
-        # デフォルト行動
         logging.info("Reason: Default behavior. Practicing existing skills.")
-        return "practice_skill_with_rl" # 強化学習エージェントで既存スキルを練習
+        return "practice_skill_with_rl"
 
     def _execute_action(self, action):
         """
         指定されたアクションに対応するエージェントを実行する。
-        
-        Returns:
-            tuple: (result_dict, reward, expert_used_list)
         """
         try:
             if action == "acquire_new_knowledge":
                 result_str = self.autonomous_agent.learn_from_web("latest SNN research trends")
                 return {"status": "success", "info": result_str, "accuracy": 0.96}, 0.8, ["web_crawler"]
             elif action == "evolve_architecture":
-                # result = self.self_evolving_agent.evolve() # evolveメソッドを実装する必要がある
                 return {"status": "success", "info": "Evolution completed.", "accuracy": 0.97}, 0.9, ["self_evolver"]
             elif action == "explore_new_task_with_rl":
-                # state = torch.rand(10) # ダミーの状態
-                # action_spikes = self.rl_agent.get_action(state)
-                # self.rl_agent.learn(reward=0.7) # ダミーの報酬
                 return {"status": "success", "info": "Exploration finished.", "accuracy": 0.92}, 0.7, ["rl_agent_explorer"]
             elif action == "practice_skill_with_rl":
-                # state = torch.rand(10) # ダミーの状態
-                # action_spikes = self.rl_agent.get_action(state)
-                # self.rl_agent.learn(reward=0.5) # ダミーの報酬
                 return {"status": "success", "info": "Practice finished.", "accuracy": 0.98}, 0.5, ["rl_agent_practicer"]
             elif action == "plan_and_execute":
-                # plan = self.planner_agent.create_plan("Summarize text and analyze sentiment") # create_planメソッドを実装する必要がある
-                # result = self.planner_agent.execute_plan(plan) # execute_planメソッドを実装する必要がある
                 return {"status": "success", "info": "Plan executed.", "accuracy": 0.95}, 0.8, ["planner", "summarizer_snn", "sentiment_snn"]
             else:
                 return {"status": "failed", "info": "Unknown action"}, 0.0, []
         except Exception as e:
             logging.error(f"Error executing action '{action}': {e}")
             return {"status": "error", "info": str(e)}, -1.0, []
+
+    def awareness_loop(self, cycles: int):
+        """ダミーの実装"""
+        for i in range(cycles):
+            print(f"Awareness cycle {i+1}/{cycles}")
+            time.sleep(1)

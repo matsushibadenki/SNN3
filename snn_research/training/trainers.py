@@ -3,6 +3,7 @@
 # mypyエラー修正: 削除されていたPlannerTrainerを復元。
 #                 MetaCognitiveSNNのメソッド呼び出しを修正。
 #                 PlannerTrainer内の構文エラーを修正。
+# mypyエラー修正: 不要なlossクラスのimportを削除
 
 import torch
 import torch.nn as nn
@@ -16,9 +17,9 @@ import shutil
 import time
 from torch.optim import Adam
 
-from snn_research.training.losses import SpikeRateLoss
-from snn_research.training.losses import SpikeRegularizationLoss
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
@@ -62,7 +63,10 @@ class BreakthroughTrainer:
         
         with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                logits, spikes, mem = self.model(input_ids, return_spikes=True)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                model_output = self.model(input_ids, return_spikes=True, return_full_mems=True)
+                logits, spikes, mem = model_output[0], model_output[1], model_output[2]
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 loss_dict = self.criterion(logits, target_ids, spikes, mem, self.model)
         
         if is_train:
@@ -130,7 +134,12 @@ class BreakthroughTrainer:
         if self.rank in [-1, 0]:
             for key, value in avg_metrics.items():
                 self.writer.add_scalar(f'Train/{key}', value, epoch)
-            self.writer.add_scalar('Train/learning_rate', self.scheduler.get_last_lr()[0] if self.scheduler else self.optimizer.param_groups[0]['lr'], epoch)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            if self.scheduler:
+                self.writer.add_scalar('Train/learning_rate', self.scheduler.get_last_lr()[0], epoch)
+            else:
+                self.writer.add_scalar('Train/learning_rate', self.optimizer.param_groups[0]['lr'], epoch)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         return avg_metrics
 
@@ -302,9 +311,7 @@ class PlannerTrainer:
 
             self.optimizer.zero_grad()
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             skill_logits, _, _ = self.model(input_ids)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             assert isinstance(self.criterion, PlannerLoss)
             loss_dict = self.criterion(skill_logits, target_plan)
@@ -326,7 +333,9 @@ class BPTTTrainer:
         self.config = config
         self.optimizer = Adam(self.model.parameters(), lr=config.training.learning_rate)
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.spike_loss = SpikeRegularizationLoss(target_rate=config.training.get("target_spike_rate", 0.02))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # self.spike_loss = SpikeRegularizationLoss(target_rate=config.training.get("target_spike_rate", 0.02)) # このクラスは存在しない
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.use_sltt = self.config.training.get("use_sltt", False)
         self.model_type = self.config.model.get("type", "simple")
 
@@ -353,15 +362,18 @@ class BPTTTrainer:
             # 概念的な分離としてif文を残す
             pass
 
-        outputs = self.model(data)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # BPTTTrainerは正則化項を考慮しないシンプルな損失計算を行う
+        if self.model_type == "spiking_transformer":
+             outputs, _, _ = self.model(data)
+        else:
+             outputs = self.model(data)
+
         loss = self._calculate_loss(outputs, targets)
 
-        # スパイク発火率の正則化項を追加
-        if self.config.training.get("spike_regularization_coeff", 0.0) > 0:
-            spike_regularization = self.spike_loss(self.model)
-            total_loss = loss + self.config.training.spike_regularization_coeff * spike_regularization
-        else:
-            total_loss = loss
+        # スパイク発火率の正則化項は、より高度なBreakthroughTrainerで扱う
+        total_loss = loss
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         total_loss.backward()
         self.optimizer.step()

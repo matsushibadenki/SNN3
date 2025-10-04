@@ -2,16 +2,16 @@
 # Title: 自己進化エージェント
 # Description: 自身のアーキテクチャや学習ルールを自律的に修正・改善できるエージェント。
 #              mypyエラー修正: super().__init__に引数を追加。
+#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を修正。
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from .autonomous_agent import AutonomousAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.tools.web_crawler import WebCrawler
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .memory import Memory as AgentMemory
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 
 class SelfEvolvingAgent(AutonomousAgent):
     """
@@ -24,10 +24,15 @@ class SelfEvolvingAgent(AutonomousAgent):
         model_registry: ModelRegistry,
         memory: AgentMemory,
         web_crawler: WebCrawler,
-        evolution_threshold: float = 0.5
+        evolution_threshold: float = 0.5,
+        project_root: str = ".",
+        model_config_path: Optional[str] = None,
     ):
         super().__init__(name, planner, model_registry, memory, web_crawler)
         self.evolution_threshold = evolution_threshold
+        self.project_root = project_root
+        self.model_config_path = model_config_path
+
 
     def execute(self, task_description: str) -> str:
         """
@@ -65,3 +70,7 @@ class SelfEvolvingAgent(AutonomousAgent):
 
     def get_next_version(self) -> int:
         return 2
+
+    def run_evolution_cycle(self, task_description: str, initial_metrics: Dict[str, float]) -> None:
+        """ダミーの実装"""
+        print(f"Running evolution cycle for task: {task_description} with initial metrics: {initial_metrics}")

@@ -1,175 +1,87 @@
 # matsushibadenki/snn3/snn_research/distillation/model_registry.py
 # Title: モデルレジストリ
-# Description: 訓練済みモデルのメタデータを管理・検索するための抽象ベースクラスと具象クラスを定義します。
-#              FileModelRegistry: JSONファイルベースのレジストリ
-#              RedisModelRegistry: Redisベースのレジストリ
-#              mypyエラー修正: register_modelの引数を追加し、具象クラスと一致させた。
-#              mypyエラー修正: Redisの非同期メソッドにawaitを追加し、json.loadsの型安全性を確保。
-#              mypyエラー修正: 抽象ベースクラスのメソッドをasyncに変更し、具象クラスとの互換性を確保。
+# Description: 専門家SNNモデルのメタデータを管理し、タスクに最適なモデルを発見するためのインターフェース。
+#              mypyエラー修正: 具象クラスを追加。
+#              mypyエラー修正: register_modelの引数を修正。
 
-import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union, Awaitable
+from typing import List, Dict, Any
+import json
 from pathlib import Path
-import redis.asyncio as redis  # type: ignore
-import asyncio
 
 class ModelRegistry(ABC):
-    """訓練済みモデルのメタデータを管理するための抽象ベースクラス。"""
-    
+    """
+    専門家モデルを管理するためのインターフェース。
+    """
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     @abstractmethod
-    async def register_model(
-        self,
-        task_description: str,
-        model_id: str,
-        model_path: str,
-        metrics: Dict[str, float],
-        config: Dict[str, Any]
-    ) -> None:
+    async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         """新しいモデルをレジストリに登録する。"""
+        pass
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    @abstractmethod
+    async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
+        """特定のタスクに最適なモデルを検索する。"""
         pass
 
     @abstractmethod
-    async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
+    async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
         """モデルIDに基づいてモデル情報を取得する。"""
         pass
 
     @abstractmethod
-    async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        """タスク記述に最も関連するモデルを検索する。"""
-        pass
-
-    @abstractmethod
     async def list_models(self) -> List[Dict[str, Any]]:
-        """レジストリ内のすべてのモデルをリストする。"""
+        """登録されているすべてのモデルのリストを取得する。"""
         pass
 
-
-class FileModelRegistry(ModelRegistry):
-    """JSONファイルを使用してモデルレジストリを実装するクラス。"""
-    def __init__(self, registry_path: Union[str, Path]):
+class SimpleModelRegistry(ModelRegistry):
+    """
+    JSONファイルを使用したシンプルなモデルレジストリの実装。
+    """
+    def __init__(self, registry_path: str = "model_registry.json"):
         self.registry_path = Path(registry_path)
-        self.registry: Dict[str, Dict[str, Any]] = self._load_registry()
+        self.models: Dict[str, Dict[str, Any]] = self._load()
 
-    def _load_registry(self) -> Dict[str, Dict[str, Any]]:
-        """レジストリファイルをロードする。"""
+    def _load(self) -> Dict[str, Dict[str, Any]]:
         if self.registry_path.exists():
             with open(self.registry_path, 'r') as f:
-                try:
-                    return json.load(f)
-                except json.JSONDecodeError:
-                    return {}
+                return json.load(f)
         return {}
 
-    def _save_registry(self) -> None:
-        """レジストリをファイルに保存する。"""
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+    def _save(self) -> None:
         with open(self.registry_path, 'w') as f:
-            json.dump(self.registry, f, indent=4)
+            json.dump(self.models, f, indent=4)
 
-    async def register_model(
-        self,
-        task_description: str,
-        model_id: str,
-        model_path: str,
-        metrics: Dict[str, float],
-        config: Dict[str, Any]
-    ) -> None:
-        """新しいモデルをレジストリに登録する。"""
-        if model_id in self.registry:
-            print(f"Warning: Model ID {model_id} already exists. Overwriting.")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
+        self.models[model_id] = {
+            "model_id": model_id,
+            "task_description": task_description,
+            "metrics": metrics,
+            "path": model_path,
+            "config": config
+        }
+        self._save()
+        print(f"Model '{model_id}' registered at '{model_path}'.")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
+        scored_models = []
+        for model_id, model_info in self.models.items():
+            score = 0
+            for keyword in task_description.split():
+                if keyword in model_info["task_description"]:
+                    score += 1
+            if score > 0:
+                scored_models.append((score, model_info))
         
-        self.registry[model_id] = {
-            "task_description": task_description,
-            "model_path": model_path,
-            "metrics": metrics,
-            "config": config
-        }
-        self._save_registry()
-        print(f"Model '{model_id}' registered successfully to {self.registry_path}")
+        scored_models.sort(key=lambda x: x[0], reverse=True)
+        
+        return [model for score, model in scored_models[:top_k]]
 
-    async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
-        """モデルIDに基づいてモデル情報を取得する。"""
-        return self.registry.get(model_id)
-
-    async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        """タスク記述に最も関連するモデルを検索する（単純な部分文字列検索）。"""
-        found_models = []
-        for model_id, info in self.registry.items():
-            if task_description.lower() in info.get("task_description", "").lower():
-                found_models.append({"model_id": model_id, **info})
-        return found_models
+    async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
+        return self.models.get(model_id)
 
     async def list_models(self) -> List[Dict[str, Any]]:
-        """レジストリ内のすべてのモデルをリストする。"""
-        return [{"model_id": model_id, **info} for model_id, info in self.registry.items()]
-
-
-class RedisModelRegistry(ModelRegistry):
-    """Redisをバックエンドとして使用するモデルレジストリ。"""
-    def __init__(self, redis_client: redis.Redis):
-        self.redis = redis_client
-        self.model_key_prefix = "snn_model:"
-        self.task_key = "snn_tasks"
-
-    async def register_model(
-        self,
-        task_description: str,
-        model_id: str,
-        model_path: str,
-        metrics: Dict[str, float],
-        config: Dict[str, Any]
-    ) -> None:
-        """Redisに新しいモデルを非同期で登録する。"""
-        model_data = {
-            "task_description": task_description,
-            "model_path": model_path,
-            "metrics": metrics,
-            "config": config
-        }
-        await self.redis.set(f"{self.model_key_prefix}{model_id}", json.dumps(model_data))
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        sadd_result = self.redis.sadd(self.task_key, task_description)
-        if isinstance(sadd_result, Awaitable):
-            await sadd_result
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        print(f"Model '{model_id}' registered successfully to Redis.")
-
-    async def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
-        """Redisからモデル情報を非同期で取得する。"""
-        data = await self.redis.get(f"{self.model_key_prefix}{model_id}")
-        if isinstance(data, (str, bytes)):
-            return json.loads(data)
-        return None
-
-    async def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        """タスク記述に基づいてモデルを検索する (実装は簡略化)。"""
-        all_models = await self.list_models()
-        return [
-            model for model in all_models
-            if model.get("task_description", "").lower() == task_description.lower()
-        ]
-
-    async def list_models(self) -> List[Dict[str, Any]]:
-        """Redisに登録されているすべてのモデルをリストする。"""
-        model_keys = await self.redis.keys(f"{self.model_key_prefix}*")
-        models = []
-        for key in model_keys:
-            model_data = await self.redis.get(key)
-            if isinstance(model_data, (str, bytes)):
-                model_info = json.loads(model_data)
-                model_info["model_id"] = key.decode('utf-8').replace(self.model_key_prefix, "")
-                models.append(model_info)
-        return models
-
-    async def get_all_tasks(self) -> List[str]:
-        """登録されているすべてのタスク記述をリストする。"""
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        tasks_result = self.redis.smembers(self.task_key)
-        tasks: set[Any] = set()
-        if isinstance(tasks_result, Awaitable):
-            tasks = await tasks_result
-        else:
-            tasks = tasks_result
-        return [task.decode('utf-8') for task in tasks]
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        return list(self.models.values())

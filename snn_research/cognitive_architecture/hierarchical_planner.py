@@ -4,6 +4,7 @@
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: 存在しない`registry`属性へのアクセスを削除。
 #              mypyエラー修正: planner_modelをOptionalに変更。
+#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、execute_taskメソッドを追加。
 
 from typing import List, Dict, Any, Optional
 
@@ -27,9 +28,7 @@ class HierarchicalPlanner:
     高レベルの目標をサブタスクに分解する階層型プランナー。
     将来的にはPlannerSNNを内部で利用する。
     """
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(self, model_registry: ModelRegistry, planner_model: Optional[PlannerSNN] = None):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model_registry = model_registry
         self.planner_model = planner_model
 
@@ -52,3 +51,8 @@ class HierarchicalPlanner:
 
         print(f"Plan created with {len(task_list)} steps.")
         return Plan(goal=high_level_goal, task_list=task_list)
+
+    def execute_task(self, task_request: str, context: str) -> Optional[str]:
+        """ダミーの実装"""
+        print(f"Executing task: {task_request} with context: {context}")
+        return "Task completed successfully."

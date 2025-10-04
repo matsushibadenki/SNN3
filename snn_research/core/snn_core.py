@@ -6,6 +6,7 @@
 # - STAttenBlock: 空間と時間の両方を考慮するアテンションブロック。
 # - SpikingTransformer: 新しい最先端モデルとして、STAttenBlockを統合。
 # - mypyエラー修正: SpikingTransformer.forwardの戻り値の型をtorch.Tensorに統一。
+# - mypyエラー修正: SpikingTransformerの重複定義を解消。
 
 import torch
 import torch.nn as nn
@@ -15,7 +16,9 @@ from typing import Tuple, Dict, Any, Optional, List, Type
 import math
 from omegaconf import DictConfig
 from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
-from snn_research.models.spiking_transformer import SpikingTransformer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from snn_research.models.spiking_transformer import SpikingTransformer # 重複するためコメントアウト
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 # --- ニューロンモデル ---
@@ -272,7 +275,7 @@ class STAttenBlock(nn.Module):
 
 class SpikingTransformer(nn.Module):
     """時間価値を最大化する、空間時間アテンションを備えたSpiking Transformer。"""
-    def __init__(self, vocab_size: int, d_model: int, n_head: int, num_layers: int, time_steps: int, **kwargs):
+    def __init__(self, vocab_size: int, d_model: int, n_head: int, num_layers: int, time_steps: int, **kwargs: Any):
         super().__init__()
         self.d_model = d_model
         self.time_steps = time_steps
@@ -293,7 +296,6 @@ class SpikingTransformer(nn.Module):
         # SpikingJellyに準拠し、時間軸を先頭に
         x = x.unsqueeze(0).repeat(self.time_steps, 1, 1, 1)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         total_spikes = torch.tensor(0.0, device=x.device)
         
         for layer in self.layers:
@@ -370,5 +372,5 @@ class SNNCore(nn.Module):
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        return self.model(*args, **kwargs)
