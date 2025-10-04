@@ -2,6 +2,7 @@
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
 # mypyエラー修正: 削除されていたPlannerTrainerを復元。
 #                 MetaCognitiveSNNのメソッド呼び出しを修正。
+#                 PlannerTrainer内の構文エラーを修正。
 
 import torch
 import torch.nn as nn
@@ -74,12 +75,9 @@ class BreakthroughTrainer:
             
             if self.astrocyte_network:
                 self.astrocyte_network.step()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if self.meta_cognitive_snn:
                 end_time = time.time()
                 computation_time = end_time - start_time
-                # _run_stepの戻り値がdict['accuracy']を持つことを確認する必要がある
-                # そのため、先にaccuracyを計算する
                 with torch.no_grad():
                     preds = torch.argmax(logits, dim=-1)
                     if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
@@ -94,10 +92,9 @@ class BreakthroughTrainer:
                     computation_time=computation_time,
                     accuracy=loss_dict.get('accuracy', 0.0)
                 )
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.no_grad():
-            if 'accuracy' not in loss_dict: # is_train=Falseの場合
+            if 'accuracy' not in loss_dict:
                 preds = torch.argmax(logits, dim=-1)
                 if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
                     ignore_idx = self.criterion.ce_loss_fn.ignore_index
@@ -298,7 +295,9 @@ class PlannerTrainer:
 
             self.optimizer.zero_grad()
             
-            skill_logits, _, _ = self.model(input_`ids)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            skill_logits, _, _ = self.model(input_ids)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             assert isinstance(self.criterion, PlannerLoss)
             loss_dict = self.criterion(skill_logits, target_plan)
