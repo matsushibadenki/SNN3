@@ -1,6 +1,5 @@
 # snn_research/distillation/model_registry.py
 # モデルレジストリ：学習済みモデルの管理
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import json
 import os
 from abc import ABC, abstractmethod
@@ -138,36 +137,36 @@ class RedisModelRegistry(ModelRegistry):
         model_id = model_info['model_id']
         key = self._get_key(model_id)
         self.redis.set(key, json.dumps(model_info))
-        # インデックス作成のためにタスク説明を持つセットにも追加
+
         if 'task_description' in model_info:
-            self.redis.sadd(f"{self.prefix}:task_index:{model_info['task_description']}", model_id)
+            task_key = f"{self.prefix}:task_index:{model_info['task_description']}"
+            self.redis.sadd(task_key, model_id)
 
     def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         key = self._get_key(model_id)
         model_data = self.redis.get(key)
         if model_data:
-            if isinstance(model_data, bytes):
-                return json.loads(model_data.decode('utf-8'))
-            return json.loads(model_data)
+            data_str = model_data.decode('utf-8') if isinstance(model_data, bytes) else model_data
+            return json.loads(data_str)
         return None
 
     def list_models(self) -> List[Dict[str, Any]]:
-        model_keys = self.redis.keys(f"{self.prefix}:*")
         models = []
-        for key in model_keys:
-            # インデックス用のキーは無視
-            if "task_index" in str(key):
-                continue
-            model_data = self.redis.get(key)
-            if model_data:
-                if isinstance(model_data, bytes):
-                    models.append(json.loads(model_data.decode('utf-8')))
-                else:
-                    models.append(json.loads(model_data))
+        # glob-style patterns like '*' can be inefficient in production on large DBs
+        # Consider using SCAN for iteration without blocking the server
+        for key in self.redis.scan_iter(f"{self.prefix}:*"):
+            key_str = key.decode('utf-8')
+            if "task_index" not in key_str:
+                model_data = self.redis.get(key)
+                if model_data:
+                    data_str = model_data.decode('utf-8') if isinstance(model_data, bytes) else model_data
+                    models.append(json.loads(data_str))
         return models
     
     def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        model_ids = self.redis.smembers(f"{self.prefix}:task_index:{task_description}")
+        task_key = f"{self.prefix}:task_index:{task_description}"
+        model_ids = self.redis.smembers(task_key)
+        
         models = []
         for model_id_bytes in model_ids:
             model_id = model_id_bytes.decode('utf-8')
@@ -175,4 +174,3 @@ class RedisModelRegistry(ModelRegistry):
             if model_info:
                 models.append(model_info)
         return models
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
