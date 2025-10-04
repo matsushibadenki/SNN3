@@ -1,21 +1,25 @@
 # matsushibadenki/snn3/snn_research/cognitive_architecture/__init__.py
 
-from .hierarchical_planner import HierarchicalPlanner
-from .global_workspace import GlobalWorkspace
-from snn_research.agent.memory import Memory
-from .rag_snn import RAGSystem
 from .astrocyte_network import AstrocyteNetwork
-from .emergent_system import EmergentSystem
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .emergent_system import EmergentCognitiveSystem
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .global_workspace import GlobalWorkspace
+from .hierarchical_planner import HierarchicalPlanner
 from .intrinsic_motivation import IntrinsicMotivationSystem
+from .meta_cognitive_snn import MetaCognitiveSNN
 from .physics_evaluator import PhysicsEvaluator
+from .planner_snn import PlannerSNN
+from .rag_snn import RAGSystemSNN
 
 __all__ = [
-    "HierarchicalPlanner", 
-    "GlobalWorkspace", 
-    "Memory", 
-    "RAGSystem",
     "AstrocyteNetwork",
-    "EmergentSystem",
+    "EmergentCognitiveSystem",
+    "GlobalWorkspace",
+    "HierarchicalPlanner",
     "IntrinsicMotivationSystem",
-    "PhysicsEvaluator"
+    "MetaCognitiveSNN",
+    "PhysicsEvaluator",
+    "PlannerSNN",
+    "RAGSystemSNN"
 ]
