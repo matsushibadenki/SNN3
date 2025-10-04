@@ -27,6 +27,9 @@ from .adapters.snn_langchain_adapter import SNNLangChainAdapter
 
 from snn_research.distillation.model_registry import FileModelRegistry, RedisModelRegistry, ModelRegistry
 import redis
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.tools.web_crawler import WebCrawler
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def get_auto_device() -> str:
     """実行環境に最適なデバイスを自動的に選択する。"""
@@ -81,7 +84,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     optimizer = providers.Factory(AdamW, lr=config.training.gradient_based.learning_rate)
     scheduler = providers.Factory(_create_scheduler, optimizer=optimizer, epochs=config.training.epochs, warmup_epochs=config.training.gradient_based.warmup_epochs)
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     standard_loss = providers.Factory(
         CombinedLoss,
         tokenizer=tokenizer,
@@ -100,7 +102,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         mem_reg_weight=config.training.gradient_based.distillation.loss.mem_reg_weight,
         temperature=config.training.gradient_based.distillation.loss.temperature,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     teacher_model = providers.Factory(AutoModelForCausalLM.from_pretrained, pretrained_model_name_or_path=config.training.gradient_based.distillation.teacher_model)
     standard_trainer = providers.Factory(
@@ -120,7 +121,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     ssl_optimizer = providers.Factory(AdamW, lr=config.training.self_supervised.learning_rate)
     ssl_scheduler = providers.Factory(_create_scheduler, optimizer=ssl_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.self_supervised.warmup_epochs)
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     self_supervised_loss = providers.Factory(
         SelfSupervisedLoss,
         tokenizer=tokenizer,
@@ -129,7 +129,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         sparsity_reg_weight=config.training.self_supervised.loss.sparsity_reg_weight,
         mem_reg_weight=config.training.self_supervised.loss.mem_reg_weight,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     self_supervised_trainer = providers.Factory(
         SelfSupervisedTrainer, model=snn_model, optimizer=ssl_optimizer, criterion=self_supervised_loss, scheduler=ssl_scheduler,
@@ -142,7 +141,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     pi_optimizer = providers.Factory(AdamW, lr=config.training.physics_informed.learning_rate)
     pi_scheduler = providers.Factory(_create_scheduler, optimizer=pi_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.physics_informed.warmup_epochs)
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     physics_informed_loss = providers.Factory(
         PhysicsInformedLoss,
         tokenizer=tokenizer,
@@ -150,7 +148,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         spike_reg_weight=config.training.physics_informed.loss.spike_reg_weight,
         mem_smoothness_weight=config.training.physics_informed.loss.mem_smoothness_weight,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     physics_informed_trainer = providers.Factory(
         PhysicsInformedTrainer, model=snn_model, optimizer=pi_optimizer, criterion=physics_informed_loss, scheduler=pi_scheduler,
@@ -194,4 +191,3 @@ class AppContainer(containers.DeclarativeContainer):
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.inference.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
-
