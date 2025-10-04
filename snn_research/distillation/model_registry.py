@@ -1,10 +1,10 @@
 # snn_research/distillation/model_registry.py
 # モデルレジストリ：学習済みモデルの管理
-
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import redis
 
 class ModelRegistry(ABC):
@@ -24,7 +24,7 @@ class ModelRegistry(ABC):
         pass
 
     @abstractmethod
-    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+    def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         """
         指定されたモデルIDの情報を取得する。
 
@@ -32,7 +32,7 @@ class ModelRegistry(ABC):
             model_id (str): 情報を取得するモデルのID。
 
         Returns:
-            Dict[str, Any]: モデルの情報。
+            Optional[Dict[str, Any]]: モデルの情報。見つからない場合はNone。
         """
         pass
 
@@ -43,6 +43,19 @@ class ModelRegistry(ABC):
 
         Returns:
             List[Dict[str, Any]]: すべてのモデル情報のリスト。
+        """
+        pass
+
+    @abstractmethod
+    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+        """
+        特定のタスク説明に一致するモデルを検索する。
+
+        Args:
+            task_description (str): 検索するタスクの説明。
+
+        Returns:
+            List[Dict[str, Any]]: タスク説明に一致するモデル情報のリスト。
         """
         pass
 
@@ -62,7 +75,10 @@ class FileModelRegistry(ModelRegistry):
 
     def _load_registry(self) -> List[Dict[str, Any]]:
         with open(self.registry_path, 'r') as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
 
     def _save_registry(self, registry_data: List[Dict[str, Any]]):
         with open(self.registry_path, 'w') as f:
@@ -74,7 +90,6 @@ class FileModelRegistry(ModelRegistry):
         
         registry_data = self._load_registry()
         
-        # 同じ model_id があれば更新、なければ追加
         model_exists = False
         for i, model in enumerate(registry_data):
             if model.get('model_id') == model_info['model_id']:
@@ -87,15 +102,22 @@ class FileModelRegistry(ModelRegistry):
             
         self._save_registry(registry_data)
 
-    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+    def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         registry_data = self._load_registry()
         for model in registry_data:
             if model.get('model_id') == model_id:
                 return model
-        raise ValueError(f"Model with id '{model_id}' not found.")
+        return None
 
     def list_models(self) -> List[Dict[str, Any]]:
         return self._load_registry()
+
+    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+        registry_data = self._load_registry()
+        return [
+            model for model in registry_data 
+            if model.get("task_description") == task_description
+        ]
 
 
 class RedisModelRegistry(ModelRegistry):
@@ -116,19 +138,41 @@ class RedisModelRegistry(ModelRegistry):
         model_id = model_info['model_id']
         key = self._get_key(model_id)
         self.redis.set(key, json.dumps(model_info))
+        # インデックス作成のためにタスク説明を持つセットにも追加
+        if 'task_description' in model_info:
+            self.redis.sadd(f"{self.prefix}:task_index:{model_info['task_description']}", model_id)
 
-    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+    def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         key = self._get_key(model_id)
         model_data = self.redis.get(key)
         if model_data:
+            if isinstance(model_data, bytes):
+                return json.loads(model_data.decode('utf-8'))
             return json.loads(model_data)
-        raise ValueError(f"Model with id '{model_id}' not found.")
+        return None
 
     def list_models(self) -> List[Dict[str, Any]]:
         model_keys = self.redis.keys(f"{self.prefix}:*")
         models = []
         for key in model_keys:
+            # インデックス用のキーは無視
+            if "task_index" in str(key):
+                continue
             model_data = self.redis.get(key)
             if model_data:
-                models.append(json.loads(model_data))
+                if isinstance(model_data, bytes):
+                    models.append(json.loads(model_data.decode('utf-8')))
+                else:
+                    models.append(json.loads(model_data))
         return models
+    
+    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
+        model_ids = self.redis.smembers(f"{self.prefix}:task_index:{task_description}")
+        models = []
+        for model_id_bytes in model_ids:
+            model_id = model_id_bytes.decode('utf-8')
+            model_info = self.get_model_info(model_id)
+            if model_info:
+                models.append(model_info)
+        return models
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
