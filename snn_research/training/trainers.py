@@ -1,6 +1,7 @@
 # matsushibadenki/snn3/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
 # mypyエラー修正: 削除されていたPlannerTrainerを復元。
+#                 MetaCognitiveSNNのメソッド呼び出しを修正。
 
 import torch
 import torch.nn as nn
@@ -10,6 +11,7 @@ import collections
 from tqdm import tqdm  # type: ignore
 from typing import Tuple, Dict, Any, Optional, cast
 import shutil
+import time
 
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
@@ -42,6 +44,7 @@ class BreakthroughTrainer:
             print(f"✅ TensorBoard logging enabled. Log directory: {log_dir}")
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
+        start_time = time.time()
         if is_train:
             self.model.train()
         else:
@@ -71,17 +74,37 @@ class BreakthroughTrainer:
             
             if self.astrocyte_network:
                 self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if self.meta_cognitive_snn:
-                self.meta_cognitive_snn.monitor_and_modulate(loss_dict['total'].item())
+                end_time = time.time()
+                computation_time = end_time - start_time
+                # _run_stepの戻り値がdict['accuracy']を持つことを確認する必要がある
+                # そのため、先にaccuracyを計算する
+                with torch.no_grad():
+                    preds = torch.argmax(logits, dim=-1)
+                    if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
+                        ignore_idx = self.criterion.ce_loss_fn.ignore_index
+                        mask = target_ids != ignore_idx
+                        num_masked_elements = cast(torch.Tensor, mask).sum()
+                        accuracy = (preds[mask] == target_ids[mask]).float().sum() / num_masked_elements if num_masked_elements > 0 else torch.tensor(0.0)
+                        loss_dict['accuracy'] = accuracy.item()
+                
+                self.meta_cognitive_snn.update_metadata(
+                    loss=loss_dict['total'].item(),
+                    computation_time=computation_time,
+                    accuracy=loss_dict.get('accuracy', 0.0)
+                )
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.no_grad():
-            preds = torch.argmax(logits, dim=-1)
-            if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
-                ignore_idx = self.criterion.ce_loss_fn.ignore_index
-                mask = target_ids != ignore_idx
-                num_masked_elements = cast(torch.Tensor, mask).sum()
-                accuracy = (preds[mask] == target_ids[mask]).float().sum() / num_masked_elements if num_masked_elements > 0 else torch.tensor(0.0)
-                loss_dict['accuracy'] = accuracy
+            if 'accuracy' not in loss_dict: # is_train=Falseの場合
+                preds = torch.argmax(logits, dim=-1)
+                if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
+                    ignore_idx = self.criterion.ce_loss_fn.ignore_index
+                    mask = target_ids != ignore_idx
+                    num_masked_elements = cast(torch.Tensor, mask).sum()
+                    accuracy = (preds[mask] == target_ids[mask]).float().sum() / num_masked_elements if num_masked_elements > 0 else torch.tensor(0.0)
+                    loss_dict['accuracy'] = accuracy
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
@@ -258,7 +281,6 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class PlannerTrainer:
     """学習可能プランナーSNNのための専用トレーナー。"""
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
@@ -276,7 +298,7 @@ class PlannerTrainer:
 
             self.optimizer.zero_grad()
             
-            skill_logits, _, _ = self.model(input_ids)
+            skill_logits, _, _ = self.model(input_`ids)
             
             assert isinstance(self.criterion, PlannerLoss)
             loss_dict = self.criterion(skill_logits, target_plan)
@@ -286,4 +308,3 @@ class PlannerTrainer:
             self.optimizer.step()
             
             progress_bar.set_postfix({"loss": loss.item()})
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
