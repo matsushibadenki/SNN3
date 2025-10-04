@@ -1,202 +1,140 @@
 # matsushibadenki/snn3/snn_research/deployment.py
-# SNNの実用デプロイメントのための最適化、監視、継続学習システム
-#
-# 変更点:
-# - AdaptiveQuantizationPruningクラスに、具体的なプルーニングと量子化のロジックを実装。
-#   - nn.utils.prune を利用したMagnitudeプルーニングを導入。
-#   - torch.quantization を利用した動的量子化を導入。
-# - SNNInferenceEngineがモデルをロードする際に strict=False を使用するように変更。
-# - mypyエラー解消のため、型ヒントを追加。
-# - 独自Vocabularyを廃止し、Hugging Face Tokenizerを使用するようにSNNInferenceEngineを修正。
-# - `generate` メソッドをストリーミング応答（ジェネレータ）に変更し、逐次的なテキスト生成を可能に。
-# - `stop_sequences` のロジックを改善し、生成テキスト全体に含まれるかをチェックするようにした。
-# - 推論時の総スパイク数を計測し、インスタンス変数 `last_inference_stats` に保存する機能を追加。
-# - [改善] generateメソッドに、Top-KおよびTop-P (Nucleus)サンプリングのデコーディング戦略を追加。
-# - [修正] mypyエラー解消のため、_sample_next_tokenの戻り値をintにキャストし、型ヒントを修正。
+# Title: SNN推論エンジン
+# Description: 訓練済みSNNモデルをロードし、テキスト生成のための推論を実行するクラス。
+#              HuggingFaceの`generate`メソッドに似たインターフェースを提供。
+#              mypyエラー修正: modelの型ヒントをUnionで両対応させた。
 
 import torch
-import torch.nn as nn
-import torch.nn.utils.prune as prune
-import os
-import copy
-import time
-from typing import Dict, Any, List, Optional, Iterator
-from enum import Enum
-from dataclasses import dataclass
-from transformers import AutoTokenizer
-import torch.nn.functional as F
+import json
+from pathlib import Path
+from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
+from typing import Iterator, Optional, Dict, Any, List, Union
 
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
 
-# --- SNN 推論エンジン ---
 class SNNInferenceEngine:
-    """SNNモデルでテキスト生成を行う推論エンジン"""
-    def __init__(self, model_path: str, device: str):
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"モデルファイルが見つかりません: {model_path}")
-
-        self.model_path = model_path
-        self.device = torch.device(device)
-        checkpoint = torch.load(model_path, map_location=self.device)
+    """訓練済みSNNモデルの推論を実行するエンジン。"""
+    def __init__(self, model_path: str, device: str = "cpu"):
+        self.device = device
+        self.model_path = Path(model_path)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.model: Union[BreakthroughSNN, SpikingTransformer]
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.tokenizer: AutoTokenizer
+        self.config: Dict[str, Any]
+        self._load_model()
         
-        if 'config' in checkpoint:
-            self.config: Dict[str, Any] = checkpoint['config']
-            tokenizer_name = checkpoint.get('tokenizer_name', 'gpt2')
-        else:
-            print("⚠️ 古い形式のチェックポイントです。デフォルト設定を使用します。")
-            self.config = {'architecture_type': 'predictive_coding', 'd_model': 128, 'd_state': 64, 'num_layers': 4, 'time_steps': 20, 'n_head': 2}
-            tokenizer_name = 'gpt2'
-
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        # モデルのアーキテクチャに応じてインスタンス化を分岐
-        architecture_type = self.config.get('architecture_type', 'predictive_coding')
-        
-        # モデルのコンストラクタに渡す引数をフィルタリング
-        model_kwargs = self.config.copy()
-        model_kwargs.pop('path', None)
-        model_kwargs.pop('architecture_type', None)
-        
-        if architecture_type == 'spiking_transformer':
-            # SpikingTransformerに不要な引数を削除
-            model_kwargs.pop('d_state', None)
-            model_kwargs.pop('neuron', None) # SpikingTransformerは内部でニューロンを定義
-            self.model = SpikingTransformer(vocab_size=self.tokenizer.vocab_size, **model_kwargs).to(self.device)
-        
-        elif architecture_type == 'predictive_coding':
-            # BreakthroughSNNの引数名を調整
-            if 'neuron' in model_kwargs:
-                model_kwargs['neuron_config'] = model_kwargs.pop('neuron')
-            self.model = BreakthroughSNN(vocab_size=self.tokenizer.vocab_size, **model_kwargs).to(self.device)
-        
-        else:
-            raise ValueError(f"サポートされていないアーキテクチャタイプです: {architecture_type}")
-
-        self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-        self.model.eval()
         self.last_inference_stats: Dict[str, Any] = {}
 
-    def _sample_next_token(self, logits: torch.Tensor, top_k: int, top_p: float, temperature: float) -> int:
-        """Top-K, Top-Pサンプリングを用いて次のトークンを決定する"""
-        logits = logits / temperature
+    def _load_model(self) -> None:
+        """モデルとトークナイザをロードする。"""
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model path does not exist: {self.model_path}")
 
-        if top_k > 0:
-            top_k = min(top_k, logits.size(-1))
-            indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-            logits[indices_to_remove] = -float("Inf")
-
-        if top_p > 0.0:
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        print(f"Loading model from: {self.model_path}...")
+        
+        # config.jsonからアーキテクチャを特定
+        config_path = self.model_path / "config.json"
+        if not config_path.exists():
+            raise FileNotFoundError(f"config.json not found in {self.model_path}")
             
-            sorted_indices_to_remove = cumulative_probs > top_p
-            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-            sorted_indices_to_remove[..., 0] = 0
-
-            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-            logits[indices_to_remove] = -float("Inf")
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
         
-        probs = F.softmax(logits, dim=-1)
-        next_token_id = torch.multinomial(probs, num_samples=1)
-        return int(next_token_id.item())
+        self.config = config_data
+        architecture = config_data.get("architecture_type", "predictive_coding") # デフォルトはBreakthroughSNN
+        
+        model_class = SpikingTransformer if architecture == "spiking_transformer" else BreakthroughSNN
+        
+        # from_pretrainedを使用してモデルをロード
+        # この部分はカスタムPreTrainedModelクラスの `from_pretrained` の実装に依存
+        # ここでは簡略化のため、直接インスタンス化してstate_dictをロードする
+        
+        # 1. モデルのインスタンス化
+        # vocab_sizeなどの必須パラメータをconfigから取得
+        # vocab_sizeがconfigになければ、tokenizer_config.jsonから取得
+        tokenizer_config_path = self.model_path / "tokenizer_config.json"
+        if 'vocab_size' not in config_data and tokenizer_config_path.exists():
+            with open(tokenizer_config_path, 'r') as f:
+                tokenizer_config = json.load(f)
+                config_data['vocab_size'] = tokenizer_config.get('vocab_size')
 
-    def generate(self, start_text: str, max_len: int, stop_sequences: Optional[List[str]] = None,
-                 top_k: int = 50, top_p: float = 0.95, temperature: float = 0.8) -> Iterator[str]:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # モデルクラスに応じて初期化
+        if model_class == SpikingTransformer:
+            # SpikingTransformerが必要とする引数をconfig_dataから渡す
+            model_instance = SpikingTransformer(
+                vocab_size=config_data['vocab_size'],
+                d_model=config_data['d_model'],
+                n_head=config_data['n_head'],
+                num_layers=config_data['num_layers'],
+                time_steps=config_data['time_steps']
+            )
+        else: # BreakthroughSNN
+            model_instance = BreakthroughSNN(
+                vocab_size=config_data['vocab_size'],
+                d_model=config_data['d_model'],
+                d_state=config_data['d_state'],
+                num_layers=config_data['num_layers'],
+                time_steps=config_data['time_steps'],
+                n_head=config_data['n_head'],
+                neuron_config=config_data.get('neuron')
+            )
+        self.model = model_instance
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        
+        # 2. state_dictのロード
+        model_weights_path = self.model_path / "pytorch_model.bin"
+        if not model_weights_path.exists():
+            raise FileNotFoundError(f"pytorch_model.bin not found in {self.model_path}")
+            
+        self.model.load_state_dict(torch.load(model_weights_path, map_location=self.device))
+        self.model.to(self.device)
+        self.model.eval()
+        
+        # 3. トークナイザのロード
+        self.tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
+        
+        print("Model and tokenizer loaded successfully.")
+
+
+    def generate(
+        self,
+        prompt: str,
+        max_len: int,
+        stop_sequences: Optional[List[str]] = None
+    ) -> Iterator[str]:
         """
-        テキストをストリーミング形式で生成します。
+        プロンプトに基づいてテキストをストリーミング生成する。
         """
-        self.last_inference_stats = {"total_spikes": 0, "total_mem": 0}
-
-        bos_token = self.tokenizer.bos_token or ''
-        prompt_ids = self.tokenizer.encode(f"{bos_token}{start_text}", return_tensors='pt').to(self.device)
+        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
         
-        input_tensor = prompt_ids
-        generated_text = ""
+        total_spikes = 0
         
-        with torch.no_grad():
-            for _ in range(max_len):
-                logits, spikes, mem = self.model(input_tensor)
+        for i in range(max_len):
+            with torch.no_grad():
+                outputs, avg_spikes, _ = self.model(input_ids, return_spikes=True)
+            
+            total_spikes += avg_spikes.item() * input_ids.shape[1]
+            
+            # 最後のトークンのロジットから次のトークンを予測
+            next_token_logits = outputs[:, -1, :]
+            next_token_id = torch.argmax(next_token_logits, dim=-1).unsqueeze(-1)
+            
+            # EOSトークンが出たら終了
+            if next_token_id.item() == self.tokenizer.eos_token_id:
+                break
+            
+            # 生成されたトークンをデコード
+            new_token = self.tokenizer.decode(next_token_id.item())
+            
+            # ストップシーケンスのチェック
+            if stop_sequences and any(seq in new_token for seq in stop_sequences):
+                break
                 
-                if spikes.numel() > 0: self.last_inference_stats["total_spikes"] += spikes.sum().item()
-                if mem.numel() > 0: self.last_inference_stats["total_mem"] += mem.abs().sum().item()
-                
-                next_token_logits = logits[:, -1, :]
-                
-                next_token_id = self._sample_next_token(next_token_logits, top_k, top_p, temperature)
-                
-                if next_token_id == self.tokenizer.eos_token_id:
-                    break
+            yield new_token
+            
+            # 入力を更新
+            input_ids = torch.cat([input_ids, next_token_id], dim=1)
 
-                new_token = self.tokenizer.decode([next_token_id])
-                generated_text += new_token
-                yield new_token
-                
-                if stop_sequences:
-                    if any(stop_seq in generated_text for stop_seq in stop_sequences):
-                        break
-                    
-                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token_id]], device=self.device)], dim=1)
-
-
-# --- ニューロモーフィック デプロイメント機能 ---
-class NeuromorphicChip(Enum):
-    INTEL_LOIHI = "intel_loihi"
-    IBM_TRUENORTH = "ibm_truenorth"
-    GENERIC_EDGE = "generic_edge"
-
-@dataclass
-class NeuromorphicProfile:
-    chip_type: NeuromorphicChip
-    num_cores: int
-    power_budget_mw: float
-
-class AdaptiveQuantizationPruning:
-    """モデルのプルーニングと量子化を適用するクラス。"""
-    def apply_pruning(self, model: nn.Module, pruning_ratio: float):
-        """
-        MagnitudeプルーニングをモデルのLinear層に適用する。
-        """
-        if pruning_ratio <= 0: return
-        print(f"Applying magnitude pruning with ratio: {pruning_ratio}")
-        for module in model.modules():
-            if isinstance(module, nn.Linear):
-                prune.l1_unstructured(module, name="weight", amount=pruning_ratio)
-                prune.remove(module, 'weight')
-    
-    def apply_quantization(self, model: nn.Module, bits: int) -> nn.Module:
-        """
-        動的量子化をモデルに適用する。
-        """
-        if bits >= 32: return model
-        print(f"Applying dynamic quantization to {bits}-bit...")
-        model_to_quantize = copy.deepcopy(model).cpu()
-        quantized_model = torch.quantization.quantize_dynamic(
-            model_to_quantize, {nn.Linear}, dtype=torch.qint8
-        )
-        return quantized_model
-
-class NeuromorphicDeploymentManager:
-    def __init__(self, profile: NeuromorphicProfile):
-        self.profile = profile
-        self.adaptive_compression = AdaptiveQuantizationPruning()
-
-    def deploy_model(self, model: nn.Module, name: str, optimization_target: str = "balanced"):
-        print(f"🔧 ニューロモーフィックデプロイメント開始: {name}")
-        if optimization_target == "balanced": sparsity, bit_width = 0.7, 8
-        elif optimization_target == "ultra_low_power": sparsity, bit_width = 0.9, 8
-        else: sparsity, bit_width = 0.5, 16
-        
-        optimized_model = copy.deepcopy(model)
-        optimized_model.eval()
-        
-        print(f"  - プルーニング適用中 (スパース率: {sparsity})...")
-        self.adaptive_compression.apply_pruning(optimized_model, float(sparsity))
-        
-        print(f"  - 量子化適用中 (ビット幅: {bit_width}-bit)...")
-        optimized_model = self.adaptive_compression.apply_quantization(optimized_model, int(bit_width))
-
-        print(f"✅ デプロイメント完了: {name}")
-        return optimized_model
-
+        self.last_inference_stats = {"total_spikes": total_spikes}
