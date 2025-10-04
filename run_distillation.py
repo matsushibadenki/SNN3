@@ -3,6 +3,7 @@
 #
 # 変更点:
 # - --force_retrain フラグを追加し、モデル登録簿のチェックをスキップできるようにした。
+# - DIコンテナから model_registry を正しく取得するように修正。
 
 import argparse
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
@@ -13,10 +14,6 @@ def main():
     自律的な知識蒸留プロセスを開始します。
     """
     
-    # DIコンテナの初期化
-    container = Container()
-    container.config.from_yaml('configs/base_config.yaml')
-
     parser = argparse.ArgumentParser(
         description="自律的ニューロモーフィック知識蒸留フレームワーク"
     )
@@ -51,6 +48,15 @@ def main():
     )
 
     args = parser.parse_args()
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # DIコンテナの初期化と依存関係の注入
+    container = Container()
+    container.config.from_yaml('configs/base_config.yaml')
+    
+    # コンテナから model_registry インスタンスを取得
+    model_registry = container.model_registry()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     manager = KnowledgeDistillationManager(
         model_registry=model_registry,
