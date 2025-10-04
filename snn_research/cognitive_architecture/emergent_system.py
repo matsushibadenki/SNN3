@@ -2,8 +2,10 @@
 # Title: 創発システム
 # Description: 異なる認知コンポーネント間の相互作用を管理し、創発的な振る舞いを引き出すシステム。
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
+#              mypyエラー修正: 非同期メソッド呼び出しにawaitを追加。
 
 from typing import List
+import asyncio
 from .global_workspace import GlobalWorkspace
 from .hierarchical_planner import HierarchicalPlanner
 from snn_research.agent.autonomous_agent import AutonomousAgent
@@ -19,23 +21,27 @@ class EmergentCognitiveSystem:
         self.planner = planner
         self.agents = {agent.name: agent for agent in agents}
         self.global_workspace = global_workspace
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model_registry = model_registry
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def execute_task(self, high_level_goal: str) -> str:
         """
         高レベルの目標を受け取り、計画、実行、情報統合のサイクルを実行する。
         """
+        return asyncio.run(self.execute_task_async(high_level_goal))
+
+    async def execute_task_async(self, high_level_goal: str) -> str:
+        """非同期でタスク実行サイクルを処理する。"""
         print(f"--- Emergent System: Executing Goal: {high_level_goal} ---")
 
         # 1. 計画
-        plan = self.planner.create_plan(high_level_goal)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        plan = await self.planner.create_plan(high_level_goal)
         self.global_workspace.broadcast("plan", f"New plan created: {plan.task_list}")
 
         # 2. 実行
         results = []
         for task in plan.task_list:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # タスクに最適なエージェントを選択（ここでは簡略化）
             agent_name = task.get("agent", "default_agent")
             agent = self.agents.get(agent_name)
@@ -64,7 +70,6 @@ class EmergentCognitiveSystem:
         """
         各エージェントからの結果を統合し、最終的なレポートを生成する。
         """
-        # ここでは単純に結果を結合するが、将来的には要約SNNなどを利用できる
         report = "Execution Summary:\n"
         for i, res in enumerate(results):
             report += f"- Step {i+1}: {res}\n"
