@@ -4,6 +4,7 @@
 #                 MetaCognitiveSNNのメソッド呼び出しを修正。
 #                 PlannerTrainer内の構文エラーを修正。
 # mypyエラー修正: 不要なlossクラスのimportを削除
+# 改善点: BPTTTrainer内の不要なコードを削除し、役割を明確化。
 
 import torch
 import torch.nn as nn
@@ -325,7 +326,8 @@ class PlannerTrainer:
             
 class BPTTTrainer:
     """
-    BPTT (Backpropagation Through Time) および SLTT を用いたトレーナー。
+    BPTT (Backpropagation Through Time) を用いたシンプルなトレーナー。
+    主に基本的なモデルやアルゴリズムの動作確認を目的とする。
     """
 
     def __init__(self, model: nn.Module, config: DictConfig):
@@ -333,48 +335,38 @@ class BPTTTrainer:
         self.config = config
         self.optimizer = Adam(self.model.parameters(), lr=config.training.learning_rate)
         self.criterion = torch.nn.CrossEntropyLoss()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # self.spike_loss = SpikeRegularizationLoss(target_rate=config.training.get("target_spike_rate", 0.02)) # このクラスは存在しない
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.use_sltt = self.config.training.get("use_sltt", False)
         self.model_type = self.config.model.get("type", "simple")
 
     def _calculate_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """モデルの出力形状に合わせて損失を計算する。"""
         if self.model_type == "spiking_transformer":
-            # outputs: (Batch, Time, Vocab), targets: (Batch, Time)
+            # outputs: (Batch, Seq, Vocab), targets: (Batch, Seq)
             return self.criterion(outputs.reshape(-1, outputs.size(-1)), targets.reshape(-1))
         else: # simple SNN
-            # outputs: (Time, Batch, Vocab), targets: (Batch, Time)
-            # Reshape outputs to (Batch, Time, Vocab)
-            outputs_reshaped = outputs.permute(1, 0, 2)
-            return self.criterion(outputs_reshaped.reshape(-1, outputs_reshaped.size(-1)), targets.reshape(-1))
+            # outputs: (Time, Batch, Vocab), targets: (Batch, Seq)
+            # Reshape outputs to (Batch*Seq, Vocab)
+            T, B, V = outputs.shape
+            S = targets.shape[1]
+            # 時間軸とシーケンス長が一致している必要がある
+            assert T == S, f"Time dimension mismatch: {T} != {S}"
+            return self.criterion(outputs.permute(1, 0, 2).reshape(-1, V), targets.reshape(-1))
 
 
     def train_step(self, data: torch.Tensor, targets: torch.Tensor) -> float:
         """単一の学習ステップを実行する。"""
         self.optimizer.zero_grad()
 
-        # Transformerは再帰的でないため、BPTTとSLTTの区別は実質的にない
-        # このフラグは主に再帰的モデルのためにあるが、ここでは学習ロジックを統一
-        if self.use_sltt:
-            # SLTTの厳密な実装は複雑なため、ここではBPTTと同様の処理を行う
-            # 概念的な分離としてif文を残す
-            pass
-
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # BPTTTrainerは正則化項を考慮しないシンプルな損失計算を行う
+        # モデルのフォワードパス
         if self.model_type == "spiking_transformer":
              outputs, _, _ = self.model(data)
         else:
              outputs = self.model(data)
 
+        # 損失計算
         loss = self._calculate_loss(outputs, targets)
-
-        # スパイク発火率の正則化項は、より高度なBreakthroughTrainerで扱う
-        total_loss = loss
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
-        total_loss.backward()
+        
+        # 勾配計算とパラメータ更新
+        loss.backward()
         self.optimizer.step()
-        return total_loss.item()
+        
+        return loss.item()
