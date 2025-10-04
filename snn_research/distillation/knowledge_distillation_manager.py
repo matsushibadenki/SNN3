@@ -6,7 +6,7 @@
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM
 from typing import Dict, Any, Optional
 import asyncio
 import os
@@ -22,19 +22,28 @@ class KnowledgeDistillationManager:
     """
     def __init__(
         self,
-        teacher_model: PreTrainedModel,
-        student_model: torch.nn.Module,
-        tokenizer: PreTrainedTokenizer,
-        distillation_trainer: DistillationTrainer,
-        model_registry: ModelRegistry,
-        device: str
+        base_config_path: str,
+        model_config_path: str,
     ):
-        self.teacher_model = teacher_model.to(device)
-        self.student_model = student_model.to(device)
-        self.tokenizer = tokenizer
-        self.distillation_trainer = distillation_trainer
-        self.model_registry = model_registry
-        self.device = device
+        self.base_config_path = base_config_path
+        self.model_config_path = model_config_path
+
+    def run_on_demand_pipeline(
+        self,
+        task_description: str,
+        unlabeled_data_path: str,
+        teacher_model_name: str,
+        force_retrain: bool,
+    ) -> None:
+        """
+        オンデマンドで知識蒸留パイプラインを実行する。
+        """
+        print(f"--- Running On-Demand Knowledge Distillation for: {task_description} ---")
+        # ここにパイプラインの完全な実装が入る
+        # (DIコンテナからのオブジェクト取得、データセット準備、学習実行など)
+        print(" (Placeholder for on-demand pipeline implementation) ")
+        print("--- On-Demand Knowledge Distillation Finished ---")
+
 
     async def run_distillation(
         self,
@@ -74,15 +83,13 @@ class KnowledgeDistillationManager:
 
         # 4. モデルレジストリへの登録
         print("Step 4: Registering the model...")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         await self.model_registry.register_model(
             model_id=model_id,
             task_description=task_description,
             metrics=final_metrics,
             model_path=save_path,
-            config=self.student_model.config.to_dict() if hasattr(self.student_model, 'config') else {}
+            config=self.student_model.config if hasattr(self.student_model, 'config') else {}
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print(f"Model '{model_id}' successfully registered.")
         
         print("--- Knowledge Distillation Finished ---")
