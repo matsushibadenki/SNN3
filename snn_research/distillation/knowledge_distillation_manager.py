@@ -5,12 +5,10 @@
 #              - データセットの準備
 #              - 生徒モデル（SNN）の訓練
 #              - 訓練済みモデルのレジストリへの登録
-#              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
-#              mypyエラー修正: register_modelの引数を基底クラスと一致させた。
 #              mypyエラー修正: 型安全性を高めるためのチェックを追加。
-#              mypyエラー修正: 存在しないメソッド呼び出しを修正。
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm  # type: ignore
@@ -44,8 +42,9 @@ class KnowledgeDistillationManager:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        if hasattr(self.student_model, 'config') and hasattr(self.tokenizer, 'pad_token_id'):
-            self.student_model.config.pad_token_id = self.tokenizer.pad_token_id
+        student_model_config = getattr(self.student_model, 'config', None)
+        if student_model_config and hasattr(self.tokenizer, 'pad_token_id'):
+            student_model_config.pad_token_id = self.tokenizer.pad_token_id
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
@@ -53,10 +52,8 @@ class KnowledgeDistillationManager:
         """教師モデルをロードする。"""
         print(f"Loading teacher model: {self.teacher_model_name}...")
         self.teacher_model = AutoModelForCausalLM.from_pretrained(self.teacher_model_name).to(self.device)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if hasattr(self.teacher_model, 'eval'):
             self.teacher_model.eval()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("Teacher model loaded successfully.")
 
     def prepare_dataset(self, texts: list[str], max_length: int, batch_size: int) -> DataLoader:
@@ -92,17 +89,19 @@ class KnowledgeDistillationManager:
         print(f"Starting knowledge distillation for model '{model_id}'...")
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # `AutoModelForCausalLM`は`nn.Module`を継承しているので、型チェックはパスするはず
+        teacher_module: Optional[nn.Module] = self.teacher_model
         final_metrics = self.trainer.train(
             train_loader=train_loader,
             val_loader=val_loader,
             epochs=epochs,
-            teacher_model=self.teacher_model
+            teacher_model=teacher_module
         )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         output_dir = f"runs/distilled_models/{model_id}"
         torch.save(self.student_model.state_dict(), f"{output_dir}/pytorch_model.bin")
         self.tokenizer.save_pretrained(output_dir)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         print(f"Distillation finished. Model saved to {output_dir}")
         
