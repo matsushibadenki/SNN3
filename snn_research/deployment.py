@@ -69,9 +69,7 @@ class SNNInferenceEngine:
                 n_head=config_data['n_head'],
                 neuron_config=config_data.get('neuron')
             )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model = model_instance
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         model_weights_path = self.model_path / "pytorch_model.bin"
         if not model_weights_path.exists():
@@ -96,7 +94,10 @@ class SNNInferenceEngine:
         プロンプトに基づいてテキストをストリーミング生成する。
         """
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        input_ids = self.tokenizer(prompt, return_tensors="pt")["input_ids"].to(self.device)
+        tokenizer_callable = getattr(self.tokenizer, "__call__", None)
+        if not callable(tokenizer_callable):
+            raise TypeError("Tokenizer is not callable.")
+        input_ids = tokenizer_callable(prompt, return_tensors="pt")["input_ids"].to(self.device)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         total_spikes = 0
@@ -110,12 +111,12 @@ class SNNInferenceEngine:
             next_token_logits = outputs[:, -1, :]
             next_token_id = torch.argmax(next_token_logits, dim=-1).unsqueeze(-1)
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if next_token_id.item() == getattr(self.tokenizer, 'eos_token_id', None):
                 break
             
-            new_token = self.tokenizer.decode(next_token_id.item())
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            new_token = getattr(self.tokenizer, "decode")(next_token_id.item())
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             if stop_sequences and any(seq in new_token for seq in stop_sequences):
                 break
