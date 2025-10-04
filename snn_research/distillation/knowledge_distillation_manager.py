@@ -7,16 +7,18 @@
 #              - 訓練済みモデルのレジストリへの登録
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: register_modelの引数を基底クラスと一致させた。
+#              mypyエラー修正: 型安全性を高めるためのチェックを追加。
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm  # type: ignore
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 
 from snn_research.core.snn_core import BreakthroughSNN
 from snn_research.training.trainers import DistillationTrainer
 from snn_research.distillation.model_registry import ModelRegistry
+import asyncio
 
 class KnowledgeDistillationManager:
     """知識蒸留プロセスを管理するクラス。"""
@@ -26,29 +28,34 @@ class KnowledgeDistillationManager:
         trainer: DistillationTrainer,
         teacher_model_name: str,
         tokenizer_name: str,
-        model_registry: ModelRegistry, # 修正: 具象クラスをDI
+        model_registry: ModelRegistry,
         device: str = "cpu"
     ):
         self.student_model = student_model.to(device)
         self.trainer = trainer
         self.teacher_model_name = teacher_model_name
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model_registry = model_registry
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.device = device
         self.teacher_model: Optional[AutoModelForCausalLM] = None
         
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.student_model.config.pad_token_id = self.tokenizer.pad_token_id
+        
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if hasattr(self.student_model, 'config'):
+            self.student_model.config.pad_token_id = self.tokenizer.pad_token_id
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
     def _load_teacher_model(self) -> None:
         """教師モデルをロードする。"""
         print(f"Loading teacher model: {self.teacher_model_name}...")
         self.teacher_model = AutoModelForCausalLM.from_pretrained(self.teacher_model_name).to(self.device)
-        self.teacher_model.eval()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if self.teacher_model:
+            self.teacher_model.eval()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("Teacher model loaded successfully.")
 
     def prepare_dataset(self, texts: list[str], max_length: int, batch_size: int) -> DataLoader:
@@ -64,7 +71,9 @@ class KnowledgeDistillationManager:
 
         print("Generating teacher logits...")
         with torch.no_grad():
-            outputs = self.teacher_model(input_ids=input_ids, attention_mask=attention_mask)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            outputs = cast(Any, self.teacher_model)(input_ids=input_ids, attention_mask=attention_mask)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             teacher_logits = outputs.logits.detach()
         print("Teacher logits generated.")
         
@@ -83,30 +92,28 @@ class KnowledgeDistillationManager:
         """蒸留プロセスを実行し、訓練済みモデルを登録する。"""
         print(f"Starting knowledge distillation for model '{model_id}'...")
         
-        # 訓練の実行
-        final_metrics = self.trainer.train(
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        final_metrics = self.trainer.train_with_teacher(
             train_loader=train_loader,
             val_loader=val_loader,
             epochs=epochs,
             teacher_model=self.teacher_model
         )
         
-        # モデルの保存
         output_dir = f"runs/distilled_models/{model_id}"
-        self.student_model.save_pretrained(output_dir)
+        # BreakthroughSNNにsave_pretrainedがないため、state_dictを直接保存
+        torch.save(self.student_model.state_dict(), f"{output_dir}/pytorch_model.bin")
         self.tokenizer.save_pretrained(output_dir)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         print(f"Distillation finished. Model saved to {output_dir}")
         
-        # モデルレジストリへの登録
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.model_registry.register_model(
+        asyncio.run(self.model_registry.register_model(
             model_id=model_id,
             task_description=task_description,
             model_path=output_dir,
             metrics=final_metrics,
             config=student_config
-        )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        ))
         
         return output_dir
