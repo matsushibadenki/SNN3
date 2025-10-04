@@ -7,6 +7,7 @@
 # - 既存の全機能を維持しつつ、新しい学習方法への拡張性を確保。
 # - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
 # - 変更点: 生物学的強化学習(BioRLTrainer)関連のプロバイダを再統合し、完全な状態に復元。
+# - mypyエラー修正: BioSNNのインポートパスを修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -28,15 +29,15 @@ from snn_research.distillation.model_registry import FileModelRegistry, RedisMod
 import redis
 from snn_research.tools.web_crawler import WebCrawler
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- 生物学的学習のためのインポート ---
 from snn_research.learning_rules.stdp import STDP
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
-from snn_research.bio_models.simple_network import SimpleBioSNN
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.bio_models.simple_network import BioSNN
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def get_auto_device() -> str:
     """実行環境に最適なデバイスを自動的に選択する。"""
@@ -162,7 +163,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # === 生物学的学習 (biologically_plausible) のためのプロバイダ ===
     bio_learning_rule = providers.Selector(
         config.training.biologically_plausible.learning_rule,
@@ -184,8 +184,10 @@ class TrainingContainer(containers.DeclarativeContainer):
         ),
     )
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     bio_snn_model = providers.Factory(
-        SimpleBioSNN,
+        BioSNN,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 仮の値を設定。実際の利用シーンに応じて設定を見直す必要があります。
         input_size=10,
         hidden_size=50,
@@ -207,7 +209,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         agent=rl_agent,
         env=rl_environment,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
     planner_snn = providers.Factory(
