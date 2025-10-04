@@ -1,8 +1,8 @@
 # matsushibadenki/snn3/snn_research/agent/autonomous_agent.py
 # Title: 自律エージェント
 # Description: 独自の目標を持ち、計画に基づいてタスクを実行できるエージェントの基本クラス。
-#              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
-#              mypyエラー修正: AgentMemoryのインポートパスを修正。
+#              mypyエラー修正: Memory.add_experienceの引数にagent_nameを追加。
+#              Web学習失敗時のステータスをFAILUREとして記録するように修正。
 
 from typing import Dict, Any
 import asyncio
@@ -10,9 +10,7 @@ import asyncio
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.tools.web_crawler import WebCrawler
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .memory import Memory as AgentMemory
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class AutonomousAgent:
     """
@@ -40,7 +38,9 @@ class AutonomousAgent:
         else:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using general capabilities (no specific expert found)."
         
-        self.memory.add_experience(task_description, result, "success")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️
+        self.memory.add_experience(self.name, task_description, result, "SUCCESS")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return result
 
     async def find_expert(self, task_description: str) -> Dict[str, Any] | None:
@@ -58,17 +58,24 @@ class AutonomousAgent:
         """
         print(f"Agent '{self.name}' is learning about '{topic}' from the web.")
         urls = self._search_for_urls(topic)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        task_name = f"learn from web: {topic}"
         if not urls:
-            return "Could not find relevant information on the web."
+            result = "Could not find relevant information on the web."
+            self.memory.add_experience(self.name, task_name, result, "FAILURE")
+            return result
 
         content = self.web_crawler.crawl(urls[0])
         summary = self._summarize(content)
         
-        self.memory.add_experience(f"learn from web: {topic}", summary, "success")
+        self.memory.add_experience(self.name, task_name, summary, "SUCCESS")
         return f"Successfully learned about '{topic}'. Summary: {summary}"
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _search_for_urls(self, query: str) -> list[str]:
+        # TODO: 実際の検索エンジンAPIに置き換える
         return [f"https://example.com/search?q={query.replace(' ', '+')}"]
 
     def _summarize(self, text: str) -> str:
+        # TODO: より高度な要約モデルに置き換える
         return text[:150] + "..."
