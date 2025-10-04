@@ -1,7 +1,7 @@
 # matsushibadenki/snn3/snn_research/agent/autonomous_agent.py
 # Title: 自律エージェント
 # Description: 独自の目標を持ち、計画に基づいてタスクを実行できるエージェントの基本クラス。
-#              mypyエラー修正: Memory.add_experienceの引数にagent_nameを追加。
+#              mypyエラー修正: Memory.add_experienceをrecord_experienceに修正し、引数を適合。
 #              Web学習失敗時のステータスをFAILUREとして記録するように修正。
 
 from typing import Dict, Any
@@ -22,6 +22,7 @@ class AutonomousAgent:
         self.model_registry = model_registry
         self.memory = memory
         self.web_crawler = web_crawler
+        self.current_state = {"agent_name": name} # 初期状態
 
     def execute(self, task_description: str) -> str:
         """
@@ -33,13 +34,23 @@ class AutonomousAgent:
             return self.learn_from_web(task_description)
 
         expert = asyncio.run(self.find_expert(task_description))
+        action = "execute_task_with_expert" if expert else "execute_task_general"
+        expert_id = [expert['model_id']] if expert else []
+
         if expert:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using expert model '{expert['model_id']}'."
         else:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using general capabilities (no specific expert found)."
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️
-        self.memory.add_experience(self.name, task_description, result, "SUCCESS")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.memory.record_experience(
+            state=self.current_state,
+            action=action,
+            result={"status": "SUCCESS", "details": result},
+            reward=1.0,
+            expert_used=expert_id,
+            decision_context={"reason": "Direct execution command received."}
+        )
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return result
 
@@ -59,16 +70,26 @@ class AutonomousAgent:
         print(f"Agent '{self.name}' is learning about '{topic}' from the web.")
         urls = self._search_for_urls(topic)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        task_name = f"learn from web: {topic}"
+        task_name = f"learn_from_web: {topic}"
         if not urls:
-            result = "Could not find relevant information on the web."
-            self.memory.add_experience(self.name, task_name, result, "FAILURE")
-            return result
+            result_details = "Could not find relevant information on the web."
+            self.memory.record_experience(
+                state=self.current_state, action=task_name,
+                result={"status": "FAILURE", "details": result_details},
+                reward=-1.0, expert_used=["web_crawler"],
+                decision_context={"reason": "No relevant URLs found."}
+            )
+            return result_details
 
         content = self.web_crawler.crawl(urls[0])
         summary = self._summarize(content)
-        
-        self.memory.add_experience(self.name, task_name, summary, "SUCCESS")
+
+        self.memory.record_experience(
+            state=self.current_state, action=task_name,
+            result={"status": "SUCCESS", "summary": summary},
+            reward=1.0, expert_used=["web_crawler", "summarizer"],
+            decision_context={"reason": "Information successfully retrieved and summarized."}
+        )
         return f"Successfully learned about '{topic}'. Summary: {summary}"
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
