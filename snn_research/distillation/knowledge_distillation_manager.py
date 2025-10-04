@@ -1,148 +1,112 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
-# 自律的な知識蒸留プロセスを管理するクラス
-#
-# 変更点:
-# - ModelRegistryと連携し、重複学習の回避と学習結果の自動登録を行うようにした。
-# - ベンチマーク結果の出力を正規表現でパースする機能を追加。
-# - 学習済みモデルをタスク固有のパスに保存するように変更。
-# - [改善] 評価時に、学習済みのモデルパスをベンチマークスクリプトに渡すように修正。
-# - [改善] run_on_demand_pipelineにforce_retrain引数を追加し、モデル登録簿のチェックを行うように修正。
+# Title: 知識蒸留マネージャー
+# Description: 知識蒸留プロセス全体を統括するクラス。
+#              - 教師モデルの選択
+#              - データセットの準備
+#              - 生徒モデル（SNN）の訓練
+#              - 訓練済みモデルのレジストリへの登録
+#              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
+#              mypyエラー修正: register_modelの引数を基底クラスと一致させた。
 
-import os
-import re
-import subprocess
-import yaml
-from typing import Dict, Any
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from tqdm import tqdm  # type: ignore
+from typing import Dict, Any, Optional
 
-from .model_registry import ModelRegistry
+from snn_research.core.snn_core import BreakthroughSNN
+from snn_research.training.trainers import DistillationTrainer
+from snn_research.distillation.model_registry import ModelRegistry
 
 class KnowledgeDistillationManager:
-    """
-    Phase 0 の中核となる、オンデマンドの知識蒸留パイプラインを管理する。
-    """
-    def __init__(self, base_config_path: str, model_config_path: str):
-        self.base_config_path = base_config_path
-        self.model_config_path = model_config_path
+    """知識蒸留プロセスを管理するクラス。"""
+    def __init__(
+        self,
+        student_model: BreakthroughSNN,
+        trainer: DistillationTrainer,
+        teacher_model_name: str,
+        tokenizer_name: str,
+        model_registry: ModelRegistry, # 修正: 具象クラスをDI
+        device: str = "cpu"
+    ):
+        self.student_model = student_model.to(device)
+        self.trainer = trainer
+        self.teacher_model_name = teacher_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.model_registry = model_registry
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.device = device
+        self.teacher_model: Optional[AutoModelForCausalLM] = None
         
-        with open(base_config_path, 'r') as f:
-            self.base_config: Dict[str, Any] = yaml.safe_load(f)
-        with open(model_config_path, 'r') as f:
-            self.model_config: Dict[str, Any] = yaml.safe_load(f)
-            
-        self.registry = ModelRegistry()
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.student_model.config.pad_token_id = self.tokenizer.pad_token_id
 
-    def _run_command(self, command: list[str]) -> str:
-        """サブプロセスでコマンドを実行し、標準出力を返す。"""
-        # (既存のコード)
-        print("\n" + "="*20 + f" 🚀 EXECUTING: {' '.join(command)} " + "="*20)
-        try:
-            result = subprocess.run(
-                command, check=True, capture_output=True, encoding='utf-8', text=True
-            )
-            print(result.stdout)
-            if result.stderr:
-                print("--- STDERR ---")
-                print(result.stderr)
-            return result.stdout
-        except subprocess.CalledProcessError as e:
-            print(f"❌ コマンドの実行に失敗しました: {e}")
-            print("--- STDOUT ---")
-            print(e.stdout)
-            print("--- STDERR ---")
-            print(e.stderr)
-            raise
-        finally:
-            print("="*60 + "\n")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    def _parse_benchmark_results(self, output: str) -> Dict[str, float]:
-        """ベンチマークスクリプト（pandas DataFrame）の出力からSNNの性能指標を抽出する。"""
-        metrics = {}
-        try:
-            # SNNモデルの結果が含まれる行を正規表現で検索 (より堅牢な方法)
-            snn_line_match = re.search(r"^\s*0\s+SNN.*$", output, re.MULTILINE)
-            if snn_line_match:
-                snn_line = snn_line_match.group(0)
-                parts = snn_line.split()
-                # 想定されるカラム: index, model, task, eval_time_sec, accuracy, avg_spikes
-                if len(parts) >= 6:
-                    metrics = {
-                        "accuracy": float(parts[4]),
-                        "avg_spikes_per_sample": float(parts[5]),
-                    }
-        except (ValueError, IndexError) as e:
-            print(f"⚠️ ベンチマーク結果のパースに失敗しました: {e}\nOutput:\n{output}")
+    def _load_teacher_model(self) -> None:
+        """教師モデルをロードする。"""
+        print(f"Loading teacher model: {self.teacher_model_name}...")
+        self.teacher_model = AutoModelForCausalLM.from_pretrained(self.teacher_model_name).to(self.device)
+        self.teacher_model.eval()
+        print("Teacher model loaded successfully.")
+
+    def prepare_dataset(self, texts: list[str], max_length: int, batch_size: int) -> DataLoader:
+        """教師モデルのロジットをラベルとしてデータセットを準備する。"""
+        if self.teacher_model is None:
+            self._load_teacher_model()
         
-        return metrics
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        assert self.teacher_model is not None, "Teacher model is not loaded."
 
-    def _evaluate_and_register_model(self, task_description: str, task_run_dir: str):
-        """学習済みモデルを評価し、結果を登録簿に登録する。"""
-        # (既存のコード)
-        print("📊 学習済みSNNモデルの性能評価を開始します...")
-        
-        best_model_src = os.path.join(task_run_dir, 'best_model.pth')
-        
-        if not os.path.exists(best_model_src):
-             print(f"⚠️ ベストモデルが見つかりません: {best_model_src}")
-             return
+        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
+        input_ids = inputs["input_ids"].to(self.device)
+        attention_mask = inputs["attention_mask"].to(self.device)
 
-        # 学習したモデルのパスを指定してベンチマークを実行
-        benchmark_output = self._run_command([
-            "python", "scripts/run_benchmark.py",
-            "--model_path", best_model_src
-        ])
-        metrics = self._parse_benchmark_results(benchmark_output)
+        print("Generating teacher logits...")
+        with torch.no_grad():
+            outputs = self.teacher_model(input_ids=input_ids, attention_mask=attention_mask)
+            teacher_logits = outputs.logits.detach()
+        print("Teacher logits generated.")
         
-        if not metrics:
-            print("⚠️ 性能指標を取得できなかったため、モデル登録をスキップします。")
-            return
+        dataset = TensorDataset(input_ids, attention_mask, teacher_logits)
+        return DataLoader(dataset, batch_size=batch_size)
 
-        self.registry.register_model(
-            task_description=task_description,
-            model_path=best_model_src,
-            metrics=metrics,
-            config=self.model_config['model']
+    def run_distillation(
+        self,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        epochs: int,
+        model_id: str,
+        task_description: str,
+        student_config: Dict[str, Any]
+    ) -> str:
+        """蒸留プロセスを実行し、訓練済みモデルを登録する。"""
+        print(f"Starting knowledge distillation for model '{model_id}'...")
+        
+        # 訓練の実行
+        final_metrics = self.trainer.train(
+            train_loader=train_loader,
+            val_loader=val_loader,
+            epochs=epochs,
+            teacher_model=self.teacher_model
         )
-        print("🏆 性能評価とモデル登録が完了しました。")
-
-    def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, teacher_model_name: str, force_retrain: bool = False):
-        """未知のタスクに対し、自律的に専門家SNNを生成するパイプライン。"""
         
-        # Step 0: Check model registry unless retraining is forced
-        if not force_retrain:
-            existing_models = self.registry.find_models_for_task(task_description)
-            if existing_models:
-                print(f"✅ タスク '{task_description}' の学習済みモデルが既に存在します。学習をスキップします。")
-                return
-
-        task_id = task_description.replace(' ', '_').lower()
-        distillation_data_dir = f"precomputed_data/{task_id}"
-        task_run_dir = f"runs/specialists/{task_id}" # タスク固有のログ/モデル保存ディレクトリ
-
-        # --- ステップ1: 知識蒸留データの準備 ---
-        self._run_command([
-            "python", "scripts/prepare_distillation_data.py",
-            "--input_file", unlabeled_data_path,
-            "--output_dir", distillation_data_dir,
-            "--teacher_model", teacher_model_name
-        ])
-
-        # --- ステップ2: 専門家SNNの学習 ---
-        self._run_command([
-            "python", "train.py",
-            "--config", self.base_config_path,
-            "--model_config", self.model_config_path,
-            "--data_path", distillation_data_dir,
-            "--override_config", "training.paradigm=gradient_based",
-            "--override_config", "training.gradient_based.type=distillation",
-            "--override_config", f"training.log_dir={task_run_dir}"
-        ])
+        # モデルの保存
+        output_dir = f"runs/distilled_models/{model_id}"
+        self.student_model.save_pretrained(output_dir)
+        self.tokenizer.save_pretrained(output_dir)
         
-        print("✅ 専門家SNNモデルの学習が完了しました。")
-
-        # --- ステップ3: 評価とモデル登録 ---
-        self._evaluate_and_register_model(task_description, task_run_dir)
-
-        print("🎉 全てのパイプラインが正常に完了しました。")
-
+        print(f"Distillation finished. Model saved to {output_dir}")
+        
+        # モデルレジストリへの登録
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.model_registry.register_model(
+            model_id=model_id,
+            task_description=task_description,
+            model_path=output_dir,
+            metrics=final_metrics,
+            config=student_config
+        )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        
+        return output_dir
