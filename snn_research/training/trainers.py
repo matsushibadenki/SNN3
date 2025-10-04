@@ -1,6 +1,6 @@
 # matsushibadenki/snn3/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
-# mypyエラー修正: train_with_teacherをtrainにリネームし、PlannerTrainerを削除。
+# mypyエラー修正: 削除されていたPlannerTrainerを復元。
 
 import torch
 import torch.nn as nn
@@ -11,7 +11,7 @@ from tqdm import tqdm  # type: ignore
 from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 
-from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss
+from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
@@ -174,15 +174,13 @@ class BreakthroughTrainer:
 
 class DistillationTrainer(BreakthroughTrainer):
     """知識蒸留に特化したトレーナー。"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, teacher_model: Optional[nn.Module] = None) -> Dict[str, float]:
         """知識蒸留のための学習ループ。"""
+        final_metrics: Dict[str, float] = {}
         for epoch in range(1, epochs + 1):
             self.train_epoch(train_loader, epoch)
-            metrics = self.evaluate(val_loader, epoch)
-            # 簡略化のため、最後のメトリクスを返す
-        return metrics
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            final_metrics = self.evaluate(val_loader, epoch)
+        return final_metrics
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train: self.model.train()
@@ -259,3 +257,33 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
                 loss_dict['accuracy'] = accuracy
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+class PlannerTrainer:
+    """学習可能プランナーSNNのための専用トレーナー。"""
+    def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
+        self.model = model.to(device)
+        self.optimizer = optimizer
+        self.criterion = criterion
+        self.device = device
+
+    def train_epoch(self, dataloader: DataLoader, epoch: int):
+        self.model.train()
+        progress_bar = tqdm(dataloader, desc=f"Planner Training Epoch {epoch}")
+        
+        for batch in progress_bar:
+            input_ids, target_plan = [t.to(self.device) for t in batch]
+
+            self.optimizer.zero_grad()
+            
+            skill_logits, _, _ = self.model(input_ids)
+            
+            assert isinstance(self.criterion, PlannerLoss)
+            loss_dict = self.criterion(skill_logits, target_plan)
+            loss = loss_dict['total']
+            
+            loss.backward()
+            self.optimizer.step()
+            
+            progress_bar.set_postfix({"loss": loss.item()})
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
