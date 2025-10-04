@@ -18,7 +18,7 @@ class ModelRegistry(ABC):
 
         Args:
             model_info (Dict[str, Any]): 登録するモデルの情報。
-                                        'model_id' を含む必要がある。
+                                        'model_id' と 'task_description' を含む必要がある。
         """
         pass
 
@@ -61,6 +61,7 @@ class ModelRegistry(ABC):
 class FileModelRegistry(ModelRegistry):
     """
     JSONファイルを使用してモデルレジストリを管理するクラス。
+    データ構造は Dict[task_description, List[model_info]] とする。
     """
     def __init__(self, registry_path: str = "runs/model_registry.json"):
         self.registry_path = registry_path
@@ -69,54 +70,62 @@ class FileModelRegistry(ModelRegistry):
     def _ensure_registry_exists(self):
         os.makedirs(os.path.dirname(self.registry_path), exist_ok=True)
         if not os.path.exists(self.registry_path):
-            with open(self.registry_path, 'w') as f:
-                json.dump([], f)
+            with open(self.registry_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
 
-    def _load_registry(self) -> List[Dict[str, Any]]:
-        with open(self.registry_path, 'r') as f:
+    def _load_registry(self) -> Dict[str, List[Dict[str, Any]]]:
+        with open(self.registry_path, 'r', encoding='utf-8') as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                return []
+                return {}
 
-    def _save_registry(self, registry_data: List[Dict[str, Any]]):
-        with open(self.registry_path, 'w') as f:
-            json.dump(registry_data, f, indent=4)
+    def _save_registry(self, registry_data: Dict[str, List[Dict[str, Any]]]):
+        with open(self.registry_path, 'w', encoding='utf-8') as f:
+            json.dump(registry_data, f, indent=4, ensure_ascii=False)
 
     def register_model(self, model_info: Dict[str, Any]):
         if 'model_id' not in model_info:
             raise ValueError("model_info must contain a 'model_id'")
-        
+        if 'task_description' not in model_info:
+            raise ValueError("model_info must contain a 'task_description'")
+
         registry_data = self._load_registry()
+        task = model_info['task_description']
         
+        if task not in registry_data:
+            registry_data[task] = []
+
         model_exists = False
-        for i, model in enumerate(registry_data):
+        for i, model in enumerate(registry_data[task]):
             if model.get('model_id') == model_info['model_id']:
-                registry_data[i] = model_info
+                registry_data[task][i] = model_info  # 情報を更新
                 model_exists = True
                 break
         
         if not model_exists:
-            registry_data.append(model_info)
+            registry_data[task].append(model_info)
             
         self._save_registry(registry_data)
 
     def get_model_info(self, model_id: str) -> Optional[Dict[str, Any]]:
         registry_data = self._load_registry()
-        for model in registry_data:
-            if model.get('model_id') == model_id:
-                return model
+        for task_models in registry_data.values():
+            for model in task_models:
+                if model.get('model_id') == model_id:
+                    return model
         return None
 
     def list_models(self) -> List[Dict[str, Any]]:
-        return self._load_registry()
+        registry_data = self._load_registry()
+        all_models = []
+        for task_models in registry_data.values():
+            all_models.extend(task_models)
+        return all_models
 
     def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
         registry_data = self._load_registry()
-        return [
-            model for model in registry_data 
-            if model.get("task_description") == task_description
-        ]
+        return registry_data.get(task_description, [])
 
 
 class RedisModelRegistry(ModelRegistry):
@@ -155,7 +164,7 @@ class RedisModelRegistry(ModelRegistry):
         # glob-style patterns like '*' can be inefficient in production on large DBs
         # Consider using SCAN for iteration without blocking the server
         for key in self.redis.scan_iter(f"{self.prefix}:*"):
-            key_str = key.decode('utf-8')
+            key_str = key.decode('utf-8') if isinstance(key, bytes) else key
             if "task_index" not in key_str:
                 model_data = self.redis.get(key)
                 if model_data:
