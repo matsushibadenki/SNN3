@@ -8,6 +8,7 @@
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: register_modelの引数を基底クラスと一致させた。
 #              mypyエラー修正: 型安全性を高めるためのチェックを追加。
+#              mypyエラー修正: 存在しないメソッド呼び出しを修正。
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -43,7 +44,7 @@ class KnowledgeDistillationManager:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        if hasattr(self.student_model, 'config'):
+        if hasattr(self.student_model, 'config') and hasattr(self.tokenizer, 'pad_token_id'):
             self.student_model.config.pad_token_id = self.tokenizer.pad_token_id
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
@@ -53,7 +54,7 @@ class KnowledgeDistillationManager:
         print(f"Loading teacher model: {self.teacher_model_name}...")
         self.teacher_model = AutoModelForCausalLM.from_pretrained(self.teacher_model_name).to(self.device)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        if self.teacher_model:
+        if hasattr(self.teacher_model, 'eval'):
             self.teacher_model.eval()
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("Teacher model loaded successfully.")
@@ -71,9 +72,7 @@ class KnowledgeDistillationManager:
 
         print("Generating teacher logits...")
         with torch.no_grad():
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             outputs = cast(Any, self.teacher_model)(input_ids=input_ids, attention_mask=attention_mask)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             teacher_logits = outputs.logits.detach()
         print("Teacher logits generated.")
         
@@ -93,7 +92,7 @@ class KnowledgeDistillationManager:
         print(f"Starting knowledge distillation for model '{model_id}'...")
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        final_metrics = self.trainer.train_with_teacher(
+        final_metrics = self.trainer.train(
             train_loader=train_loader,
             val_loader=val_loader,
             epochs=epochs,
@@ -101,7 +100,6 @@ class KnowledgeDistillationManager:
         )
         
         output_dir = f"runs/distilled_models/{model_id}"
-        # BreakthroughSNNにsave_pretrainedがないため、state_dictを直接保存
         torch.save(self.student_model.state_dict(), f"{output_dir}/pytorch_model.bin")
         self.tokenizer.save_pretrained(output_dir)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
