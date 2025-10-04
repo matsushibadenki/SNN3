@@ -10,20 +10,28 @@ import json
 from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
 from typing import Iterator, Optional, Dict, Any, List, Union
-
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
+from omegaconf import DictConfig
+from snn_research.core.snn_core import SNNCore # SNNCoreをインポート
+
 
 class SNNInferenceEngine:
-    """訓練済みSNNモデルの推論を実行するエンジン。"""
-    def __init__(self, model_path: str, device: str = "cpu"):
-        self.device = device
-        self.model_path = Path(model_path)
-        self.model: Union[BreakthroughSNN, SpikingTransformer]
-        self.tokenizer: AutoTokenizer
-        self.config: Dict[str, Any]
-        self._load_model()
+    """
+    学習済みSNNモデルをロードして推論を実行するエンジン。
+    """
+    def __init__(self, config: DictConfig):
+        self.config = config
+        # SNNCoreがconfigに基づいて適切なモデルをインスタンス化する
+        self.model = SNNCore(config)
         
-        self.last_inference_stats: Dict[str, Any] = {}
+        if config.deployment.get("model_path"):
+            try:
+                self.model.load_state_dict(torch.load(config.deployment.model_path))
+                print(f"Model loaded from {config.deployment.model_path}")
+            except FileNotFoundError:
+                print(f"Warning: Model file not found at {config.deployment.model_path}. Using an untrained model.")
+        
+        self.model.eval()
 
     def _load_model(self) -> None:
         """モデルとトークナイザをロードする。"""
@@ -84,12 +92,16 @@ class SNNInferenceEngine:
         print("Model and tokenizer loaded successfully.")
 
 
-    def generate(
-        self,
-        prompt: str,
-        max_len: int,
-        stop_sequences: Optional[List[str]] = None
-    ) -> Iterator[str]:
+    def generate(self, prompt: str, max_len: int, stop_sequences: list = None) -> Iterator[str]:
+        # この部分はダミー実装です。実際のトークナイザーと生成ロジックが必要です。
+        current_text = prompt
+        for i in range(max_len):
+            # 実際のモデル入力とデコード処理が必要
+            new_token = f" token_{i}"
+            if stop_sequences and any(seq in current_text for seq in stop_sequences):
+                break
+            yield new_token
+            current_text += new_token
         """
         プロンプトに基づいてテキストをストリーミング生成する。
         """

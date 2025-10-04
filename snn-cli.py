@@ -5,6 +5,15 @@
 import argparse
 import sys
 from pathlib import Path
+from snn_research.core.snn_core import SNNCore # 変更
+from snn_research.training.trainers import BPTTTrainer
+from snn_research.data.datasets import SpikingDataset
+import typer
+from omegaconf import OmegaConf
+import torch
+import os
+
+
 
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -14,6 +23,62 @@ from snn_research.agent import AutonomousAgent, SelfEvolvingAgent, DigitalLifeFo
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.rl_env.simple_env import SimpleEnvironment
 import train as gradient_based_trainer # train.pyをインポート
+
+
+
+app = typer.Typer()
+
+@app.command()
+def train(
+    config_path: str = typer.Option("configs/base_config.yaml", help="Path to the base config file."),
+    model_config_path: str = typer.Option(..., help="Path to the model config file (e.g., configs/models/spiking_transformer.yaml)."),
+    output_dir: str = typer.Option("models/", help="Directory to save the trained model.")
+):
+    """SNNモデルの学習を実行する。"""
+    print("--- Starting Training ---")
+    
+    # 設定のロードとマージ
+    cfg = OmegaConf.load(config_path)
+    model_cfg = OmegaConf.load(model_config_path)
+    cfg.merge_with(model_cfg)
+    print("Configuration loaded:")
+    print(OmegaConf.to_yaml(cfg))
+
+    # データセットの準備
+    # vocab_sizeをモデル設定から取得
+    vocab_size = cfg.model.params.get("vocab_size", 1000) if cfg.model.type == 'spiking_transformer' else 100
+    dataset = SpikingDataset(num_samples=100, sequence_length=32, vocab_size=vocab_size)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=cfg.training.batch_size)
+    print(f"Dataset prepared with {len(dataset)} samples.")
+
+    # モデルの初期化
+    model = SNNCore(cfg)
+    print("Model initialized:")
+    print(model)
+
+    # トレーナーの初期化
+    trainer = BPTTTrainer(model, cfg)
+    print("Trainer initialized.")
+
+    # 学習ループ
+    print("--- Training Loop ---")
+    for epoch in range(cfg.training.epochs):
+        total_loss = 0
+        for i, (data, targets) in enumerate(dataloader):
+            loss = trainer.train_step(data, targets)
+            total_loss += loss
+            if i % 10 == 0:
+                print(f"Epoch [{epoch+1}/{cfg.training.epochs}], Step [{i+1}/{len(dataloader)}], Loss: {loss:.4f}")
+        print(f"Epoch {epoch+1} Average Loss: {total_loss / len(dataloader):.4f}")
+    
+    # モデルの保存
+    os.makedirs(output_dir, exist_ok=True)
+    model_name = cfg.model.get("type", "snn_model")
+    save_path = os.path.join(output_dir, f"{model_name}_final.pth")
+    torch.save(model.state_dict(), save_path)
+    print(f"--- Training Finished ---")
+    print(f"Model saved to {save_path}")
+
 
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 def handle_agent(args):
@@ -102,6 +167,26 @@ def handle_train(args):
     sys.argv = [original_argv[0]] + args.train_args
     gradient_based_trainer.main()
     sys.argv = original_argv # 元に戻す
+
+def train(
+    config_path: str = typer.Option("configs/base_config.yaml", help="Path to the base config file."),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    model_config_path: str = typer.Option(..., help="Path to the model config file (e.g., configs/models/spiking_transformer.yaml)."),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾◾️◾️◾️◾️◾️
+    output_dir: str = typer.Option("models/", help="Directory to save the trained model.")
+):
+    # ... (configのロード処理)
+    cfg = OmegaConf.load(config_path)
+    model_cfg = OmegaConf.load(model_config_path)
+    cfg.merge_with(model_cfg) # モデル設定をマージ
+
+    # ... (データセット、モデル、トレーナーの初期化)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # SNNCoreが設定に応じてモデルを構築する
+    model = SNNCore(cfg) 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
+    # ... (学習ループ)
 
 def main():
     parser = argparse.ArgumentParser(

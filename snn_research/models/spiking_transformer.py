@@ -4,7 +4,9 @@
 
 import torch
 import torch.nn as nn
-from snn_research.bio_models.lif_neuron import LIFNeuron
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.models.attention import SpikeDrivenSelfAttention
 
 class SpikingTransformerBlock(nn.Module):

@@ -14,8 +14,9 @@ from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type
 import math
 from omegaconf import DictConfig
-from snn_research.bio_models.lif_neuron import LIFNeuron
+from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
 from snn_research.models.spiking_transformer import SpikingTransformer
+
 
 # --- ニューロンモデル ---
 class AdaptiveLIFNeuron(nn.Module):
@@ -332,7 +333,6 @@ class SimpleSNN(nn.Module):
             x = x.unsqueeze(0)
         
         T, B, _ = x.shape
-        
         self.lif1.reset()
         self.lif2.reset()
         
@@ -355,6 +355,9 @@ class SNNCore(nn.Module):
         super(SNNCore, self).__init__()
         self.config = config
         model_type = self.config.model.get("type", "simple")
+
+        # mypy: Incompatible types in assignment -> nn.Moduleで汎用化
+        self.model: nn.Module
 
         if model_type == "simple":
             self.model = SimpleSNN(
