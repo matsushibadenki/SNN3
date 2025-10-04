@@ -1,61 +1,134 @@
-# matsushibadenki/snn3/snn_research/distillation/model_registry.py
-# 学習済みの専門家SNNモデルの情報を管理する登録簿
+# snn_research/distillation/model_registry.py
+# モデルレジストリ：学習済みモデルの管理
 
 import json
 import os
-from typing import Dict, Any, Optional, List
+from abc import ABC, abstractmethod
+from typing import Dict, Any, List
+import redis
 
-class ModelRegistry:
+class ModelRegistry(ABC):
     """
-    専門家SNNモデルのメタデータを管理する。
-    これにより、システムは自己の能力を把握し、重複学習を避けることができる。
+    学習済みモデルの情報を管理するための抽象基底クラス。
+    """
+
+    @abstractmethod
+    def register_model(self, model_info: Dict[str, Any]):
+        """
+        新しいモデルの情報をレジストリに登録する。
+
+        Args:
+            model_info (Dict[str, Any]): 登録するモデルの情報。
+                                        'model_id' を含む必要がある。
+        """
+        pass
+
+    @abstractmethod
+    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+        """
+        指定されたモデルIDの情報を取得する。
+
+        Args:
+            model_id (str): 情報を取得するモデルのID。
+
+        Returns:
+            Dict[str, Any]: モデルの情報。
+        """
+        pass
+
+    @abstractmethod
+    def list_models(self) -> List[Dict[str, Any]]:
+        """
+        登録されているすべてのモデルのリストを取得する。
+
+        Returns:
+            List[Dict[str, Any]]: すべてのモデル情報のリスト。
+        """
+        pass
+
+class FileModelRegistry(ModelRegistry):
+    """
+    JSONファイルを使用してモデルレジストリを管理するクラス。
     """
     def __init__(self, registry_path: str = "runs/model_registry.json"):
         self.registry_path = registry_path
-        # 1つのタスクに対して複数のモデルバージョンを保存できるようにリスト構造に変更
-        self.registry: Dict[str, List[Dict[str, Any]]] = self._load()
+        self._ensure_registry_exists()
 
-    def _load(self) -> Dict[str, List[Dict[str, Any]]]:
-        """レジストリファイルを読み込む。"""
-        if os.path.exists(self.registry_path):
-            with open(self.registry_path, 'r', encoding='utf-8') as f:
-                try:
-                    return json.load(f)
-                except json.JSONDecodeError:
-                    return {} # ファイルが空か壊れている場合
-        return {}
-
-    def _save(self):
-        """レジストリをファイルに保存する。"""
+    def _ensure_registry_exists(self):
         os.makedirs(os.path.dirname(self.registry_path), exist_ok=True)
-        with open(self.registry_path, 'w', encoding='utf-8') as f:
-            json.dump(self.registry, f, indent=4, ensure_ascii=False)
+        if not os.path.exists(self.registry_path):
+            with open(self.registry_path, 'w') as f:
+                json.dump([], f)
 
-    def register_model(self, task_description: str, model_path: str, metrics: Dict[str, Any], config: Dict[str, Any]):
-        """
-        新しい専門家SNNモデルを登録する。同じタスクのモデルは追記される。
-        """
-        print(f"🏛️ モデル登録簿に新しい専門家を追加: '{task_description}'")
+    def _load_registry(self) -> List[Dict[str, Any]]:
+        with open(self.registry_path, 'r') as f:
+            return json.load(f)
+
+    def _save_registry(self, registry_data: List[Dict[str, Any]]):
+        with open(self.registry_path, 'w') as f:
+            json.dump(registry_data, f, indent=4)
+
+    def register_model(self, model_info: Dict[str, Any]):
+        if 'model_id' not in model_info:
+            raise ValueError("model_info must contain a 'model_id'")
         
-        new_entry = {
-            "model_path": model_path,
-            "metrics": metrics,
-            "config": config
-        }
+        registry_data = self._load_registry()
         
-        if task_description in self.registry:
-            self.registry[task_description].append(new_entry)
-        else:
-            self.registry[task_description] = [new_entry]
+        # 同じ model_id があれば更新、なければ追加
+        model_exists = False
+        for i, model in enumerate(registry_data):
+            if model.get('model_id') == model_info['model_id']:
+                registry_data[i] = model_info
+                model_exists = True
+                break
+        
+        if not model_exists:
+            registry_data.append(model_info)
             
-        self._save()
+        self._save_registry(registry_data)
 
-    def find_models_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        """
-        指定されたタスクに対応する全てのモデルを検索する。
+    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+        registry_data = self._load_registry()
+        for model in registry_data:
+            if model.get('model_id') == model_id:
+                return model
+        raise ValueError(f"Model with id '{model_id}' not found.")
 
-        Returns:
-            List[Dict[str, Any]]: 見つかったモデル情報のリスト。
-        """
-        # 現状は完全一致で検索。将来的には意味的類似性で検索する。
-        return self.registry.get(task_description, [])
+    def list_models(self) -> List[Dict[str, Any]]:
+        return self._load_registry()
+
+
+class RedisModelRegistry(ModelRegistry):
+    """
+    Redisを使用してモデルレジストリを管理するクラス。
+    """
+    def __init__(self, redis_client: redis.Redis, prefix: str = "snn_model"):
+        self.redis = redis_client
+        self.prefix = prefix
+
+    def _get_key(self, model_id: str) -> str:
+        return f"{self.prefix}:{model_id}"
+
+    def register_model(self, model_info: Dict[str, Any]):
+        if 'model_id' not in model_info:
+            raise ValueError("model_info must contain a 'model_id'")
+        
+        model_id = model_info['model_id']
+        key = self._get_key(model_id)
+        self.redis.set(key, json.dumps(model_info))
+
+    def get_model_info(self, model_id: str) -> Dict[str, Any]:
+        key = self._get_key(model_id)
+        model_data = self.redis.get(key)
+        if model_data:
+            return json.loads(model_data)
+        raise ValueError(f"Model with id '{model_id}' not found.")
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        model_keys = self.redis.keys(f"{self.prefix}:*")
+        models = []
+        for key in model_keys:
+            model_data = self.redis.get(key)
+            if model_data:
+                models.append(json.loads(model_data))
+        return models
