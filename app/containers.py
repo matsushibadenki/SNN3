@@ -25,16 +25,14 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-from snn_research.distillation.model_registry import FileModelRegistry, RedisModelRegistry
+from snn_research.distillation.model_registry import SimpleModelRegistry
 import redis
 from snn_research.tools.web_crawler import WebCrawler
 
 # --- 生物学的学習のためのインポート ---
 from snn_research.learning_rules.stdp import STDP
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.bio_models.simple_network import BioSNN
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
@@ -83,7 +81,6 @@ class TrainingContainer(containers.DeclarativeContainer):
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
     meta_cognitive_snn = providers.Factory(
         MetaCognitiveSNN,
-        snn_model=snn_model,
         **(config.training.meta_cognition.to_dict() or {})
     )
 
@@ -184,23 +181,22 @@ class TrainingContainer(containers.DeclarativeContainer):
         ),
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     bio_snn_model = providers.Factory(
         BioSNN,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 仮の値を設定。実際の利用シーンに応じて設定を見直す必要があります。
-        input_size=10,
-        hidden_size=50,
-        output_size=2,
+        n_input=10,
+        n_hidden=50,
+        n_output=2,
         neuron_params=config.training.biologically_plausible.neuron,
         learning_rule=bio_learning_rule,
     )
 
-    rl_environment = providers.Factory(SimpleEnvironment)
+    rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
 
     rl_agent = providers.Factory(
         ReinforcementLearnerAgent,
-        model=bio_snn_model,
+        input_size=10,
+        output_size=10,
         device=providers.Factory(get_auto_device),
     )
 
@@ -214,7 +210,8 @@ class TrainingContainer(containers.DeclarativeContainer):
     planner_snn = providers.Factory(
         PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
         d_state=config.model.d_state, num_layers=config.model.num_layers,
-        time_steps=config.model.time_steps, n_head=config.model.n_head
+        time_steps=config.model.time_steps, n_head=config.model.n_head,
+        num_skills=10 # 仮のスキル数
     )
     planner_optimizer = providers.Factory(AdamW, lr=config.training.planner.learning_rate)
     planner_loss = providers.Factory(PlannerLoss)
@@ -231,8 +228,8 @@ class TrainingContainer(containers.DeclarativeContainer):
     # ModelRegistryのプロバイダ
     model_registry = providers.Selector(
         config.model_registry.provider,
-        file=providers.Singleton(FileModelRegistry, registry_path=config.model_registry.file.path),
-        redis=providers.Singleton(RedisModelRegistry, redis_client=redis_client),
+        file=providers.Singleton(SimpleModelRegistry, registry_path=config.model_registry.file.path),
+        redis=providers.Singleton(SimpleModelRegistry), # Redis実装はSimpleModelRegistryで代替
     )
 
 
@@ -242,6 +239,6 @@ class AppContainer(containers.DeclarativeContainer):
     # Tools
     web_crawler = providers.Singleton(WebCrawler)
     device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
-    snn_inference_engine = providers.Singleton(SNNInferenceEngine, model_path=config.model.path, device=device)
+    snn_inference_engine = providers.Singleton(SNNInferenceEngine, config=config)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
