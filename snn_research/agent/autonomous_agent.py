@@ -11,7 +11,7 @@ from snn_research.cognitive_architecture.hierarchical_planner import Hierarchica
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.tools.web_crawler import WebCrawler
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-from .memory import FileBasedAgentMemory as AgentMemory
+from .memory import Memory as AgentMemory
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class AutonomousAgent:
