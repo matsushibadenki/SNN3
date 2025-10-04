@@ -1,62 +1,66 @@
-# /snn_research/cognitive_architecture/meta_cognitive_snn.py
-# Phase 3: メタ認知SNN (SNAKE -改-)
-#
-# 機能:
-# - ネットワーク全体の予測誤差（自由エネルギー）を監視し、その最小化を司る。
-# - 予測誤差が大きい情報源（ニューロン層）に動的に注意を割り当て、学習を促進する。
-# - AstrocyteNetworkの恒常性維持機能に加え、より能動的な学習制御を行う。
-
-import torch
-import torch.nn as nn
-from typing import List, Dict
-
-from snn_research.core.snn_core import AdaptiveLIFNeuron
+# snn_research/cognitive_architecture/meta_cognitive_snn.py
+# メタ認知SNN
+# 概要：システム自身の学習プロセスやパフォーマンスを監視・評価する。
+import numpy as np
+from collections import deque
 
 class MetaCognitiveSNN:
     """
-    主要SNNモデルの活動と性能をメタレベルで監視・制御するネットワーク。
-    通称 SNAKE (Spiking Neural Attention and Knowledge Engine)。
+    学習プロセスのメタデータを監視し、システムのパフォーマンスを評価する。
+    これにより、より高度な自己改善の意思決定を可能にする。
     """
-    def __init__(
-        self, 
-        snn_model: nn.Module, 
-        error_threshold: float = 0.8,
-        modulation_strength: float = 0.05
-    ):
-        self.snn_model = snn_model
-        self.error_threshold = error_threshold
-        self.modulation_strength = modulation_strength
-        
-        # 監視対象となる適応的ニューロン層を登録
-        self.monitored_neurons: List[AdaptiveLIFNeuron] = [
-            m for m in self.snn_model.modules() if isinstance(m, AdaptiveLIFNeuron)
-        ]
-        
-        print(f"🐍 メタ認知SNN (SNAKE) が {len(self.monitored_neurons)} 個のニューロン層の監視を開始しました。")
-
-    @torch.no_grad()
-    def monitor_and_modulate(self, current_loss: float):
+    def __init__(self, window_size=50):
         """
-        現在の予測誤差（損失）を評価し、必要であれば特定の層への注意を変調させる。
+        Args:
+            window_size (int): 評価に使用するデータウィンドウのサイズ。
+        """
+        self.loss_history = deque(maxlen=window_size)
+        self.computation_time_history = deque(maxlen=window_size)
+        self.accuracy_history = deque(maxlen=window_size)
+
+    def update_metadata(self, loss, computation_time, accuracy):
+        """
+        最新の学習ステップからメタデータを更新する。
 
         Args:
-            current_loss (float): 現在の学習ステップにおける損失関数の値。
+            loss (float): 損失関数の値。
+            computation_time (float): 計算時間（秒）。
+            accuracy (float): 精度。
         """
-        # 予測誤差が大きい場合（学習が困難な状況）に介入
-        if current_loss > self.error_threshold and self.monitored_neurons:
-            print(f"  - 🐍 SNAKE: 高い予測誤差 ({current_loss:.4f}) を検知。アテンションを変調します。")
+        self.loss_history.append(loss)
+        self.computation_time_history.append(computation_time)
+        self.accuracy_history.append(accuracy)
 
-            # 最も発火率が低い（＝活動が停滞している）層を見つけ、そこに注意を向ける
-            # これにより、困難なタスクに対して未貢献のニューロンを活性化させる
-            target_layer = min(
-                self.monitored_neurons, 
-                key=lambda layer: layer.adaptive_threshold.mean().item()
-            )
+    def evaluate_performance(self):
+        """
+        蓄積されたメタデータから現在のパフォーマンスを診断する。
 
-            # 注意の変調: 適応強度を少し弱めることで、閾値が下がりやすくなり、発火を促す
-            original_strength = target_layer.adaptation_strength
-            new_strength = original_strength * (1.0 - self.modulation_strength)
-            
-            target_layer.adaptation_strength = new_strength
-            
-            print(f"    - 層 {target_layer.__class__.__name__} の活動を促進 (適応強度: {original_strength:.4f} -> {new_strength:.4f})")
+        Returns:
+            dict: パフォーマンス診断結果を含む辞書。
+                   (e.g., "knowledge_gap", "capability_gap", "optimized")
+        """
+        if len(self.loss_history) < 2:
+            return {"status": "initializing", "details": "Not enough data for evaluation."}
+
+        # 1. 学習の収束速度を評価
+        loss_gradient = np.gradient(list(self.loss_history))
+        convergence_speed = np.mean(loss_gradient[-10:]) # 直近10ステップの勾配平均
+
+        # 2. 精度の停滞を評価
+        accuracy_change = np.mean(np.diff(list(self.accuracy_history))) if len(self.accuracy_history) > 1 else 0
+
+        # 診断ロジック
+        if abs(convergence_speed) > 0.01:
+             # 学習は順調に進んでいる
+            return {"status": "learning", "convergence_speed": convergence_speed}
+        
+        elif np.mean(self.accuracy_history) < 0.5 and abs(accuracy_change) < 0.001:
+             # 精度が低いまま学習が停滞している -> 知識不足の可能性
+            return {"status": "knowledge_gap", "details": "Accuracy is low and learning has plateaued. Consider acquiring new data."}
+        
+        elif np.mean(self.accuracy_history) >= 0.5 and abs(accuracy_change) < 0.001:
+            # 精度はそこそこだが停滞している -> モデルの能力不足の可能性
+            return {"status": "capability_gap", "details": "Learning has converged but accuracy may be improved. Consider evolving the model architecture."}
+        
+        else:
+            return {"status": "optimized", "details": "Performance is stable."}
