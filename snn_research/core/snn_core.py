@@ -13,6 +13,9 @@ import torch.nn.functional as F
 from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type
 import math
+from omegaconf import DictConfig
+from snn_research.bio_models.lif_neuron import LIFNeuron
+from snn_research.models.spiking_transformer import SpikingTransformer
 
 # --- ニューロンモデル ---
 class AdaptiveLIFNeuron(nn.Module):
@@ -310,6 +313,59 @@ class SpikingTransformer(nn.Module):
         avg_mems = torch.tensor(0.0, device=x.device)
 
         return logits, avg_spikes, avg_mems
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 # --- ◾️◾️◾️↑Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
 
+class SimpleSNN(nn.Module):
+    """
+    基本的なLIFニューロンで構成されたシンプルなSNNモデル。
+    """
+    def __init__(self, input_size, hidden_size, output_size):
+        super(SimpleSNN, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.lif1 = LIFNeuron()
+        self.fc2 = nn.Linear(hidden_size, output_size)
+        self.lif2 = LIFNeuron()
+
+    def forward(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(0)
+        
+        T, B, _ = x.shape
+        
+        self.lif1.reset()
+        self.lif2.reset()
+        
+        outputs = []
+        for t in range(T):
+            x_t = x[t, :, :]
+            out = self.fc1(x_t)
+            out, _ = self.lif1(out)
+            out = self.fc2(out)
+            out, _ = self.lif2(out)
+            outputs.append(out)
+            
+        return torch.stack(outputs, dim=0)
+
+class SNNCore(nn.Module):
+    """
+    設定に応じて適切なSNNアーキテクチャをインスタンス化するラッパークラス。
+    """
+    def __init__(self, config: DictConfig):
+        super(SNNCore, self).__init__()
+        self.config = config
+        model_type = self.config.model.get("type", "simple")
+
+        if model_type == "simple":
+            self.model = SimpleSNN(
+                input_size=self.config.model.input_size,
+                hidden_size=self.config.model.hidden_size,
+                output_size=self.config.model.output_size
+            )
+        elif model_type == "spiking_transformer":
+            self.model = SpikingTransformer(**self.config.model.params)
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+
+    def forward(self, x):
+        return self.model(x)
