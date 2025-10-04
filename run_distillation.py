@@ -1,74 +1,56 @@
 # matsushibadenki/snn3/run_distillation.py
-# Phase 0: Neuromorphic Knowledge Distillation を実行するためのメインスクリプト
-#
-# 変更点:
-# - --force_retrain フラグを追加し、モデル登録簿のチェックをスキップできるようにした。
-# - DIコンテナから model_registry を正しく取得するように修正。
+# Title: 知識蒸留実行スクリプト
+# Description: KnowledgeDistillationManagerを使用して、知識蒸留プロセスを開始します。
+#              設定ファイルとコマンドライン引数からパラメータを読み込みます。
+#              mypyエラー修正: ContainerをTrainingContainerに修正。
 
 import argparse
+from app.containers import TrainingContainer
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
-from app.containers import Container
 
 def main():
-    """
-    自律的な知識蒸留プロセスを開始します。
-    """
-    
-    parser = argparse.ArgumentParser(
-        description="自律的ニューロモーフィック知識蒸留フレームワーク"
-    )
-    parser.add_argument(
-        "--task_description", 
-        type=str, 
-        required=True, 
-        help="解決したいタスクの自然言語による説明 (例: '感情分析')。"
-    )
-    parser.add_argument(
-        "--input_data_path", 
-        type=str, 
-        required=True, 
-        help="タスクに関連する入力データへのパス (例: 'data/sentiment_analysis_unlabeled.jsonl')。"
-    )
-    parser.add_argument(
-        "--teacher_model", 
-        type=str, 
-        default="gpt2", 
-        help="知識の蒸留元となる教師モデル。"
-    )
-    parser.add_argument(
-        "--student_model_config", 
-        type=str, 
-        default="configs/models/small.yaml", 
-        help="学習させる生徒SNNモデルのアーキテクチャ設定。"
-    )
-    parser.add_argument(
-        "--force_retrain",
-        action="store_true",
-        help="このフラグを立てると、既に学習済みのモデルが存在する場合でも強制的に再学習します。"
-    )
-
-    args = parser.parse_args()
-    
+    parser = argparse.ArgumentParser(description="SNN Knowledge Distillation Runner")
+    parser.add_argument("--config", type=str, default="configs/base_config.yaml", help="Base config file path")
+    parser.add_argument("--model_config", type=str, default="configs/models/small.yaml", help="Model architecture config file path")
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # DIコンテナの初期化と依存関係の注入
-    container = Container()
-    container.config.from_yaml('configs/base_config.yaml')
-    
-    # コンテナから model_registry インスタンスを取得
-    model_registry = container.model_registry()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # コンテナのインスタンス化
+    container = TrainingContainer()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    container.config.from_yaml(args.config)
+    container.config.from_yaml(args.model_config)
 
+    # DIコンテナから必要なコンポーネントを取得
+    student_model = container.snn_model()
+    distillation_trainer = container.distillation_trainer()
+    model_registry = container.model_registry()
+    
     manager = KnowledgeDistillationManager(
+        student_model=student_model,
+        trainer=distillation_trainer,
+        teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
+        tokenizer_name=container.config.data.tokenizer_name(),
         model_registry=model_registry,
-        base_config_path="configs/base_config.yaml",
-        model_config_path=args.student_model_config
+        device=container.device()
     )
 
-    manager.run_on_demand_pipeline(
-        task_description=args.task_description,
-        unlabeled_data_path=args.input_data_path,
-        teacher_model_name=args.teacher_model,
-        force_retrain=args.force_retrain
+    # (仮) データセットの準備
+    # 実際には、ファイルからテキストデータをロードする
+    sample_texts = [
+        "Spiking Neural Networks are a promising alternative to traditional ANNs.",
+        "They operate based on discrete events, which can lead to greater energy efficiency.",
+        "Knowledge distillation is a technique to transfer knowledge from a large model to a smaller one."
+    ]
+    train_loader = manager.prepare_dataset(sample_texts, max_length=32, batch_size=2)
+    val_loader = train_loader # 簡単のため同じデータを使用
+
+    # 蒸留の実行
+    manager.run_distillation(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        epochs=3, # テスト用のエポック数
+        model_id="distilled_snn_expert_v1",
+        task_description="An expert SNN for explaining AI concepts, created via distillation.",
+        student_config=container.config.model.to_dict()
     )
 
 if __name__ == "__main__":
