@@ -9,14 +9,19 @@
 # 改善点: RAGSystemをHierarchicalPlannerに注入するように修正。
 # mypyエラー修正: asyncio.run() を使って非同期関数を呼び出すように修正。
 
+import argparse
+import sys
+import asyncio
+from pathlib import Path
+import os
+from typing import Tuple, cast
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from spikingjelly.activation_based import surrogate, functional  # type: ignore
-from typing import Tuple, Dict, Any, Optional, List, Type, cast
-import math
-from omegaconf import DictConfig, OmegaConf
-from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
+from torch.utils.data import Dataset
+import typer
+from omegaconf import OmegaConf, DictConfig
+
+from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer, SimpleSNN
+from snn_research.training.trainers import BPTTTrainer
 
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
