@@ -57,6 +57,7 @@ def main():
     container.config.from_yaml("configs/base_config.yaml")
     container.config.from_yaml("configs/models/small.yaml")
 
+    # 依存関係を正しい順序で構築
     device = container.device()
     student_model = container.snn_model()
     optimizer = container.optimizer(params=student_model.parameters())
@@ -76,16 +77,18 @@ def main():
         device=device
     )
 
-    # DIコンテナからモデル設定を取得
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # DIコンテナからモデル設定を取得し、辞書に変換
     student_config_dict = container.config.model.to_dict()
 
-    # run_on_demand_pipelineを非同期で実行
+    # run_on_demand_pipelineを非同期で実行し、student_configを渡す
     asyncio.run(distillation_manager.run_on_demand_pipeline(
         task_description=args.topic,
         unlabeled_data_path=crawled_data_path,
         force_retrain=True,
-        student_config=student_config_dict # 設定を渡す
+        student_config=student_config_dict
     ))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
     print(f"  トピック「{args.topic}」に関する新しい専門家モデルが育成されました。")
