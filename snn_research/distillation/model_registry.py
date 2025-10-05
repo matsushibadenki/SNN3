@@ -1,7 +1,7 @@
 # matsushibadenki/snn3/snn_research/distillation/model_registry.py
-# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/distillation/model_registry.py
+# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c_0021f222858011/snn_research/distillation/model_registry.py
 # タイトル: モデルレジストリ
-# 機能説明: モデル検索ロジックをタスク名による直接ルックアップに修正し、登録ロジックをリストに追加するよう修正。
+# 機能説明: find_models_for_taskメソッドの末尾にあった余分なコロンを削除し、SyntaxErrorを修正。
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
@@ -9,8 +9,28 @@ import json
 from pathlib import Path
 
 class ModelRegistry(ABC):
-    # (インターフェースの変更なし)
-    ...
+    """
+    専門家モデルを管理するためのインターフェース。
+    """
+    @abstractmethod
+    async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
+        """新しいモデルをレジストリに登録する。"""
+        pass
+
+    @abstractmethod
+    async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
+        """特定のタスクに最適なモデルを検索する。"""
+        pass
+
+    @abstractmethod
+    async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
+        """モデルIDに基づいてモデル情報を取得する。"""
+        pass
+
+    @abstractmethod
+    async def list_models(self) -> List[Dict[str, Any]]:
+        """登録されているすべてのモデルのリストを取得する。"""
+        pass
 
 class SimpleModelRegistry(ModelRegistry):
     """
@@ -35,7 +55,6 @@ class SimpleModelRegistry(ModelRegistry):
             json.dump(self.models, f, indent=4, ensure_ascii=False)
 
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         new_model_info = {
             "task_description": task_description,
             "metrics": metrics,
@@ -47,10 +66,10 @@ class SimpleModelRegistry(ModelRegistry):
         self.models[model_id].append(new_model_info)
         self._save()
         print(f"Model for task '{model_id}' registered at '{model_path}'.")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-    async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]::
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if task_description in self.models:
             models_for_task = self.models[task_description]
             # 精度が高い順にソートする
@@ -63,7 +82,6 @@ class SimpleModelRegistry(ModelRegistry):
                 model['model_id'] = task_description
             return models_for_task[:top_k]
         return []
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
         # 最初のモデルを返す（find_models_for_taskでソート済み）
