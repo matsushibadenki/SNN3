@@ -24,20 +24,8 @@ class SNNInferenceEngine:
         self.config = config
         self.device = config.deployment.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         
-        # SNNCoreがconfigに基づいて適切なモデルをインスタンス化する
-        self.model = SNNCore(config)
-        
-        model_path = config.deployment.get("model_path")
-        if model_path:
-            try:
-                self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-                print(f"Model loaded from {model_path}")
-            except FileNotFoundError:
-                print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
-        
-        self.model.to(self.device)
-        self.model.eval()
-
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 先にTokenizerをロードしてvocab_sizeを取得
         tokenizer_path = config.deployment.get("tokenizer_path", "gpt2")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
@@ -45,11 +33,27 @@ class SNNInferenceEngine:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
         except Exception as e:
             print(f"Could not load tokenizer from {tokenizer_path}. Error: {e}")
-            # フォールバックとして基本的なTokenizerを設定
             self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        # vocab_sizeを渡してSNNCoreを初期化
+        vocab_size = len(self.tokenizer)
+        self.model = SNNCore(config, vocab_size=vocab_size)
+        
+        model_path = config.deployment.get("model_path")
+        if model_path:
+            try:
+                # SNNCoreがラップしている内部モデルのstate_dictをロードする
+                self.model.model.load_state_dict(torch.load(model_path, map_location=self.device))
+                print(f"Model loaded from {model_path}")
+            except FileNotFoundError:
+                print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
+            except RuntimeError as e:
+                print(f"Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
 
+        self.model.to(self.device)
+        self.model.eval()
 
     def generate(self, prompt: str, max_len: int, stop_sequences: Optional[List[str]] = None) -> Iterator[str]:
         """
