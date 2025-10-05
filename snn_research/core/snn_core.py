@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from spikingjelly.activation_based import surrogate, functional  # type: ignore
-from typing import Tuple, Dict, Any, Optional, List, Type
+from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
 from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
@@ -372,32 +372,35 @@ class SNNCore(nn.Module):
 
         self.model: nn.Module
 
-        params = OmegaConf.to_container(self.config.model, resolve=True)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        params_untyped = OmegaConf.to_container(self.config.model, resolve=True)
+        if not isinstance(params_untyped, dict):
+            raise ValueError(f"Model configuration is not a dictionary. Got: {type(params_untyped)}")
+        params: Dict[str, Any] = params_untyped
 
         if model_type == "predictive_coding":
             self.model = BreakthroughSNN(
                 vocab_size=vocab_size,
-                d_model=params.get("d_model"),
-                d_state=params.get("d_state"),
-                num_layers=params.get("num_layers"),
-                time_steps=params.get("time_steps"),
-                n_head=params.get("n_head"),
-                neuron_config=params.get("neuron")
+                d_model=params.get("d_model", 256),
+                d_state=params.get("d_state", 128),
+                num_layers=params.get("num_layers", 4),
+                time_steps=params.get("time_steps", 20),
+                n_head=params.get("n_head", 4),
+                neuron_config=params.get("neuron", {})
             )
         elif model_type == "spiking_transformer":
-            # SpikingTransformerの引数キーをconfigファイルに合わせる
             self.model = SpikingTransformer(
                 vocab_size=vocab_size,
-                d_model=params.get("d_model"),
-                n_head=params.get("n_head"),
-                num_layers=params.get("num_layers"),
-                time_steps=params.get("time_steps")
+                d_model=params.get("d_model", 512),
+                n_head=params.get("n_head", 8),
+                num_layers=params.get("num_layers", 12),
+                time_steps=params.get("time_steps", 32)
             )
         elif model_type == "simple":
             self.model = SimpleSNN(
-                input_size=params.get("input_size"),
-                hidden_size=params.get("hidden_size"),
-                output_size=params.get("output_size")
+                input_size=params.get("input_size", 10),
+                hidden_size=params.get("hidden_size", 50),
+                output_size=params.get("output_size", 10)
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
