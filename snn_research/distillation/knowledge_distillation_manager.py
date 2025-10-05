@@ -160,7 +160,7 @@ class KnowledgeDistillationManager:
         print("--- Knowledge Distillation Finished ---")
         return {"model_id": safe_model_id, "metrics": final_metrics, "path": save_path, "config": student_config}
 
-    async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool):
+    async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool, student_config: Dict[str, Any]):
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
         
@@ -179,19 +179,18 @@ class KnowledgeDistillationManager:
             return
 
         # 2. データローダー準備
-        # ToDo: DIコンテナから設定を取得する
-        max_len = 128
-        batch_size = 4
+        max_len = student_config.get("time_steps", 128)
+        batch_size = 4 # デモ用に固定
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # 3. 蒸留実行
+        # 3. 蒸留実行 (エポック数を増加)
         await self.run_distillation(
             train_loader=train_loader,
-            val_loader=train_loader,
-            epochs=5,
+            val_loader=train_loader, # 簡単のため同じデータを使用
+            epochs=15, # 5 -> 15 に変更し、学習を促進
             model_id=task_description,
             task_description=f"Expert for {task_description}",
-            student_config={} # ToDo: コンテナから取得
+            student_config=student_config # student_configを正しく渡す
         )
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
