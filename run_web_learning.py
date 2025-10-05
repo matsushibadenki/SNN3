@@ -57,14 +57,35 @@ def main():
     container.config.from_yaml("configs/base_config.yaml")
     container.config.from_yaml("configs/models/small.yaml") # 新しい専門家はsmallモデルから開始
 
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️◾️
+    # 依存関係を手動で正しく構築する
+    # 1. 生徒モデルをインスタンス化
+    student_model = container.snn_model()
+
+    # 2. モデルのパラメータを使ってオプティマイザをインスタンス化
+    optimizer = container.optimizer(params=student_model.parameters())
+
+    # 3. オプティマイザを使ってスケジューラをインスタンス化
+    scheduler = container.scheduler(optimizer=optimizer)
+
+    # 4. 構築した依存関係を渡してトレーナーをインスタンス化
+    distillation_trainer = container.distillation_trainer(
+        model=student_model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=container.device()
+    )
+
     distillation_manager = KnowledgeDistillationManager(
-        student_model=container.snn_model(),
-        trainer=container.distillation_trainer(),
+        student_model=student_model,
+        trainer=distillation_trainer,
         teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
         tokenizer_name=container.config.data.tokenizer_name(),
         model_registry=container.model_registry(),
         device=container.device()
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # run_on_demand_pipelineを非同期で実行
     asyncio.run(distillation_manager.run_on_demand_pipeline(
