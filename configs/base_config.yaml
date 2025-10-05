@@ -29,6 +29,7 @@ training:
   # --- 学習可能プランナーの設定 ---
   planner:
     learning_rate: 0.001
+    model_path: "runs/planner/best_model.pth" # 学習済みプランナーモデルのパス
 
   # --- 勾配ベース学習 (gradient_based) の設定 ---
   gradient_based:
