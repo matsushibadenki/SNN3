@@ -4,9 +4,16 @@
 # 変更点:
 # - 推論実行ロジックのコメントアウトを解除。
 # - ヘルプメッセージを改善。
+# - 改善点: DIコンテナと同様に、エージェントに必要な依存関係を初期化して注入するように修正。
 
 import argparse
+import asyncio
 from snn_research.agent.autonomous_agent import AutonomousAgent
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.distillation.model_registry import SimpleModelRegistry
+from snn_research.agent.memory import Memory
+from snn_research.tools.web_crawler import WebCrawler
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
 
 def main():
     """
@@ -40,27 +47,44 @@ def main():
 
     args = parser.parse_args()
 
-    # 自律エージェントを初期化
-    agent = AutonomousAgent()
+    # --- 依存関係の構築 ---
+    model_registry = SimpleModelRegistry()
+    rag_system = RAGSystem()
+    memory = Memory()
+    web_crawler = WebCrawler()
+    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
 
-    # エージェントにタスク処理を依頼
-    selected_model_info = agent.handle_task(
+    # --- 自律エージェントの初期化 ---
+    agent = AutonomousAgent(
+        name="run_agent_instance",
+        planner=planner,
+        model_registry=model_registry,
+        memory=memory,
+        web_crawler=web_crawler
+    )
+
+    # --- エージェントにタスク処理を依頼 ---
+    # handle_taskは内部で非同期メソッドを呼び出すため、asyncio.runで実行
+    selected_model_info = asyncio.run(agent.handle_task(
         task_description=args.task_description,
         unlabeled_data_path=args.unlabeled_data_path,
         force_retrain=args.force_retrain
-    )
+    ))
 
     if selected_model_info:
         print("\n" + "="*20 + " ✅ TASK COMPLETED " + "="*20)
         print(f"最適な専門家モデルが準備されました: '{args.task_description}'")
-        print(f"  - モデルパス: {selected_model_info['model_path']}")
-        print(f"  - 性能: {selected_model_info['metrics']}")
+        if 'path' in selected_model_info:
+             print(f"  - モデルパス: {selected_model_info['path']}")
+        if 'metrics' in selected_model_info:
+             print(f"  - 性能: {selected_model_info['metrics']}")
 
         # プロンプトが指定されていれば、推論を実行
         if args.prompt:
             print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
             print(f"入力プロンプト: {args.prompt}")
-            agent.run_inference(selected_model_info, args.prompt)
+            # run_inferenceも内部で非同期メソッドを呼び出す可能性があるため、asyncio.runで実行
+            asyncio.run(agent.run_inference(selected_model_info, args.prompt))
     else:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
         print("タスクを完了できませんでした。")
