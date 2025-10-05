@@ -1,8 +1,7 @@
 # /run_web_learning.py
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/run_web_learning.py
 # タイトル: Autonomous Web Learning Script
-# 機能説明: DIコンテナからコンポーネントを取得する際のロジックを修正し、
-#            Optimizerにモデルのパラメータが正しく渡されるようにすることで、TypeErrorを解消する。
+# 機能説明: 知識蒸留マネージャーを呼び出す際に、モデルのアーキテクチャ設定を正しく渡すように修正し、AttributeErrorを解消する。
 
 import argparse
 import os
@@ -53,11 +52,12 @@ def main():
     # --- ステップ2: オンデマンド知識蒸留による学習 ---
     print("\n" + "="*20 + " 🧠 Step 2: On-demand Learning " + "="*20)
     
+    # DIコンテナから学習に必要なコンポーネントを取得
     container = TrainingContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    container.config.from_yaml("configs/models/small.yaml")
+    container.config.from_yaml("configs/models/small.yaml") # 新しい専門家はsmallモデルから開始
 
-    # 依存関係を正しい順序で構築
+    # 依存関係を正しい順序で構築する
     device = container.device()
     student_model = container.snn_model()
     optimizer = container.optimizer(params=student_model.parameters())
@@ -77,7 +77,8 @@ def main():
         device=device
     )
 
-    # DIコンテナからモデル設定を取得
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # DIコンテナからモデル設定を取得し、辞書に変換
     student_config_dict = container.config.model.to_dict()
 
     # run_on_demand_pipelineを非同期で実行し、student_configをキーワード引数として渡す
@@ -87,6 +88,7 @@ def main():
         force_retrain=True,
         student_config=student_config_dict
     ))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
     print(f"  トピック「{args.topic}」に関する新しい専門家モデルが育成されました。")
