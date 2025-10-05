@@ -1,8 +1,12 @@
 # matsushibadenki/snn3/run_planner.py
 # Phase 3: 高次認知アーキテクチャの実行インターフェース
+# 改善点: プランナーに必要な依存関係(RAGSystem, ModelRegistry)を初期化するように修正。
 
 import argparse
+import asyncio
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
+from snn_research.distillation.model_registry import SimpleModelRegistry
 
 def main():
     """
@@ -28,10 +32,21 @@ def main():
 
     args = parser.parse_args()
 
-    # 階層的プランナーを初期化
-    planner = HierarchicalPlanner()
+    # --- 依存関係の構築 ---
+    model_registry = SimpleModelRegistry()
+    rag_system = RAGSystem()
+    # 知識ベースがなければ構築する
+    if not rag_system.vector_store:
+        print("知識ベースが存在しないため、初回構築を行います...")
+        rag_system.setup_vector_store()
 
-    # プランナーにタスク処理を依頼
+    # --- 階層的プランナーを初期化 ---
+    planner = HierarchicalPlanner(
+        model_registry=model_registry,
+        rag_system=rag_system
+    )
+
+    # --- プランナーにタスク処理を依頼 ---
     final_result = planner.execute_task(
         task_request=args.task_request,
         context=args.context_data
