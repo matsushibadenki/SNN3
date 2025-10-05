@@ -32,16 +32,13 @@ class ModelRegistry(ABC):
         """登録されているすべてのモデルのリストを取得する。"""
         pass
 
+
 class SimpleModelRegistry(ModelRegistry):
     """
     JSONファイルを使用したシンプルなモデルレジストリの実装。
     """
     def __init__(self, registry_path: str = "runs/model_registry.json"):
         self.registry_path = Path(registry_path)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # レジストリファイルがあるディレクトリの絶対パスを基準点として保存
-        self.registry_dir = self.registry_path.resolve().parent
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.models: Dict[str, List[Dict[str, Any]]] = self._load()
 
     def _load(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -58,7 +55,6 @@ class SimpleModelRegistry(ModelRegistry):
         with open(self.registry_path, 'w', encoding='utf-8') as f:
             json.dump(self.models, f, indent=4, ensure_ascii=False)
 
-
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         new_model_info = {
             "task_description": task_description,
@@ -73,42 +69,41 @@ class SimpleModelRegistry(ModelRegistry):
         print(f"Model for task '{model_id}' registered at '{model_path}'.")
 
     async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if task_description in self.models:
-            # データベースからモデルリストを取得
             models_for_task = self.models[task_description]
             
-            # 精度が高い順にソート
             models_for_task.sort(
                 key=lambda x: x.get("metrics", {}).get("accuracy", 0),
                 reverse=True
             )
 
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             resolved_models = []
             for model_info in models_for_task[:top_k]:
-                # パスのキーが 'path' と 'model_path' の両方に対応
                 relative_path_str = model_info.get('model_path') or model_info.get('path')
                 
                 if relative_path_str:
-                    # レジストリの場所を基準に絶対パスを生成
-                    absolute_path = self.registry_dir / relative_path_str
-                    model_info['model_path'] = str(absolute_path.resolve())
+                    # スクリプト実行ディレクトリからの相対パスを解決して絶対パスに変換
+                    absolute_path = Path(relative_path_str).resolve()
+                    model_info['model_path'] = str(absolute_path)
 
                 model_info['model_id'] = task_description
                 resolved_models.append(model_info)
             
             return resolved_models
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return []
 
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
         models = self.models.get(model_id)
         if models:
-            # find_models_for_taskと同様のパス解決ロジックを適用
-            model_info = models[0] # 最高精度のものを取得
+            model_info = models[0] 
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             relative_path_str = model_info.get('model_path') or model_info.get('path')
             if relative_path_str:
-                absolute_path = self.registry_dir / relative_path_str
-                model_info['model_path'] = str(absolute_path.resolve())
+                absolute_path = Path(relative_path_str).resolve()
+                model_info['model_path'] = str(absolute_path)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             return model_info
         return None
 
