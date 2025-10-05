@@ -52,10 +52,9 @@ def main():
     # --- ステップ2: オンデマンド知識蒸留による学習 ---
     print("\n" + "="*20 + " 🧠 Step 2: On-demand Learning " + "="*20)
     
-    # DIコンテナから学習に必要なコンポーネントを取得
     container = TrainingContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    container.config.from_yaml("configs/models/small.yaml") # 新しい専門家はsmallモデルから開始
+    container.config.from_yaml("configs/models/small.yaml")
 
     # 依存関係を正しい順序で構築する
     device = container.device()
@@ -78,7 +77,7 @@ def main():
     )
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # DIコンテナからモデル設定を取得し、辞書に変換
+    # DIコンテナからモデル設定を取得
     student_config_dict = container.config.model.to_dict()
 
     # run_on_demand_pipelineを非同期で実行し、student_configをキーワード引数として渡す
