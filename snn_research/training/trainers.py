@@ -239,9 +239,14 @@ class BreakthroughTrainer:
 class DistillationTrainer(BreakthroughTrainer):
     """知識蒸留に特化したトレーナー。"""
     def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, teacher_model: Optional[nn.Module] = None) -> Dict[str, float]:
-        # (trainメソッドは変更なし)
-        # ...
+        """知識蒸留のための学習ループ。"""
+        final_metrics: Dict[str, float] = {}
+        for epoch in range(1, epochs + 1):
+            self.train_epoch(train_loader, epoch)
+            final_metrics = self.evaluate(val_loader, epoch)
+        return final_metrics
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train: self.model.train()
         else: self.model.eval()
@@ -250,10 +255,8 @@ class DistillationTrainer(BreakthroughTrainer):
 
         with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_output = self.model(student_input, return_spikes=True, return_full_mems=True)
                 student_logits, spikes, mem = student_output[0], student_output[1], student_output[2]
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 assert isinstance(self.criterion, DistillationLoss)
                 loss_dict = self.criterion(
@@ -271,8 +274,6 @@ class DistillationTrainer(BreakthroughTrainer):
             
             if self.astrocyte_network: self.astrocyte_network.step()
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # BreakthroughTrainerから正解率(accuracy)の計算ロジックを移植
         with torch.no_grad():
             preds = torch.argmax(student_logits, dim=-1)
             if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
@@ -281,9 +282,9 @@ class DistillationTrainer(BreakthroughTrainer):
                 num_masked_elements = cast(torch.Tensor, mask).sum()
                 accuracy = (preds[mask] == student_target[mask]).float().sum() / num_masked_elements if num_masked_elements > 0 else torch.tensor(0.0)
                 loss_dict['accuracy'] = accuracy
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         return {k: v.cpu().item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SelfSupervisedTrainer(BreakthroughTrainer):
     """自己教師あり学習に特化したトレーナー。"""
