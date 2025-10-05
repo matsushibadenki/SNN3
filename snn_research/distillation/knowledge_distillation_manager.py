@@ -106,11 +106,6 @@ class KnowledgeDistillationManager:
         safe_model_id = model_id.lower().replace(" ", "_")
         print(f"--- Starting Knowledge Distillation for model: {safe_model_id} ---")
 
-
-        """
-        知識蒸留の全プロセスを実行し、学習済みモデルを登録する。
-        """
-        print(f"--- Starting Knowledge Distillation for model: {model_id} ---")
         final_metrics: Dict[str, float] = {}
 
         # 1. 知識蒸留の実行
@@ -157,4 +152,79 @@ class KnowledgeDistillationManager:
 
     async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool, student_config: Optional[Dict[str, Any]] = None):
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
-        print(f
+        print(f"🚀 Starting on-demand pipeline for task: {task_description}")
+
+        # student_configが渡されない場合、保持しているstudent_modelから取得する
+        if student_config is None:
+            print("student_config not provided, attempting to retrieve from student model...")
+            if hasattr(self.student_model, 'config') and hasattr(self.student_model.config, 'model'):
+                # SNNCoreラッパーを想定
+                student_config = OmegaConf.to_container(self.student_model.config.model, resolve=True)
+                print("✅ Successfully retrieved config from SNNCore model.")
+            else:
+                raise ValueError("student_config was not provided and could not be retrieved from the model.")
+        
+        # 1. データ読み込み
+        texts = []
+        with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    texts.append(json.loads(line)['text'])
+                except (json.JSONDecodeError, KeyError):
+                    if line.strip():
+                        texts.append(line.strip())
+        
+        if not texts:
+            print("❌ No text found in the provided data file. Aborting.")
+            return
+
+        # 2. データローダー準備
+        max_len = student_config.get("time_steps", 128) if student_config else 128
+        batch_size = 4 # デモ用に固定
+        train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
+        
+        # 3. 蒸留実行 (エポック数を増加)
+        await self.run_distillation(
+            train_loader=train_loader,
+            val_loader=train_loader,
+            epochs=15,
+            model_id=task_description,
+            task_description=f"Expert for {task_description}",
+            student_config=student_config
+        )
+
+    async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
+        """
+        蒸留済みモデルの性能を評価する。
+        """
+        model_to_eval = self.distillation_trainer.model
+        model_to_eval.eval()
+        total_spikes = 0
+        total_samples = 0
+
+        progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
+        for batch in progress_bar:
+            inputs, _, _ = batch
+            inputs = inputs.to(self.device)
+
+            with torch.no_grad():
+                outputs = model_to_eval(inputs, return_spikes=True)
+                if isinstance(outputs, tuple) and len(outputs) > 1:
+                    _, spikes, _ = outputs
+                else:
+                    # mypyエラーを回避するため、torch.zerosを使用
+                    spikes = torch.zeros((), device=inputs.device)
+
+            total_spikes += spikes.sum().item()
+            total_samples += inputs.size(0)
+
+        avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
+
+        perplexity = calculate_perplexity(model_to_eval, dataloader, self.device)
+        energy = calculate_energy_consumption(avg_spikes_per_sample)
+
+        return {
+            "perplexity": perplexity,
+            "avg_spikes_per_sample": avg_spikes_per_sample,
+            "estimated_energy_consumption": energy
+        }
