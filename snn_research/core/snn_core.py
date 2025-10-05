@@ -374,9 +374,12 @@ class SNNCore(nn.Module):
 
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         params_untyped = OmegaConf.to_container(self.config.model, resolve=True)
-        if not isinstance(params_untyped, dict):
-            raise ValueError(f"Model configuration is not a dictionary. Got: {type(params_untyped)}")
+        if not isinstance(params_untyped, Dict):
+            raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
+        
+        # ここでmypyにparamsが辞書であることを確定させる
         params: Dict[str, Any] = params_untyped
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if model_type == "predictive_coding":
             self.model = BreakthroughSNN(
