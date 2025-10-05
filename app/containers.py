@@ -37,6 +37,11 @@ from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerA
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
 
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
+from snn_research.agent.memory import Memory
+
+
 def get_auto_device() -> str:
     """実行環境に最適なデバイスを自動的に選択する。"""
     if torch.cuda.is_available(): return "cuda"
@@ -232,6 +237,51 @@ class TrainingContainer(containers.DeclarativeContainer):
         redis=providers.Singleton(SimpleModelRegistry), # Redis実装はSimpleModelRegistryで代替
     )
 
+
+class AgentContainer(containers.DeclarativeContainer):
+    """エージェントとプランナーの実行に必要な依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
+    training_container = providers.Container(TrainingContainer, config=config)
+
+    # --- 共通ツール ---
+    device = providers.Factory(get_auto_device)
+    model_registry = training_container.model_registry
+    web_crawler = providers.Singleton(WebCrawler)
+    rag_system = providers.Singleton(RAGSystem, vector_store_path=config.training.log_dir.concat("/vector_store"))
+    memory = providers.Singleton(Memory, memory_path=config.training.log_dir.concat("/agent_memory.jsonl"))
+
+    # --- 学習済みプランナーモデルのプロバイダ ---
+    # train_planner.pyで学習させたモデルをロードする
+    trained_planner_snn = providers.Factory(
+        training_container.planner_snn
+    )
+
+    @providers.Singleton
+    def loaded_planner_snn(trained_planner_snn, config, device):
+        model_path = config.training.planner.model_path
+        model = trained_planner_snn
+        if os.path.exists(model_path):
+            try:
+                # state_dictの 'model_state_dict' キーをチェック
+                checkpoint = torch.load(model_path, map_location=device)
+                state_dict = checkpoint.get('model_state_dict', checkpoint)
+                model.load_state_dict(state_dict)
+                print(f"✅ 学習済みPlannerSNNモデルを '{model_path}' から正常にロードしました。")
+            except Exception as e:
+                print(f"⚠️ PlannerSNNモデルのロードに失敗しました: {e}。未学習のモデルを使用します。")
+        else:
+            print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
+        return model.to(device)
+
+    # --- プランナー ---
+    hierarchical_planner = providers.Singleton(
+        HierarchicalPlanner,
+        model_registry=model_registry,
+        rag_system=rag_system,
+        planner_model=loaded_planner_snn,
+        tokenizer_name=config.data.tokenizer_name,
+        device=device,
+    )
 
 class AppContainer(containers.DeclarativeContainer):
     """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
