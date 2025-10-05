@@ -62,11 +62,13 @@ class AutonomousAgent:
     async def find_expert(self, task_description: str) -> Dict[str, Any] | None:
         """
         タスクに最適な専門家モデルをモデルレジストリから検索する。
-        精度とエネルギー効率の要件に基づいてフィルタリングを行う。
         """
-        candidate_experts = await self.model_registry.find_models_for_task(task_description, top_k=5)
+        # 検索時もタスク名をサニタイズして、レジストリのキーと一致させる
+        safe_task_description = task_description.lower().replace(" ", "_")
+        candidate_experts = await self.model_registry.find_models_for_task(safe_task_description, top_k=5)
+        
         if not candidate_experts:
-            print(f"最適な専門家が見つかりませんでした: {task_description}")
+            print(f"最適な専門家が見つかりませんでした: {safe_task_description}")
             return None
 
         # フィルタリングロジックを実装
