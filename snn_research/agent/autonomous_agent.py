@@ -1,10 +1,7 @@
 # matsushibadenki/snn3/snn_research/agent/autonomous_agent.py
-# Title: 自律エージェント
-# Description: 独自の目標を持ち、計画に基づいてタスクを実行できるエージェントの基本クラス。
-#              mypyエラー修正: Memory.add_experienceをrecord_experienceに修正し、引数を適合。
-#              Web学習失敗時のステータスをFAILUREとして記録するように修正。
-#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を追加。
-# 改善点: handle_taskとrun_inferenceのダミー実装を、実際に機能するロジックに置き換え。
+# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/agent/autonomous_agent.py
+# タイトル: 自律エージェント
+# 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
 
 from typing import Dict, Any, Optional
 import asyncio
@@ -67,7 +64,6 @@ class AutonomousAgent:
         タスクに最適な専門家モデルをモデルレジストリから検索する。
         精度とエネルギー効率の要件に基づいてフィルタリングを行う。
         """
-        # 複数の候補を取得してフィルタリング
         candidate_experts = await self.model_registry.find_models_for_task(task_description, top_k=5)
         if not candidate_experts:
             print(f"最適な専門家が見つかりませんでした: {task_description}")
@@ -85,10 +81,11 @@ class AutonomousAgent:
                 return expert
 
         print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         best_candidate = candidate_experts[0]
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print(f"   - 最高性能モデル: {best_candidate.get('metrics', {})} (要件: accuracy >= {self.accuracy_threshold}, spikes <= {self.energy_budget})")
         return None
-        return experts[0]
 
     def learn_from_web(self, topic: str) -> str:
         """
@@ -195,7 +192,7 @@ class AutonomousAgent:
         # model_infoからconfigを再構築
         deployment_config = {
             'deployment': {
-                'model_path': model_info.get('model_path'), # 'path' -> 'model_path' に修正
+                'model_path': model_info.get('model_path'),
                 'tokenizer_path': "gpt2",
                 'device': 'cuda' if torch.cuda.is_available() else 'cpu'
             },
