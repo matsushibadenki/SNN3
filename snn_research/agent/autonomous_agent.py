@@ -65,14 +65,29 @@ class AutonomousAgent:
     async def find_expert(self, task_description: str) -> Dict[str, Any] | None:
         """
         タスクに最適な専門家モデルをモデルレジストリから検索する。
+        精度とエネルギー効率の要件に基づいてフィルタリングを行う。
         """
-        experts = await self.model_registry.find_models_for_task(task_description)
-        if not experts:
+        # 複数の候補を取得してフィルタリング
+        candidate_experts = await self.model_registry.find_models_for_task(task_description, top_k=5)
+        if not candidate_experts:
             print(f"最適な専門家が見つかりませんでした: {task_description}")
             return None
-        
-        # ToDo: 精度やエネルギー効率に基づくフィルタリングロジックを追加
-        print(f"専門家を発見しました: {experts[0]['model_id']}")
+
+        # フィルタリングロジックを実装
+        for expert in candidate_experts:
+            metrics = expert.get("metrics", {})
+            accuracy = metrics.get("accuracy", 0.0)
+            spikes = metrics.get("avg_spikes_per_sample", float('inf'))
+
+            # 精度とエネルギーの条件をチェック
+            if accuracy >= self.accuracy_threshold and spikes <= self.energy_budget:
+                print(f"✅ 条件を満たす専門家を発見しました: {expert['model_id']} (Accuracy: {accuracy:.4f}, Spikes: {spikes:.2f})")
+                return expert
+
+        print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
+        best_candidate = candidate_experts[0]
+        print(f"   - 最高性能モデル: {best_candidate.get('metrics', {})} (要件: accuracy >= {self.accuracy_threshold}, spikes <= {self.energy_budget})")
+        return None
         return experts[0]
 
     def learn_from_web(self, topic: str) -> str:
@@ -180,7 +195,7 @@ class AutonomousAgent:
         # model_infoからconfigを再構築
         deployment_config = {
             'deployment': {
-                'model_path': model_info.get('path'),
+                'model_path': model_info.get('model_path'), # 'path' -> 'model_path' に修正
                 'tokenizer_path': "gpt2",
                 'device': 'cuda' if torch.cuda.is_available() else 'cpu'
             },
