@@ -14,9 +14,10 @@ from dependency_injector import containers, providers
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, LRScheduler
 from transformers import AutoTokenizer, AutoModelForCausalLM
+import os
 
 # --- プロジェクト内モジュールのインポート ---
-from snn_research.core.snn_core import BreakthroughSNN, SpikingTransformer
+from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
 from snn_research.deployment import SNNInferenceEngine
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer
@@ -70,21 +71,15 @@ class TrainingContainer(containers.DeclarativeContainer):
     # --- 共通コンポーネント ---
     tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # --- アーキテクチャ選択 ---
-    breakthrough_snn = providers.Factory(
-        BreakthroughSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
-        d_state=config.model.d_state, num_layers=config.model.num_layers, time_steps=config.model.time_steps,
-        n_head=config.model.n_head, neuron_config=config.model.neuron,
+    # SNNCoreラッパーを直接生成するように修正。これにより、モデルが自身のconfigを持つようになる。
+    snn_model = providers.Factory(
+        SNNCore,
+        config=config,
+        vocab_size=tokenizer.provided.vocab_size,
     )
-    spiking_transformer = providers.Factory(
-        SpikingTransformer, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
-        n_head=config.model.n_head, num_layers=config.model.num_layers, time_steps=config.model.time_steps
-    )
-    snn_model = providers.Selector(
-        config.model.architecture_type,
-        predictive_coding=breakthrough_snn,
-        spiking_transformer=spiking_transformer,
-    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
     meta_cognitive_snn = providers.Factory(
