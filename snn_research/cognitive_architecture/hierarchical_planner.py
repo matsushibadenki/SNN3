@@ -9,10 +9,12 @@
 #         Tokenizerをコンストラクタで受け取るように変更。
 # mypyエラー修正: .item()が返す型の曖昧さを解消するため、int()でキャストする。
 # 改善点: RAGSystemを統合し、ドキュメント検索による文脈生成機能を追加。
+# mypyエラー修正: asyncioをインポート。
 
 from typing import List, Dict, Any, Optional
 import torch
 from transformers import AutoTokenizer
+import asyncio
 
 from .planner_snn import PlannerSNN
 from snn_research.distillation.model_registry import ModelRegistry
