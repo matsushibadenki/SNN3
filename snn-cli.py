@@ -7,9 +7,11 @@
 # mypyエラー修正: 各エージェント・プランナーの呼び出しと引数を修正。
 # mypyエラー修正: ModelRegistryのインスタンス化を具象クラスに変更。
 # 改善点: RAGSystemをHierarchicalPlannerに注入するように修正。
+# mypyエラー修正: asyncio.run() を使って非同期関数を呼び出すように修正。
 
 import argparse
 import sys
+import asyncio
 from pathlib import Path
 from snn_research.core.snn_core import SNNCore
 from snn_research.training.trainers import BPTTTrainer
@@ -36,6 +38,7 @@ from snn_research.distillation.model_registry import SimpleModelRegistry
 from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
+
 
 # mypyエラー回避のための一時的なダミークラス
 class SpikingDataset(Dataset):
@@ -117,18 +120,22 @@ def handle_agent(args: argparse.Namespace) -> None:
         accuracy_threshold=args.min_accuracy,
         energy_budget=args.max_spikes
     )
-    selected_model_info = agent.handle_task(
+    
+    # 非同期関数を asyncio.run で実行
+    selected_model_info = asyncio.run(agent.handle_task(
         task_description=args.task,
         unlabeled_data_path=args.unlabeled_data_path,
         force_retrain=args.force_retrain
-    )
+    ))
+    
     if selected_model_info and args.prompt:
         print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
         print(f"入力プロンプト: {args.prompt}")
-        agent.run_inference(selected_model_info, args.prompt)
+        asyncio.run(agent.run_inference(selected_model_info, args.prompt))
     elif not selected_model_info:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
         print("タスクを完了できませんでした。")
+
 
 def handle_planner(args: argparse.Namespace) -> None:
     """階層的プランナーの機能を処理する"""
