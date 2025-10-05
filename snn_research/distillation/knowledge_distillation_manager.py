@@ -1,5 +1,4 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
-# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/distillation/knowledge_distillation_manager.py
 # タイトル: 知識蒸留マネージャー
 # 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
 
@@ -107,6 +106,12 @@ class KnowledgeDistillationManager:
         task_description: str,
         student_config: Dict[str, Any],
     ) -> Dict[str, Any]:
+        
+        # ファイルパスおよびレジストリキーとして安全なIDを生成
+        safe_model_id = model_id.lower().replace(" ", "_")
+        print(f"--- Starting Knowledge Distillation for model: {safe_model_id} ---")
+
+
         """
         知識蒸留の全プロセスを実行し、学習済みモデルを登録する。
         """
@@ -129,7 +134,6 @@ class KnowledgeDistillationManager:
         # 3. モデルの保存
         # ファイルパスとして安全なIDを生成 (小文字化、スペースをアンダースコアに)
         # これにより、常に一貫したパスが生成・登録される
-        safe_model_id = model_id.lower().replace(" ", "_")
         save_dir = os.path.join("runs", "specialists", safe_model_id)
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, "best_model.pth")
@@ -143,17 +147,18 @@ class KnowledgeDistillationManager:
 
         # 4. モデルレジストリへの登録
         print("Step 4: Registering the model...")
+        # 登録時もサニタイズされたIDをキーとして使用する
         await self.model_registry.register_model(
-            model_id=model_id,
+            model_id=safe_model_id,
             task_description=task_description,
             metrics=final_metrics,
             model_path=save_path,
             config=student_config
         )
-        print(f"Model '{model_id}' successfully registered.")
+        print(f"Model '{safe_model_id}' successfully registered.")
 
         print("--- Knowledge Distillation Finished ---")
-        return {"model_id": model_id, "metrics": final_metrics, "path": save_path, "config": student_config}
+        return {"model_id": safe_model_id, "metrics": final_metrics, "path": save_path, "config": student_config}
 
     async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool):
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
