@@ -13,7 +13,6 @@ import json
 from tqdm import tqdm
 from omegaconf import OmegaConf
 
-# from snn_research.training.trainers import DistillationTrainer
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.benchmark.metrics import calculate_perplexity, calculate_energy_consumption
 
@@ -70,7 +69,6 @@ class KnowledgeDistillationManager:
                 )
                 input_ids = tokenized['input_ids'].squeeze(0)
                 
-                # Note: 本来は事前計算が望ましいが、ここでは動的にロジットを生成
                 with torch.no_grad():
                     teacher_logits = self.teacher_model(input_ids.unsqueeze(0).to(self.device)).logits.squeeze(0).cpu()
                 
@@ -102,7 +100,6 @@ class KnowledgeDistillationManager:
         student_config: Dict[str, Any],
     ) -> Dict[str, Any]:
         
-        # ファイルパスおよびレジストリキーとして安全なIDを生成
         safe_model_id = model_id.lower().replace(" ", "_")
         print(f"--- Starting Knowledge Distillation for model: {safe_model_id} ---")
 
@@ -122,14 +119,11 @@ class KnowledgeDistillationManager:
         print(f"Evaluation finished. Metrics: {final_metrics}")
 
         # 3. モデルの保存
-        # ファイルパスとして安全なIDを生成 (小文字化、スペースをアンダースコアに)
-        # これにより、常に一貫したパスが生成・登録される
         save_dir = os.path.join("runs", "specialists", safe_model_id)
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
         
-        # DDPでラップされている可能性を考慮し、trainerからモデルを取得
         model_to_save = self.distillation_trainer.model
         model_state_dict = model_to_save.module.state_dict() if isinstance(model_to_save, nn.parallel.DistributedDataParallel) else model_to_save.state_dict()
         torch.save(model_state_dict, save_path)
@@ -137,7 +131,6 @@ class KnowledgeDistillationManager:
 
         # 4. モデルレジストリへの登録
         print("Step 4: Registering the model...")
-        # 登録時もサニタイズされたIDをキーとして使用する
         await self.model_registry.register_model(
             model_id=safe_model_id,
             task_description=task_description,
@@ -154,17 +147,14 @@ class KnowledgeDistillationManager:
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
 
-        # student_configが渡されない場合、保持しているstudent_modelから取得する
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config') and hasattr(self.student_model.config, 'model'):
-                # SNNCoreラッパーを想定
                 student_config = OmegaConf.to_container(self.student_model.config.model, resolve=True)
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
         
-        # 1. データ読み込み
         texts = []
         with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -178,12 +168,10 @@ class KnowledgeDistillationManager:
             print("❌ No text found in the provided data file. Aborting.")
             return
 
-        # 2. データローダー準備
         max_len = student_config.get("time_steps", 128) if student_config else 128
-        batch_size = 4 # デモ用に固定
+        batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # 3. 蒸留実行 (エポック数を増加)
         await self.run_distillation(
             train_loader=train_loader,
             val_loader=train_loader,
@@ -212,7 +200,6 @@ class KnowledgeDistillationManager:
                 if isinstance(outputs, tuple) and len(outputs) > 1:
                     _, spikes, _ = outputs
                 else:
-                    # mypyエラーを回避するため、torch.zerosを使用
                     spikes = torch.zeros((), device=inputs.device)
 
             total_spikes += spikes.sum().item()
