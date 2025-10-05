@@ -20,7 +20,7 @@ from torch.utils.data import Dataset
 import typer
 from omegaconf import OmegaConf, DictConfig
 
-from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer, SimpleSNN
+from snn_research.core.snn_core import SNNCore
 from snn_research.training.trainers import BPTTTrainer
 
 
@@ -40,55 +40,10 @@ from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
 
-class SNNCore(nn.Module):
-    """
-    設定に応じて適切なSNNアーキテクチャをインスタンス化するラッパークラス。
-    """
-    def __init__(self, config: DictConfig, vocab_size: int):
-        super(SNNCore, self).__init__()
-        self.config = config
-        model_type = self.config.model.get("architecture_type", self.config.model.get("type", "simple"))
-
-        self.model: nn.Module
-
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # mypyエラー解消のため、OmegaConfのコンテナをdictにキャストする
-        params = cast(Dict[str, Any], OmegaConf.to_container(self.config.model, resolve=True))
-
-        if model_type == "predictive_coding":
-            self.model = BreakthroughSNN(
-                vocab_size=vocab_size,
-                d_model=params.get("d_model", 256),
-                d_state=params.get("d_state", 128),
-                num_layers=params.get("num_layers", 4),
-                time_steps=params.get("time_steps", 20),
-                n_head=params.get("n_head", 4),
-                neuron_config=params.get("neuron", {})
-            )
-        elif model_type == "spiking_transformer":
-            self.model = SpikingTransformer(
-                vocab_size=vocab_size,
-                d_model=params.get("d_model", 512),
-                n_head=params.get("n_head", 8),
-                num_layers=params.get("num_layers", 12),
-                time_steps=params.get("time_steps", 32)
-            )
-        elif model_type == "simple":
-            self.model = SimpleSNN(
-                input_size=params.get("input_size", 10),
-                hidden_size=params.get("hidden_size", 50),
-                output_size=params.get("output_size", 10)
-            )
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        return self.model(*args, **kwargs)
 
 app = typer.Typer()
 
-@app.command(name="train-basic", help="[簡易版] BPTTベースの基本的なSNNモデル学習を実行します。より高度な機能（分散学習、詳細な設定）が必要な場合は `gradient-train` コ-マンドを使用してください。")
+@app.command(name="train-basic", help="[簡易版] BPTTベースの基本的なSNNモデル学習を実行します。より高度な機能（分散学習、詳細な設定）が必要な場合は `gradient-train` コマンドを使用してください。")
 def train_basic_command(
     config_path: str = typer.Option("configs/base_config.yaml", help="Path to the base config file."),
     model_config_path: str = typer.Option(..., help="Path to the model config file (e.g., configs/models/spiking_transformer.yaml)."),
@@ -96,14 +51,13 @@ def train_basic_command(
 ):
     """SNNモデルの学習を実行する。"""
     print("--- Starting Basic Training ---")
-    
+
     base_cfg = OmegaConf.load(config_path)
     model_cfg = OmegaConf.load(model_config_path)
     cfg = cast(DictConfig, OmegaConf.merge(base_cfg, model_cfg))
     print("Configuration loaded:")
     print(OmegaConf.to_yaml(cfg))
-    
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
     # 簡易データセットのためのダミークラスをローカルで定義
     class _SpikingDataset(Dataset):
         def __init__(self, num_samples: int, sequence_length: int, vocab_size: int):
@@ -118,7 +72,6 @@ def train_basic_command(
             data = torch.randint(0, self.vocab_size, (self.sequence_length,))
             targets = torch.randint(0, self.vocab_size, (self.sequence_length,))
             return data, targets
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
     vocab_size = cfg.model.get("vocab_size", cfg.data.get("max_vocab_size", 50000))
     dataset = _SpikingDataset(num_samples=100, sequence_length=cfg.model.get("time_steps", 32), vocab_size=vocab_size)
@@ -149,7 +102,8 @@ def train_basic_command(
     torch.save(model.state_dict(), save_path)
     print(f"--- Training Finished ---")
     print(f"Model saved to {save_path}")
-
+    
+    
 def handle_agent(args: argparse.Namespace) -> None:
     """自律エージェントの機能を処理する"""
     model_registry = SimpleModelRegistry()
