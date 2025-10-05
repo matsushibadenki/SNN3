@@ -57,28 +57,16 @@ def main():
     container.config.from_yaml("configs/base_config.yaml")
     container.config.from_yaml("configs/models/small.yaml")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # 依存関係を正しい順序で構築する
-    # 0. デバイスを取得
     device = container.device()
-
-    # 1. 生徒モデルをインスタンス化
     student_model = container.snn_model()
-
-    # 2. モデルのパラメータを使ってオプティマイザをインスタンス化
     optimizer = container.optimizer(params=student_model.parameters())
-
-    # 3. オプティマイザを使ってスケジューラをインスタンス化
     scheduler = container.scheduler(optimizer=optimizer)
-
-    # 4. 構築した依存関係を渡してトレーナーをインスタンス化
     distillation_trainer = container.distillation_trainer(
         model=student_model,
         optimizer=optimizer,
         scheduler=scheduler,
         device=device
     )
-
     distillation_manager = KnowledgeDistillationManager(
         student_model=student_model,
         trainer=distillation_trainer,
@@ -87,12 +75,16 @@ def main():
         model_registry=container.model_registry(),
         device=device
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
+    # DIコンテナからモデル設定を取得
+    student_config_dict = container.config.model.to_dict()
+
+    # run_on_demand_pipelineを非同期で実行
     asyncio.run(distillation_manager.run_on_demand_pipeline(
         task_description=args.topic,
         unlabeled_data_path=crawled_data_path,
-        force_retrain=True
+        force_retrain=True,
+        student_config=student_config_dict # 設定を渡す
     ))
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
