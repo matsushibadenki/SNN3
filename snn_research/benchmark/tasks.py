@@ -5,6 +5,7 @@
 # - mypyエラーを解消するため、型ヒントの修正、ライブラリimportへの# type: ignore追加、
 #   len()呼び出しのキャストなどを行った。
 # - BreakthroughSNNの呼び出しを修正し、型推論エラーを解消。
+# - 変更点: 外部ライブラリの仕様変更によりエラーとなっていたXSumタスクを無効化。
 
 import os
 import json
@@ -17,7 +18,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedTokenizerBase
 
-from snn_research.core.snn_core import BreakthroughSNN, AdaptiveLIFNeuron
+from snn_research.core.snn_core import BreakthroughSNN
 from snn_research.benchmark.ann_baseline import ANNBaselineModel
 from snn_research.benchmark.metrics import calculate_accuracy
 
@@ -105,9 +106,7 @@ class SST2Task(BenchmarkTask):
                 return self.classifier(pooled_output), spikes
 
         if model_type == 'SNN':
-            # 知識蒸留で学習したモデルをロードする想定
-            # ここではダミーのアーキテクチャを返す
-            # 実際の評価では --model_path で指定されたモデルが使われる
+            # BreakthroughSNNのアーキテクチャで初期化
             backbone = BreakthroughSNN(
                 vocab_size=vocab_size,
                 d_model=64, # small.yaml に合わせるのが望ましい
@@ -119,6 +118,7 @@ class SST2Task(BenchmarkTask):
             )
             return SNNClassifier(backbone)
         else:
+            # ANNのベースラインモデル
             ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2, 'num_classes': 2}
             return ANNBaselineModel(vocab_size=vocab_size, **ann_params)
 
@@ -147,8 +147,7 @@ class SST2Task(BenchmarkTask):
             "avg_spikes": avg_spikes
         }
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- 文章要約タスク (XSum) ---
 # datasetsライブラリの仕様変更によりエラーが発生するため、クラス全体を無効化
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
+# class XSumTask(BenchmarkTask):
+#     ...
