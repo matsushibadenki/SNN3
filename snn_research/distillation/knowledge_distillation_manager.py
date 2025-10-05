@@ -160,9 +160,13 @@ class KnowledgeDistillationManager:
         print("--- Knowledge Distillation Finished ---")
         return {"model_id": safe_model_id, "metrics": final_metrics, "path": save_path, "config": student_config}
 
-    async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool, student_config: Dict[str, Any]):
+    async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool, student_config: Optional[Dict[str, Any]] = None):
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
+
+        if not student_config:
+            print("❌ Error: student_config was not provided. Aborting learning pipeline.")
+            return
         
         # 1. データ読み込み
         texts = []
