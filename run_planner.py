@@ -7,6 +7,7 @@ import asyncio
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
 from snn_research.distillation.model_registry import SimpleModelRegistry
+from app.containers import AgentContainer
 
 def main():
     """
@@ -31,6 +32,21 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # DIコンテナを初期化し、依存関係が注入済みのプランナーを取得
+    container = AgentContainer()
+    container.config.from_yaml("configs/base_config.yaml")
+    # model_configは直接プランナーに関係ないが、念のため読み込む
+    container.config.from_yaml("configs/models/small.yaml") 
+    
+    planner = container.hierarchical_planner()
+    
+    # RAGの知識ベースを構築（存在しない場合）
+    rag_system = container.rag_system()
+    if not rag_system.vector_store:
+        print("知識ベースが存在しないため、初回構築を行います...")
+        rag_system.setup_vector_store()
+
 
     # --- 依存関係の構築 ---
     model_registry = SimpleModelRegistry()
