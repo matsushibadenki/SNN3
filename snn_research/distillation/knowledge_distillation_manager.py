@@ -6,15 +6,13 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import asyncio
 import os
 import json
 from tqdm import tqdm
+from omegaconf import OmegaConf
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # from snn_research.training.trainers import DistillationTrainer
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.benchmark.metrics import calculate_perplexity, calculate_energy_consumption
@@ -23,7 +21,6 @@ from snn_research.benchmark.metrics import calculate_perplexity, calculate_energ
 # 型チェック時のみインポートを実行し、実行時の循環参照を回避する
 if TYPE_CHECKING:
     from snn_research.training.trainers import DistillationTrainer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class KnowledgeDistillationManager:
     """
@@ -32,9 +29,7 @@ class KnowledgeDistillationManager:
     def __init__(
         self,
         student_model: torch.nn.Module,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         trainer: "DistillationTrainer",
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         teacher_model_name: str,
         tokenizer_name: str,
         model_registry: ModelRegistry,
@@ -162,73 +157,4 @@ class KnowledgeDistillationManager:
 
     async def run_on_demand_pipeline(self, task_description: str, unlabeled_data_path: str, force_retrain: bool, student_config: Optional[Dict[str, Any]] = None):
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
-        print(f"🚀 Starting on-demand pipeline for task: {task_description}")
-
-        if not student_config:
-            raise ValueError("student_config must be provided for the on-demand learning pipeline.")
-        
-        # 1. データ読み込み
-        texts = []
-        with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                try:
-                    texts.append(json.loads(line)['text'])
-                except (json.JSONDecodeError, KeyError):
-                    if line.strip():
-                        texts.append(line.strip())
-        
-        if not texts:
-            print("❌ No text found in the provided data file. Aborting.")
-            return
-
-        # 2. データローダー準備
-        # student_configがNoneでないことを保証
-        max_len = student_config.get("time_steps", 128) if student_config else 128
-        batch_size = 4 # デモ用に固定
-        train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
-        
-        # 3. 蒸留実行 (エポック数を増加)
-        await self.run_distillation(
-            train_loader=train_loader,
-            val_loader=train_loader,
-            epochs=15,
-            model_id=task_description,
-            task_description=f"Expert for {task_description}",
-            student_config=student_config
-        )
-
-    async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
-        """
-        蒸留済みモデルの性能を評価する。
-        """
-        model_to_eval = self.distillation_trainer.model
-        model_to_eval.eval()
-        total_spikes = 0
-        total_samples = 0
-
-        progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
-        for batch in progress_bar:
-            inputs, _, _ = batch
-            inputs = inputs.to(self.device)
-
-            with torch.no_grad():
-                outputs = model_to_eval(inputs, return_spikes=True)
-                if isinstance(outputs, tuple) and len(outputs) > 1:
-                    _, spikes, _ = outputs
-                else:
-                    # mypyエラーを回避するため、torch.zerosを使用
-                    spikes = torch.zeros((), device=inputs.device)
-
-            total_spikes += spikes.sum().item()
-            total_samples += inputs.size(0)
-
-        avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
-
-        perplexity = calculate_perplexity(model_to_eval, dataloader, self.device)
-        energy = calculate_energy_consumption(avg_spikes_per_sample)
-
-        return {
-            "perplexity": perplexity,
-            "avg_spikes_per_sample": avg_spikes_per_sample,
-            "estimated_energy_consumption": energy
-        }
+        print(f
