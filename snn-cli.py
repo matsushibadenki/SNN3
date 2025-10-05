@@ -60,26 +60,30 @@ app = typer.Typer()
 
 @app.command(name="train-basic", help="[簡易版] BPTTベースの基本的なSNNモデル学習を実行します。より高度な機能（分散学習、詳細な設定）が必要な場合は `gradient-train` コマンドを使用してください。")
 def train_basic_command(
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     config_path: str = typer.Option("configs/base_config.yaml", help="Path to the base config file."),
     model_config_path: str = typer.Option(..., help="Path to the model config file (e.g., configs/models/spiking_transformer.yaml)."),
     output_dir: str = typer.Option("models/", help="Directory to save the trained model.")
 ):
     """SNNモデルの学習を実行する。"""
-    print("--- Starting Training ---")
-    
+    print("--- Starting Basic Training ---")
+
     base_cfg = OmegaConf.load(config_path)
     model_cfg = OmegaConf.load(model_config_path)
     cfg = cast(DictConfig, OmegaConf.merge(base_cfg, model_cfg))
     print("Configuration loaded:")
     print(OmegaConf.to_yaml(cfg))
 
-    vocab_size = cfg.model.params.get("vocab_size", 1000)
-    dataset = SpikingDataset(num_samples=100, sequence_length=32, vocab_size=vocab_size)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # vocab_sizeは固定値ではなく、設定から取得するのが望ましいが、
+    # 簡易版のため、ここでは一般的な値で代用する。
+    # `snn_research.core.snn_core`のSpikingTransformer定義に合わせる。
+    vocab_size = cfg.model.get("vocab_size", cfg.data.get("max_vocab_size", 50000))
+    dataset = SpikingDataset(num_samples=100, sequence_length=cfg.model.get("time_steps", 32), vocab_size=vocab_size)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=cfg.training.batch_size)
     print(f"Dataset prepared with {len(dataset)} samples.")
 
-    model = SNNCore(cfg)
+    model = SNNCore(cfg, vocab_size=vocab_size)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     print("Model initialized:")
     print(model)
 
@@ -87,17 +91,18 @@ def train_basic_command(
     print("Trainer initialized.")
 
     print("--- Training Loop ---")
-    for epoch in range(cfg.training.epochs):
+    epochs = cfg.training.get("epochs", 1) # epochsがない場合のエラーを回避
+    for epoch in range(epochs):
         total_loss: float = 0.0
         for i, (data, targets) in enumerate(dataloader):
             loss = trainer.train_step(data, targets)
             total_loss += loss
             if i % 10 == 0:
-                print(f"Epoch [{epoch+1}/{cfg.training.epochs}], Step [{i+1}/{len(dataloader)}], Loss: {loss:.4f}")
+                print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(dataloader)}], Loss: {loss:.4f}")
         print(f"Epoch {epoch+1} Average Loss: {total_loss / len(dataloader):.4f}")
     
     os.makedirs(output_dir, exist_ok=True)
-    model_name = cfg.model.get("type", "snn_model")
+    model_name = cfg.model.get("architecture_type", cfg.model.get("type", "snn_model"))
     save_path = os.path.join(output_dir, f"{model_name}_final.pth")
     torch.save(model.state_dict(), save_path)
     print(f"--- Training Finished ---")
