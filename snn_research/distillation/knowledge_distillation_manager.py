@@ -127,7 +127,10 @@ class KnowledgeDistillationManager:
         print(f"Evaluation finished. Metrics: {final_metrics}")
 
         # 3. モデルの保存
-        save_dir = os.path.join("runs", "specialists", model_id.replace(" ", "_"))
+        # ファイルパスとして安全なIDを生成 (小文字化、スペースをアンダースコアに)
+        # これにより、常に一貫したパスが生成・登録される
+        safe_model_id = model_id.lower().replace(" ", "_")
+        save_dir = os.path.join("runs", "specialists", safe_model_id)
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
