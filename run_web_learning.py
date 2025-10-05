@@ -1,7 +1,8 @@
 # /run_web_learning.py
-# Title: Autonomous Web Learning Script
-# Description: アイドル時にWebを巡回し、新しい知識を自律的に学習するサイクルを実行するスクリプト。
-# 改善点: KnowledgeDistillationManagerのインスタンス化を修正し、run_on_demand_pipelineを呼び出すようにした。
+# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/run_web_learning.py
+# タイトル: Autonomous Web Learning Script
+# 機能説明: DIコンテナからコンポーネントを取得する際のロジックを修正し、
+#            Optimizerにモデルのパラメータが正しく渡されるようにすることで、TypeErrorを解消する。
 
 import argparse
 import os
@@ -52,14 +53,12 @@ def main():
     # --- ステップ2: オンデマンド知識蒸留による学習 ---
     print("\n" + "="*20 + " 🧠 Step 2: On-demand Learning " + "="*20)
     
-    # DIコンテナから学習に必要なコンポーネントを取得
     container = TrainingContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    container.config.from_yaml("configs/models/small.yaml") # 新しい専門家はsmallモデルから開始
+    container.config.from_yaml("configs/models/small.yaml")
 
-
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️◾️
-    # 依存関係を手動で正しく構築する
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 依存関係を正しい順序で構築する
     # 1. 生徒モデルをインスタンス化
     student_model = container.snn_model()
 
@@ -74,7 +73,6 @@ def main():
         model=student_model,
         optimizer=optimizer,
         scheduler=scheduler,
-        device=container.device()
     )
 
     distillation_manager = KnowledgeDistillationManager(
@@ -87,11 +85,10 @@ def main():
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-    # run_on_demand_pipelineを非同期で実行
     asyncio.run(distillation_manager.run_on_demand_pipeline(
         task_description=args.topic,
         unlabeled_data_path=crawled_data_path,
-        force_retrain=True # 常に新しいデータで学習
+        force_retrain=True
     ))
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
