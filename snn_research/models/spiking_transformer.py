@@ -2,11 +2,19 @@
 # スパイキングトランスフォーマーモデル
 # 概要: SpikeDrivenSelfAttentionを組み合わせて、完全なトランスフォーマーブロックとモデルを構築する。
 
+# [!!DEPRECATION WARNING!!]
+# このファイルは旧バージョンの実装です。
+# 現在、アクティブに開発・利用されているモデルは
+# `snn_research.core.snn_core.py` 内の `SpikingTransformer` です。
+# 新規のコードではそちらを利用してください。
+#
+# スパイキングトランスフォーマーモデル
+# 概要: SpikeDrivenSelfAttentionを組み合わせて、完全なトランスフォーマーブロックとモデルを構築する。
+
+
 import torch
 import torch.nn as nn
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.models.attention import SpikeDrivenSelfAttention
 
 class SpikingTransformerBlock(nn.Module):
