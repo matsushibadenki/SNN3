@@ -38,6 +38,10 @@ class SimpleModelRegistry(ModelRegistry):
     """
     def __init__(self, registry_path: str = "runs/model_registry.json"):
         self.registry_path = Path(registry_path)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # レジストリファイルがあるディレクトリの絶対パスを基準点として保存
+        self.registry_dir = self.registry_path.resolve().parent
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.models: Dict[str, List[Dict[str, Any]]] = self._load()
 
     def _load(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -54,6 +58,7 @@ class SimpleModelRegistry(ModelRegistry):
         with open(self.registry_path, 'w', encoding='utf-8') as f:
             json.dump(self.models, f, indent=4, ensure_ascii=False)
 
+
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         new_model_info = {
             "task_description": task_description,
@@ -67,25 +72,45 @@ class SimpleModelRegistry(ModelRegistry):
         self._save()
         print(f"Model for task '{model_id}' registered at '{model_path}'.")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if task_description in self.models:
+            # データベースからモデルリストを取得
             models_for_task = self.models[task_description]
-            # 精度が高い順にソートする
+            
+            # 精度が高い順にソート
             models_for_task.sort(
                 key=lambda x: x.get("metrics", {}).get("accuracy", 0),
                 reverse=True
             )
-            # 後続処理で使いやすいように、各モデル情報にモデルIDを追加して返す
-            for model in models_for_task:
-                model['model_id'] = task_description
-            return models_for_task[:top_k]
+
+            resolved_models = []
+            for model_info in models_for_task[:top_k]:
+                # パスのキーが 'path' と 'model_path' の両方に対応
+                relative_path_str = model_info.get('model_path') or model_info.get('path')
+                
+                if relative_path_str:
+                    # レジストリの場所を基準に絶対パスを生成
+                    absolute_path = self.registry_dir / relative_path_str
+                    model_info['model_path'] = str(absolute_path.resolve())
+
+                model_info['model_id'] = task_description
+                resolved_models.append(model_info)
+            
+            return resolved_models
         return []
 
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
-        # 最初のモデルを返す（find_models_for_taskでソート済み）
-        return self.models.get(model_id, [None])[0]
+        models = self.models.get(model_id)
+        if models:
+            # find_models_for_taskと同様のパス解決ロジックを適用
+            model_info = models[0] # 最高精度のものを取得
+            relative_path_str = model_info.get('model_path') or model_info.get('path')
+            if relative_path_str:
+                absolute_path = self.registry_dir / relative_path_str
+                model_info['model_path'] = str(absolute_path.resolve())
+            return model_info
+        return None
 
     async def list_models(self) -> List[Dict[str, Any]]:
         all_models = []
