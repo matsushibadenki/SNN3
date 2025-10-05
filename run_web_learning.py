@@ -1,11 +1,14 @@
 # /run_web_learning.py
 # Title: Autonomous Web Learning Script
 # Description: アイドル時にWebを巡回し、新しい知識を自律的に学習するサイクルを実行するスクリプト。
+# 改善点: KnowledgeDistillationManagerのインスタンス化を修正し、run_on_demand_pipelineを呼び出すようにした。
 
 import argparse
 import os
+import asyncio
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
+from app.containers import TrainingContainer # DIコンテナを利用
 
 def main():
     """
@@ -31,7 +34,7 @@ def main():
     parser.add_argument(
         "--max_pages",
         type=int,
-        default=10,
+        default=5, # デモ用に少なく設定
         help="収集するWebページの最大数。"
     )
 
@@ -48,21 +51,30 @@ def main():
 
     # --- ステップ2: オンデマンド知識蒸留による学習 ---
     print("\n" + "="*20 + " 🧠 Step 2: On-demand Learning " + "="*20)
+    
+    # DIコンテナから学習に必要なコンポーネントを取得
+    container = TrainingContainer()
+    container.config.from_yaml("configs/base_config.yaml")
+    container.config.from_yaml("configs/models/small.yaml") # 新しい専門家はsmallモデルから開始
+
     distillation_manager = KnowledgeDistillationManager(
-        base_config_path="configs/base_config.yaml",
-        model_config_path="configs/models/small.yaml" # 新しい専門家はsmallモデルから開始
+        student_model=container.snn_model(),
+        trainer=container.distillation_trainer(),
+        teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
+        tokenizer_name=container.config.data.tokenizer_name(),
+        model_registry=container.model_registry(),
+        device=container.device()
     )
 
-    distillation_manager.run_on_demand_pipeline(
+    # run_on_demand_pipelineを非同期で実行
+    asyncio.run(distillation_manager.run_on_demand_pipeline(
         task_description=args.topic,
         unlabeled_data_path=crawled_data_path,
-        teacher_model_name="gpt2", # 教師モデルは設定可能
         force_retrain=True # 常に新しいデータで学習
-    )
+    ))
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
     print(f"  トピック「{args.topic}」に関する新しい専門家モデルが育成されました。")
 
 if __name__ == "__main__":
     main()
-
