@@ -4,16 +4,20 @@
 #              mypyエラー修正: Memory.add_experienceをrecord_experienceに修正し、引数を適合。
 #              Web学習失敗時のステータスをFAILUREとして記録するように修正。
 #              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を追加。
+# 改善点: handle_taskとrun_inferenceのダミー実装を、実際に機能するロジックに置き換え。
 
 from typing import Dict, Any, Optional
 import asyncio
+import os
+import torch
+from omegaconf import OmegaConf
 
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import ModelRegistry
+from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
 from snn_research.tools.web_crawler import WebCrawler
 from .memory import Memory as AgentMemory
 from snn_research.deployment import SNNInferenceEngine
-import torch
 
 
 class AutonomousAgent:
@@ -64,7 +68,11 @@ class AutonomousAgent:
         """
         experts = await self.model_registry.find_models_for_task(task_description)
         if not experts:
+            print(f"最適な専門家が見つかりませんでした: {task_description}")
             return None
+        
+        # ToDo: 精度やエネルギー効率に基づくフィルタリングロジックを追加
+        print(f"専門家を発見しました: {experts[0]['model_id']}")
         return experts[0]
 
     def learn_from_web(self, topic: str) -> str:
@@ -96,18 +104,102 @@ class AutonomousAgent:
         return f"Successfully learned about '{topic}'. Summary: {summary}"
 
     def _search_for_urls(self, query: str) -> list[str]:
-        # TODO: 実際の検索エンジンAPIに置き換える
-        return [f"https://example.com/search?q={query.replace(' ', '+')}"]
+        # ToDo: 実際の検索エンジンAPIに置き換える
+        return [f"https://www.google.com/search?q={query.replace(' ', '+')}"]
 
     def _summarize(self, text: str) -> str:
-        # TODO: より高度な要約モデルに置き換える
+        # ToDo: より高度な要約モデルに置き換える
         return text[:150] + "..."
     
-    def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
-        """ダミーの実装"""
-        print(f"Handling task: {task_description}")
-        return {"model_id": "dummy_model_id"}
+    async def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        タスクを処理する中心的なメソッド。専門家を検索し、いなければ学習を試みる。
+        """
+        print(f"--- Handling Task: {task_description} ---")
+        self.memory.record_experience(self.current_state, "handle_task", {"task": task_description}, 0.0, [], {"reason": "Task received"})
 
-    def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
-        """ダミーの実装"""
-        print(f"Running inference with model {model_info['model_id']} on prompt: {prompt}")
+        expert_model = await self.find_expert(task_description)
+
+        if expert_model and not force_retrain:
+            print(f"✅ Found existing expert model: {expert_model['model_id']}")
+            return expert_model
+        
+        if unlabeled_data_path:
+            print("- No suitable expert found or retraining forced. Initiating on-demand learning...")
+            # DIコンテナの代わりに、直接KnowledgeDistillationManagerを初期化
+            # (より洗練されたアーキテクチャでは、DIコンテナを渡すのが望ましい)
+            try:
+                from app.containers import TrainingContainer
+                container = TrainingContainer()
+                container.config.from_yaml("configs/base_config.yaml")
+                container.config.from_yaml("configs/models/small.yaml")
+
+                manager = KnowledgeDistillationManager(
+                    student_model=container.snn_model(),
+                    trainer=container.distillation_trainer(),
+                    teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
+                    tokenizer_name=container.config.data.tokenizer_name(),
+                    model_registry=self.model_registry,
+                    device=container.device()
+                )
+                
+                # run_on_demand_pipeline は存在しないため、run_distillation を直接呼び出す想定
+                # データローダーの準備
+                with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
+                    texts = [line.strip() for line in f if line.strip()]
+                
+                train_loader = manager.prepare_dataset(texts, max_length=container.config.model.time_steps(), batch_size=container.config.training.batch_size())
+                
+                new_model_info = await manager.run_distillation(
+                    train_loader=train_loader,
+                    val_loader=train_loader, # 簡単のため同じデータを使用
+                    epochs=3, # デモ用のエポック数
+                    model_id=task_description,
+                    task_description=f"Expert for {task_description}",
+                    student_config=container.config.model.to_dict()
+                )
+                self.memory.record_experience(self.current_state, "on_demand_learning", new_model_info, 1.0, [new_model_info['model_id']], {"reason": "New expert created"})
+                return new_model_info
+
+            except Exception as e:
+                print(f"❌ On-demand learning failed: {e}")
+                self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, -1.0, [], {"reason": "Training failed"})
+                return None
+        else:
+            print("- No expert found and no data provided for training.")
+            self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
+            return None
+
+    async def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
+        """
+        指定されたモデルで推論を実行する。
+        """
+        print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
+        
+        # SNNInferenceEngineを動的に設定・初期化
+        # model_infoからconfigを再構築
+        deployment_config = {
+            'deployment': {
+                'model_path': model_info.get('path'),
+                'tokenizer_path': "gpt2",
+                'device': 'cuda' if torch.cuda.is_available() else 'cpu'
+            },
+            'model': model_info.get('config', {})
+        }
+        config = OmegaConf.create(deployment_config)
+
+        try:
+            inference_engine = SNNInferenceEngine(config=config)
+            
+            full_response = ""
+            print("Response: ", end="", flush=True)
+            for chunk in inference_engine.generate(prompt, max_len=50):
+                print(chunk, end="", flush=True)
+                full_response += chunk
+            print("\n--- Inference Complete ---")
+            
+            self.memory.record_experience(self.current_state, "inference", {"prompt": prompt, "response": full_response}, 0.5, [model_info.get('model_id')], {})
+
+        except Exception as e:
+            print(f"\n❌ Inference failed: {e}")
+            self.memory.record_experience(self.current_state, "inference", {"error": str(e)}, -0.5, [model_info.get('model_id')], {})
