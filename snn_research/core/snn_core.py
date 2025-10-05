@@ -368,22 +368,43 @@ class SNNCore(nn.Module):
     """
     設定に応じて適切なSNNアーキテクチャをインスタンス化するラッパークラス。
     """
-    def __init__(self, config: DictConfig):
+    def __init__(self, config: DictConfig, vocab_size: int):
         super(SNNCore, self).__init__()
         self.config = config
-        model_type = self.config.model.get("type", "simple")
+        model_type = self.config.model.get("architecture_type", self.config.model.get("type", "simple"))
 
-        # mypy: Incompatible types in assignment -> nn.Moduleで汎用化
         self.model: nn.Module
 
-        if model_type == "simple":
+        # configからパラメータを取得
+        # OmegaConfのto_containerを使用して辞書に変換
+        params = OmegaConf.to_container(self.config.model, resolve=True)
+        
+        if model_type == "predictive_coding":
+            self.model = BreakthroughSNN(
+                vocab_size=vocab_size,
+                d_model=params.get("d_model"),
+                d_state=params.get("d_state"),
+                num_layers=params.get("num_layers"),
+                time_steps=params.get("time_steps"),
+                n_head=params.get("n_head"),
+                neuron_config=params.get("neuron")
+            )
+        elif model_type == "spiking_transformer":
+            # SpikingTransformerの引数を 'params' サブキーから直接取るように修正
+            st_params = params.get("params", params)
+            self.model = SpikingTransformer(
+                vocab_size=vocab_size,
+                embed_dim=st_params.get("embed_dim", st_params.get("d_model")),
+                num_heads=st_params.get("num_heads", st_params.get("n_head")),
+                num_layers=st_params.get("num_layers"),
+                max_len=st_params.get("max_len", st_params.get("time_steps")),
+            )
+        elif model_type == "simple":
             self.model = SimpleSNN(
                 input_size=self.config.model.input_size,
                 hidden_size=self.config.model.hidden_size,
                 output_size=self.config.model.output_size
             )
-        elif model_type == "spiking_transformer":
-            self.model = SpikingTransformer(**self.config.model.params)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
