@@ -5,8 +5,10 @@
 # mypyエラー修正: register_modelの引数をキーワード引数に変更。
 # mypyエラー修正: __init__を修正し、必要な依存関係をすべて受け取るように変更。
 # 改善点: run_on_demand_pipelineメソッドを新規実装。
+# mypyエラー修正: DDPを考慮してtrainerからモデル状態を取得し、`torch.zeros`を使用するように修正。
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
 from typing import Dict, Any, Optional, List
@@ -102,10 +104,10 @@ class KnowledgeDistillationManager:
         知識蒸留の全プロセスを実行し、学習済みモデルを登録する。
         """
         print(f"--- Starting Knowledge Distillation for model: {model_id} ---")
+        final_metrics: Dict[str, float] = {}
 
         # 1. 知識蒸留の実行
         print("Step 1: Running distillation training...")
-        # trainer.trainは存在しないため、trainerのtrain_epochとevaluateを直接呼び出す
         for epoch in range(epochs):
             self.distillation_trainer.train_epoch(train_loader, epoch)
             final_metrics = self.distillation_trainer.evaluate(val_loader, epoch)
@@ -118,12 +120,14 @@ class KnowledgeDistillationManager:
         print(f"Evaluation finished. Metrics: {final_metrics}")
 
         # 3. モデルの保存
-        save_dir = os.path.join("runs", "specialists", task_description.replace(" ", "_"))
+        save_dir = os.path.join("runs", "specialists", model_id.replace(" ", "_"))
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
-        # DDPでラップされている可能性を考慮
-        model_state_dict = self.student_model.module.state_dict() if hasattr(self.student_model, 'module') else self.student_model.state_dict()
+        
+        # DDPでラップされている可能性を考慮し、trainerからモデルを取得
+        model_to_save = self.distillation_trainer.model
+        model_state_dict = model_to_save.module.state_dict() if isinstance(model_to_save, nn.parallel.DistributedDataParallel) else model_to_save.state_dict()
         torch.save(model_state_dict, save_path)
         print("Model saved.")
 
@@ -152,7 +156,6 @@ class KnowledgeDistillationManager:
                 try:
                     texts.append(json.loads(line)['text'])
                 except (json.JSONDecodeError, KeyError):
-                    # JSONL形式でない場合も考慮
                     if line.strip():
                         texts.append(line.strip())
         
@@ -169,8 +172,8 @@ class KnowledgeDistillationManager:
         # 3. 蒸留実行
         await self.run_distillation(
             train_loader=train_loader,
-            val_loader=train_loader, # 簡易的に同じデータを使用
-            epochs=5, # デモ用にエポック数を設定
+            val_loader=train_loader,
+            epochs=5,
             model_id=task_description,
             task_description=f"Expert for {task_description}",
             student_config={} # ToDo: コンテナから取得
@@ -180,32 +183,30 @@ class KnowledgeDistillationManager:
         """
         蒸留済みモデルの性能を評価する。
         """
-        self.student_model.eval()
+        model_to_eval = self.distillation_trainer.model
+        model_to_eval.eval()
         total_spikes = 0
         total_samples = 0
 
         progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
         for batch in progress_bar:
-            # Dataloaderの出力形式に合わせて調整
             inputs, _, _ = batch
             inputs = inputs.to(self.device)
 
             with torch.no_grad():
-                # BreakthroughTrainerのロジックを参考に修正
-                model_to_eval = self.student_model.module if hasattr(self.student_model, 'module') else self.student_model
                 outputs = model_to_eval(inputs, return_spikes=True)
                 if isinstance(outputs, tuple) and len(outputs) > 1:
                     _, spikes, _ = outputs
                 else:
-                    spikes = torch.tensor(0.0)
+                    # mypyエラーを回避するため、torch.zerosを使用
+                    spikes = torch.zeros((), device=inputs.device)
 
             total_spikes += spikes.sum().item()
             total_samples += inputs.size(0)
 
         avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
 
-        # ToDo: より正確なパープレキシティとエネルギー消費の計算
-        perplexity = calculate_perplexity(self.student_model, dataloader, self.device)
+        perplexity = calculate_perplexity(model_to_eval, dataloader, self.device)
         energy = calculate_energy_consumption(avg_spikes_per_sample)
 
         return {
