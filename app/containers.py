@@ -64,6 +64,9 @@ class TrainingContainer(containers.DeclarativeContainer):
     """学習に関連するオブジェクトの依存関係を管理するコンテナ。"""
     config = providers.Configuration()
 
+    # --- 共通ツール ---
+    device = providers.Factory(get_auto_device)
+
     # --- 共通コンポーネント ---
     tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
 
