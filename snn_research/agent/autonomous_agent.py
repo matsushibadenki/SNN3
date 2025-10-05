@@ -189,17 +189,30 @@ class AutonomousAgent:
         指定されたモデルで推論を実行する。
         """
         print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
-        
+
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # SNNInferenceEngineを動的に設定・初期化
-        # model_infoからconfigを再構築
+        model_config = model_info.get('config')
+        
+        # モデル設定が取得できない場合、デフォルトのsmallモデル設定でフォールバック
+        if not model_config:
+            print("⚠️ Warning: Model config not found in registry. Falling back to default 'small' model config.")
+            try:
+                small_config_path = next(Path('.').rglob('configs/models/small.yaml'))
+                model_config = OmegaConf.load(small_config_path).get('model', {})
+            except (StopIteration, FileNotFoundError):
+                print("❌ Error: Default 'small.yaml' not found. Cannot proceed with inference.")
+                return
+
         deployment_config = {
             'deployment': {
                 'model_path': model_info.get('model_path'),
                 'tokenizer_path': "gpt2",
                 'device': 'cuda' if torch.cuda.is_available() else 'cpu'
             },
-            'model': model_info.get('config', {})
+            'model': model_config
         }
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         config = OmegaConf.create(deployment_config)
 
         try:
