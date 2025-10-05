@@ -165,8 +165,7 @@ class KnowledgeDistillationManager:
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
 
         if not student_config:
-            print("❌ Error: student_config was not provided. Aborting learning pipeline.")
-            return
+            raise ValueError("student_config must be provided for the on-demand learning pipeline.")
         
         # 1. データ読み込み
         texts = []
