@@ -26,6 +26,33 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from torch.utils.tensorboard import SummaryWriter
 
 
+# --- BPTTとSLTTに関する実装メモ ---
+#
+# 現在のBreakthroughTrainerは、spikingjellyライブラリが暗黙的に提供する
+# 標準的なBPTT (Backpropagation Through Time) に依存して学習を行っています。
+# これはシーケンス長全体にわたって勾配を計算するため、特に長いシーケンスを
+# 扱う際にメモリ使用量と計算コストが大きくなるという課題があります。
+#
+# 研究調査資料 (`doc/SNNロードマップ作成のための研究調査.md`) では、
+# この問題を解決する最先端技術としてSLTT (Spatial Learning Through Time) が
+# 重要視されています。SLTTは、時間方向の勾配伝播の一部を省略することで、
+# 大幅な効率化を実現するアルゴリズムです。
+#
+# SLTTの完全な実装は本トレーナーの設計に大きな変更を要しますが、その第一歩として
+# TBPTT (Truncated BPTT) の導入が考えられます。これは、一定のタイムステップごとに
+# 勾配計算を打ち切る（隠れ状態をデタッチする）ことで、計算コストを削減する手法です。
+#
+# 将来的な機能拡張として、`_run_step`メソッド内でシーケンスをチャンクに分割し、
+# チャンクごとに `detach()` を呼び出すことでTBPTTを実装することが可能です。
+# 例:
+# for chunk in sequence.split(tbptt_chunk_size):
+#     output, hidden_state = model(chunk, hidden_state)
+#     loss = criterion(output, target_chunk)
+#     loss.backward()
+#     hidden_state = hidden_state.detach() # ここで勾配を打ち切る
+#
+# この改善は、プロジェクトがより長いシーケンスを扱うフェーズに進む際の
+# 重要なマイルストーンとなります。
 
 
 class BreakthroughTrainer:
