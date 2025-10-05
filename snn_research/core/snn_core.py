@@ -377,8 +377,8 @@ class SNNCore(nn.Module):
         if not isinstance(params_untyped, Dict):
             raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
         
-        # ここでmypyにparamsが辞書であることを確定させる
-        params: Dict[str, Any] = params_untyped
+        # isinstaceチェック後、mypyに型を確定させるためにcastを使用
+        params: Dict[str, Any] = cast(Dict[str, Any], params_untyped)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if model_type == "predictive_coding":
