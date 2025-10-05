@@ -3,26 +3,30 @@
 # Description: KnowledgeDistillationManagerを使用して、知識蒸留プロセスを開始します。
 #              設定ファイルとコマンドライン引数からパラメータを読み込みます。
 #              mypyエラー修正: ContainerをTrainingContainerに修正。
+# 改善点: argparseを追加し、asyncio.runで実行するように修正。
 
 import argparse
+import asyncio
 from app.containers import TrainingContainer
 from snn_research.distillation.knowledge_distillation_manager import KnowledgeDistillationManager
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description="SNN Knowledge Distillation Runner")
     parser.add_argument("--config", type=str, default="configs/base_config.yaml", help="Base config file path")
     parser.add_argument("--model_config", type=str, default="configs/models/small.yaml", help="Model architecture config file path")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # コンテナのインスタンス化
+    args = parser.parse_args()
+
+    # DIコンテナのインスタンス化
     container = TrainingContainer()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container.config.from_yaml(args.config)
     container.config.from_yaml(args.model_config)
 
     # DIコンテナから必要なコンポーネントを取得
     student_model = container.snn_model()
+    # DistillationTrainerは多くの引数を必要とするため、コンテナから直接取得
     distillation_trainer = container.distillation_trainer()
     model_registry = container.model_registry()
+    device = container.device()
     
     manager = KnowledgeDistillationManager(
         student_model=student_model,
@@ -30,7 +34,7 @@ def main():
         teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
         tokenizer_name=container.config.data.tokenizer_name(),
         model_registry=model_registry,
-        device=container.device()
+        device=device
     )
 
     # (仮) データセットの準備
@@ -40,11 +44,15 @@ def main():
         "They operate based on discrete events, which can lead to greater energy efficiency.",
         "Knowledge distillation is a technique to transfer knowledge from a large model to a smaller one."
     ]
-    train_loader = manager.prepare_dataset(sample_texts, max_length=32, batch_size=2)
+    train_loader = manager.prepare_dataset(
+        sample_texts,
+        max_length=container.config.model.time_steps(),
+        batch_size=container.config.training.batch_size()
+    )
     val_loader = train_loader # 簡単のため同じデータを使用
 
     # 蒸留の実行
-    manager.run_distillation(
+    await manager.run_distillation(
         train_loader=train_loader,
         val_loader=val_loader,
         epochs=3, # テスト用のエポック数
@@ -54,4 +62,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
