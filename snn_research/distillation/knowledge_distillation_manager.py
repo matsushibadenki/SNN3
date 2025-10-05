@@ -1,25 +1,30 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
-# Title: 知識蒸留マネージャー
-# Description: 教師モデルから生徒モデルへの知識蒸留プロセス全体を管理・実行するクラス。
-# mypyエラー修正: 存在しない`get`メソッド呼び出しを修正。
-# mypyエラー修正: register_modelの引数をキーワード引数に変更。
-# mypyエラー修正: __init__を修正し、必要な依存関係をすべて受け取るように変更。
-# 改善点: run_on_demand_pipelineメソッドを新規実装。
-# mypyエラー修正: DDPを考慮してtrainerからモデル状態を取得し、`torch.zeros`を使用するように修正。
+# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/distillation/knowledge_distillation_manager.py
+# タイトル: 知識蒸留マネージャー
+# 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
-from typing import Dict, Any, Optional, List
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import asyncio
 import os
 import json
 from tqdm import tqdm
 
-from snn_research.training.trainers import DistillationTrainer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from snn_research.training.trainers import DistillationTrainer
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.benchmark.metrics import calculate_perplexity, calculate_energy_consumption
+
+# --- 循環インポート解消のための修正 ---
+# 型チェック時のみインポートを実行し、実行時の循環参照を回避する
+if TYPE_CHECKING:
+    from snn_research.training.trainers import DistillationTrainer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class KnowledgeDistillationManager:
     """
@@ -28,7 +33,9 @@ class KnowledgeDistillationManager:
     def __init__(
         self,
         student_model: torch.nn.Module,
-        trainer: DistillationTrainer,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        trainer: "DistillationTrainer",
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         teacher_model_name: str,
         tokenizer_name: str,
         model_registry: ModelRegistry,
