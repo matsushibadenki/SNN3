@@ -39,14 +39,21 @@ class SimpleModelRegistry(ModelRegistry):
     """
     def __init__(self, registry_path: str = "runs/model_registry.json"):
         self.registry_path = Path(registry_path)
+        self.project_root = self.registry_path.resolve().parent.parent
         self.models: Dict[str, List[Dict[str, Any]]] = self._load()
 
     def _load(self) -> Dict[str, List[Dict[str, Any]]]:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if self.registry_path.exists():
             try:
                 with open(self.registry_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    # ファイルが空の場合にエラーにならないようにする
+                    content = f.read()
+                    if not content:
+                        return {}
+                    return json.loads(content)
             except (json.JSONDecodeError, FileNotFoundError):
+                # ファイルが破損している、または見つからない場合は空のレジストリを返す
                 return {}
         return {}
 
