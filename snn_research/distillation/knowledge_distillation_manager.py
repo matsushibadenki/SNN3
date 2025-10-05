@@ -179,18 +179,19 @@ class KnowledgeDistillationManager:
             return
 
         # 2. データローダー準備
-        max_len = student_config.get("time_steps", 128)
+        # student_configがNoneでないことを保証
+        max_len = student_config.get("time_steps", 128) if student_config else 128
         batch_size = 4 # デモ用に固定
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
         # 3. 蒸留実行 (エポック数を増加)
         await self.run_distillation(
             train_loader=train_loader,
-            val_loader=train_loader, # 簡単のため同じデータを使用
-            epochs=15, # 5 -> 15 に変更し、学習を促進
+            val_loader=train_loader,
+            epochs=15,
             model_id=task_description,
             task_description=f"Expert for {task_description}",
-            student_config=student_config # student_configを正しく渡す
+            student_config=student_config
         )
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
