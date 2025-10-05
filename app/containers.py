@@ -231,10 +231,10 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     # ModelRegistryのプロバイダ
-    model_registry = providers.Selector(
-        config.model_registry.provider,
-        file=providers.Singleton(SimpleModelRegistry, registry_path=config.model_registry.file.path),
-        redis=providers.Singleton(SimpleModelRegistry), # Redis実装はSimpleModelRegistryで代替
+    # Selectorでエラーが発生するため、現状の実装に合わせてFileベースのものを直接指定する
+    model_registry = providers.Singleton(
+        SimpleModelRegistry,
+        registry_path=config.model_registry.file.path
     )
 
 
