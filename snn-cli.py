@@ -6,6 +6,7 @@
 #                 重複するtrain関数を削除。
 # mypyエラー修正: 各エージェント・プランナーの呼び出しと引数を修正。
 # mypyエラー修正: ModelRegistryのインスタンス化を具象クラスに変更。
+# 改善点: RAGSystemをHierarchicalPlannerに注入するように修正。
 
 import argparse
 import sys
@@ -31,11 +32,10 @@ from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerA
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.rl_env.simple_env import SimpleEnvironment
 import train as gradient_based_trainer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.distillation.model_registry import SimpleModelRegistry
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
 
 # mypyエラー回避のための一時的なダミークラス
 class SpikingDataset(Dataset):
@@ -102,12 +102,11 @@ def train(
 
 def handle_agent(args: argparse.Namespace) -> None:
     """自律エージェントの機能を処理する"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = SimpleModelRegistry()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    rag_system = RAGSystem()
     memory = Memory()
     web_crawler = WebCrawler()
-    planner = HierarchicalPlanner(model_registry=model_registry)
+    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
 
     agent = AutonomousAgent(
         name="cli-agent",
@@ -133,10 +132,10 @@ def handle_agent(args: argparse.Namespace) -> None:
 
 def handle_planner(args: argparse.Namespace) -> None:
     """階層的プランナーの機能を処理する"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = SimpleModelRegistry()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    planner = HierarchicalPlanner(model_registry=model_registry)
+    rag_system = RAGSystem()
+    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
+    
     final_result = planner.execute_task(
         task_request=args.request,
         context=args.context
@@ -154,12 +153,11 @@ def handle_life_form(args: argparse.Namespace) -> None:
 
 def handle_evolution(args: argparse.Namespace) -> None:
     """自己進化エージェントの機能を処理する"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = SimpleModelRegistry()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    rag_system = RAGSystem()
     memory = Memory()
     web_crawler = WebCrawler()
-    planner = HierarchicalPlanner(model_registry=model_registry)
+    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
 
     agent = SelfEvolvingAgent(
         name="evolving-agent",
