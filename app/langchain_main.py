@@ -7,6 +7,7 @@
 # - LangChain Expression Language (LCEL) を使用して、モダンなチェインを構築。
 # - 共通UIビルダー関数を呼び出してUIを構築・起動する。
 # - --model_config 引数を追加し、ベース設定とモデル設定を分けて読み込めるようにした。
+# - 修正: demo.launch()の呼び出しを追加。
 
 import gradio as gr
 import argparse
@@ -109,12 +110,10 @@ def main():
     server_port = container.config.app.server_port() + 1 # ポートが衝突しないように+1する
     print("\nStarting Gradio web server for LangChain app...")
     print(f"Please open http://{container.config.app.server_name()}:{server_port} in your browser.")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     demo.launch(
         server_name=container.config.app.server_name(),
         server_port=server_port,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 if __name__ == "__main__":
     main()
