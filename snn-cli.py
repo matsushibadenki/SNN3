@@ -9,19 +9,14 @@
 # 改善点: RAGSystemをHierarchicalPlannerに注入するように修正。
 # mypyエラー修正: asyncio.run() を使って非同期関数を呼び出すように修正。
 
-import argparse
-import sys
-import asyncio
-from pathlib import Path
-from snn_research.core.snn_core import SNNCore
-from snn_research.training.trainers import BPTTTrainer
 import torch
-from torch.utils.data import Dataset
-import typer
-from omegaconf import OmegaConf, DictConfig, ListConfig
-import torch
-import os
-from typing import Tuple, cast
+import torch.nn as nn
+import torch.nn.functional as F
+from spikingjelly.activation_based import surrogate, functional  # type: ignore
+from typing import Tuple, Dict, Any, Optional, List, Type, cast
+import math
+from omegaconf import DictConfig, OmegaConf
+from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
 
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -38,6 +33,52 @@ from snn_research.distillation.model_registry import SimpleModelRegistry
 from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
+
+class SNNCore(nn.Module):
+    """
+    設定に応じて適切なSNNアーキテクチャをインスタンス化するラッパークラス。
+    """
+    def __init__(self, config: DictConfig, vocab_size: int):
+        super(SNNCore, self).__init__()
+        self.config = config
+        model_type = self.config.model.get("architecture_type", self.config.model.get("type", "simple"))
+
+        self.model: nn.Module
+
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # mypyエラー解消のため、OmegaConfのコンテナをdictにキャストする
+        params = cast(Dict[str, Any], OmegaConf.to_container(self.config.model, resolve=True))
+
+        if model_type == "predictive_coding":
+            self.model = BreakthroughSNN(
+                vocab_size=vocab_size,
+                d_model=params.get("d_model", 256),
+                d_state=params.get("d_state", 128),
+                num_layers=params.get("num_layers", 4),
+                time_steps=params.get("time_steps", 20),
+                n_head=params.get("n_head", 4),
+                neuron_config=params.get("neuron", {})
+            )
+        elif model_type == "spiking_transformer":
+            self.model = SpikingTransformer(
+                vocab_size=vocab_size,
+                d_model=params.get("d_model", 512),
+                n_head=params.get("n_head", 8),
+                num_layers=params.get("num_layers", 12),
+                time_steps=params.get("time_steps", 32)
+            )
+        elif model_type == "simple":
+            self.model = SimpleSNN(
+                input_size=params.get("input_size", 10),
+                hidden_size=params.get("hidden_size", 50),
+                output_size=params.get("output_size", 10)
+            )
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        return self.model(*args, **kwargs)
 
 
 # mypyエラー回避のための一時的なダミークラス
