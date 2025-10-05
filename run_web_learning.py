@@ -59,6 +59,9 @@ def main():
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # 依存関係を正しい順序で構築する
+    # 0. デバイスを取得
+    device = container.device()
+
     # 1. 生徒モデルをインスタンス化
     student_model = container.snn_model()
 
@@ -73,6 +76,7 @@ def main():
         model=student_model,
         optimizer=optimizer,
         scheduler=scheduler,
+        device=device
     )
 
     distillation_manager = KnowledgeDistillationManager(
@@ -81,7 +85,7 @@ def main():
         teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
         tokenizer_name=container.config.data.tokenizer_name(),
         model_registry=container.model_registry(),
-        device=container.device()
+        device=device
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
