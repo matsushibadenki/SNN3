@@ -15,11 +15,8 @@ import torch.nn.functional as F
 from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type
 import math
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-# from snn_research.models.spiking_transformer import SpikingTransformer # 重複するためコメントアウト
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 # --- ニューロンモデル ---
@@ -375,10 +372,8 @@ class SNNCore(nn.Module):
 
         self.model: nn.Module
 
-        # configからパラメータを取得
-        # OmegaConfのto_containerを使用して辞書に変換
         params = OmegaConf.to_container(self.config.model, resolve=True)
-        
+
         if model_type == "predictive_coding":
             self.model = BreakthroughSNN(
                 vocab_size=vocab_size,
@@ -390,20 +385,19 @@ class SNNCore(nn.Module):
                 neuron_config=params.get("neuron")
             )
         elif model_type == "spiking_transformer":
-            # SpikingTransformerの引数を 'params' サブキーから直接取るように修正
-            st_params = params.get("params", params)
+            # SpikingTransformerの引数キーをconfigファイルに合わせる
             self.model = SpikingTransformer(
                 vocab_size=vocab_size,
-                embed_dim=st_params.get("embed_dim", st_params.get("d_model")),
-                num_heads=st_params.get("num_heads", st_params.get("n_head")),
-                num_layers=st_params.get("num_layers"),
-                max_len=st_params.get("max_len", st_params.get("time_steps")),
+                d_model=params.get("d_model"),
+                n_head=params.get("n_head"),
+                num_layers=params.get("num_layers"),
+                time_steps=params.get("time_steps")
             )
         elif model_type == "simple":
             self.model = SimpleSNN(
-                input_size=self.config.model.input_size,
-                hidden_size=self.config.model.hidden_size,
-                output_size=self.config.model.output_size
+                input_size=params.get("input_size"),
+                hidden_size=params.get("hidden_size"),
+                output_size=params.get("output_size")
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
