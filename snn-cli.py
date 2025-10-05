@@ -58,8 +58,9 @@ class SpikingDataset(Dataset):
 
 app = typer.Typer()
 
-@app.command()
-def train(
+@app.command(name="train-basic", help="[簡易版] BPTTベースの基本的なSNNモデル学習を実行します。より高度な機能（分散学習、詳細な設定）が必要な場合は `gradient-train` コマンドを使用してください。")
+def train_basic_command(
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     config_path: str = typer.Option("configs/base_config.yaml", help="Path to the base config file."),
     model_config_path: str = typer.Option(..., help="Path to the model config file (e.g., configs/models/spiking_transformer.yaml)."),
     output_dir: str = typer.Option("models/", help="Directory to save the trained model.")
