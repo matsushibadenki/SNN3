@@ -24,7 +24,6 @@ class SNNInferenceEngine:
         self.config = config
         self.device = config.deployment.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 先にTokenizerをロードしてvocab_sizeを取得
         tokenizer_path = config.deployment.get("tokenizer_path", "gpt2")
         try:
@@ -44,15 +43,16 @@ class SNNInferenceEngine:
         model_path = config.deployment.get("model_path")
         if model_path:
             try:
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 state_dict = torch.load(model_path, map_location=self.device)
                 # SNNCoreインスタンス全体にstate_dictをロードする
                 self.model.load_state_dict(state_dict)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print(f"Model loaded from {model_path}")
             except FileNotFoundError:
                 print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
             except RuntimeError as e:
                 print(f"Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         self.model.to(self.device)
         self.model.eval()
