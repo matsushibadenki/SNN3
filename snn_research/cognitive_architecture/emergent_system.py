@@ -3,13 +3,19 @@
 # Description: 異なる認知コンポーネント間の相互作用を管理し、創発的な振る舞いを引き出すシステム。
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: 非同期メソッド呼び出しにawaitを追加。
+#              循環インポートエラー修正: TYPE_CHECKINGを使用して型ヒントのみインポートする。
 
-from typing import List
 import asyncio
+from typing import List, Dict, Any, TYPE_CHECKING
+
 from .global_workspace import GlobalWorkspace
 from .hierarchical_planner import HierarchicalPlanner
-from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.distillation.model_registry import ModelRegistry
+
+# --- 循環インポート解消のための修正 ---
+if TYPE_CHECKING:
+    from snn_research.agent.autonomous_agent import AutonomousAgent
+
 
 class EmergentCognitiveSystem:
     """
@@ -17,7 +23,7 @@ class EmergentCognitiveSystem:
     創発的な高次機能を実現するシステム。
     """
 
-    def __init__(self, planner: HierarchicalPlanner, agents: List[AutonomousAgent], global_workspace: GlobalWorkspace, model_registry: ModelRegistry):
+    def __init__(self, planner: HierarchicalPlanner, agents: List['AutonomousAgent'], global_workspace: GlobalWorkspace, model_registry: ModelRegistry):
         self.planner = planner
         self.agents = {agent.name: agent for agent in agents}
         self.global_workspace = global_workspace
@@ -34,14 +40,12 @@ class EmergentCognitiveSystem:
         print(f"--- Emergent System: Executing Goal: {high_level_goal} ---")
 
         # 1. 計画
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         plan = await self.planner.create_plan(high_level_goal)
         self.global_workspace.broadcast("plan", f"New plan created: {plan.task_list}")
 
         # 2. 実行
         results = []
         for task in plan.task_list:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # タスクに最適なエージェントを選択（ここでは簡略化）
             agent_name = task.get("agent", "default_agent")
             agent = self.agents.get(agent_name)
