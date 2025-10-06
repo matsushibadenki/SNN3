@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/benchmark/ann_baseline.py
+# matsushibadenki/snn3/snn_research/benchmark/ann_baseline.py
 #
 # SNNモデルとの性能比較を行うためのANNベースラインモデル
 #
@@ -10,6 +10,9 @@
 # アーキテクチャ:
 # - 事前学習済みモデルは使用せず、スクラッチで学習するシンプルなTransformerエンコーダを採用。
 # - 単語埋め込み層 + Transformerエンコーダ層 + 分類ヘッドという標準的な構成。
+# 修正点:
+# - forwardメソッドの戻り値を3つのタプルに変更し、SNNモデルのインターフェースと統一した。
+#   これにより、Trainerクラスで発生する `ValueError: not enough values to unpack` を解消する。
 
 import torch
 import torch.nn as nn
@@ -41,22 +44,18 @@ class ANNBaselineModel(nn.Module):
         self.classifier.bias.data.zero_()
         self.classifier.weight.data.uniform_(-initrange, initrange)
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, **kwargs) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Args:
             input_ids (torch.Tensor): 入力シーケンス (batch_size, seq_len)
             attention_mask (torch.Tensor): パディングマスク (batch_size, seq_len)
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: 分類ロジットとNone (SNNとの互換性のため)
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+            分類ロジットと、SNNとの互換性のためのNone値2つ。
         """
         # 互換性のための引数名マッピング
         src = input_ids
-        # 注意: TransformerEncoder は (N, E) または (S, N, E) を期待します。
-        # attention_mask は src_key_padding_mask として使用されます。
-        # (batch_size, seq_len) の形状で、パディング位置がTrueである必要があります。
-        # 現在のTokenizerはパディング位置を1、非パディングを0としていますが、
-        # PyTorchのTransformerは逆（パディングがTrue）を期待するため、変換が必要です。
         src_key_padding_mask = attention_mask == 0 if attention_mask is not None else None
 
         embedded = self.embedding(src) * torch.sqrt(torch.tensor(self.d_model, dtype=torch.float32))
@@ -66,7 +65,6 @@ class ANNBaselineModel(nn.Module):
         
         # パディングを考慮した平均プーリング
         if attention_mask is not None:
-            # attention_maskはパディングが0なので、それを反転してマスクとして使用
             mask = attention_mask.unsqueeze(-1).expand_as(encoded)
             masked_encoded = encoded * mask.float()
             pooled = masked_encoded.sum(dim=1) / mask.float().sum(dim=1).clamp(min=1e-9)
@@ -74,6 +72,5 @@ class ANNBaselineModel(nn.Module):
             pooled = encoded.mean(dim=1)
 
         logits = self.classifier(pooled)
-        # SNN評価との互換性のため、タプルで返す
-        return logits, None
-
+        # SNN評価との互換性のため、3つのタプルで返す
+        return logits, None, None
