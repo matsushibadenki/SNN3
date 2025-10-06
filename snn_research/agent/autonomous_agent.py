@@ -6,6 +6,7 @@
 from typing import Dict, Any, Optional
 import asyncio
 import os
+from pathlib import Path
 import torch
 from omegaconf import OmegaConf
 
@@ -81,13 +82,16 @@ class AutonomousAgent:
             if accuracy >= self.accuracy_threshold and spikes <= self.energy_budget:
                 print(f"✅ 条件を満たす専門家を発見しました: {expert['model_id']} (Accuracy: {accuracy:.4f}, Spikes: {spikes:.2f})")
                 return expert
-
-        print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
+        
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        best_candidate = candidate_experts[0]
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # --- 妥協ロジック ---
+        # 条件を満たすモデルがなくても、候補が１つでもあれば、最も性能の良いものを採用する
+        print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
+        best_candidate = candidate_experts[0] # リストは精度でソートされている
         print(f"   - 最高性能モデル: {best_candidate.get('metrics', {})} (要件: accuracy >= {self.accuracy_threshold}, spikes <= {self.energy_budget})")
-        return None
+        print(f"   - 妥協案として、最高性能モデル '{best_candidate.get('model_id')}' を採用します。")
+        return best_candidate
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def learn_from_web(self, topic: str) -> str:
         """
@@ -190,7 +194,6 @@ class AutonomousAgent:
         """
         print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # SNNInferenceEngineを動的に設定・初期化
         model_config = model_info.get('config')
         
@@ -212,7 +215,6 @@ class AutonomousAgent:
             },
             'model': model_config
         }
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         config = OmegaConf.create(deployment_config)
 
         try:
