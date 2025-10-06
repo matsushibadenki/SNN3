@@ -16,6 +16,9 @@
 # TypeError修正 (SimpleSNN):
 # SimpleSNNが古いBioLIFNeuronを引数なしで呼び出していた問題を修正。
 # 他のモデルと整合性を取るため、AdaptiveLIFNeuronを使用するように変更。
+# TypeError修正 (SimpleSNN.forward):
+# SimpleSNN.forwardが他のモデルと異なる引数シグネチャを持っていたため、
+# **kwargsを受け入れ、戻り値の型を(logits, spikes, mem)に統一した。
 
 import torch
 import torch.nn as nn
@@ -24,10 +27,6 @@ from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-# from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron # 古いLIFニューロンのインポートを削除
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
 
 # --- ニューロンモデル ---
 class AdaptiveLIFNeuron(nn.Module):
@@ -271,19 +270,16 @@ class STAttenBlock(nn.Module):
         self.norm1 = SNNLayerNorm(d_model)
         self.attn = SpikeDrivenSelfAttention(d_model, n_head)
         self.norm2 = SNNLayerNorm(d_model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # FFNを分解して、LIFニューロンのタプル出力を扱えるようにする
         self.fc1 = nn.Linear(d_model, d_model * 4)
         self.lif1 = AdaptiveLIFNeuron(features=d_model * 4)
         self.fc2 = nn.Linear(d_model * 4, d_model)
         self.lif2 = AdaptiveLIFNeuron(features=d_model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (Batch, Sequence, Channels)
         x = x + self.attn(self.norm1(x))
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # FFNを手動で実行し、タプルをアンパックする
         identity = x
         out = self.norm2(x)
@@ -293,7 +289,6 @@ class STAttenBlock(nn.Module):
         out_spike, _ = self.lif2(out) # タプルをアンパック
         
         x = identity + out_spike
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return x
 
 class SpikingTransformer(nn.Module):
@@ -360,29 +355,36 @@ class SimpleSNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(SimpleSNN, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.lif1 = AdaptiveLIFNeuron(features=hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
         self.lif2 = AdaptiveLIFNeuron(features=output_size)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-    def forward(self, x):
-        if x.dim() == 2:
-            x = x.unsqueeze(0)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def forward(self, input_ids: torch.Tensor, **kwargs: Any) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        if input_ids.dim() == 2:
+            input_ids = input_ids.unsqueeze(0)
         
-        T, B, _ = x.shape
+        T, B, _ = input_ids.shape
         functional.reset_net(self)
         
         outputs = []
+        total_spikes = 0.0
         for t in range(T):
-            x_t = x[t, :, :]
+            x_t = input_ids[t, :, :]
             out = self.fc1(x_t)
             out, _ = self.lif1(out)
+            total_spikes += out.sum()
             out = self.fc2(out)
             out, _ = self.lif2(out)
+            total_spikes += out.sum()
             outputs.append(out)
             
-        return torch.stack(outputs, dim=0)
+        stacked_outputs = torch.stack(outputs, dim=0)
+        
+        # 他のモデルと戻り値の型を合わせる
+        # SimpleSNNは簡易的なモデルのため、スパイク数と膜電位はNoneを返す
+        return stacked_outputs, None, None
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SNNCore(nn.Module):
     """
