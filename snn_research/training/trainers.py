@@ -91,10 +91,8 @@ class BreakthroughTrainer:
         
         with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 model_output = self.model(input_ids, return_spikes=True, return_full_mems=True)
                 logits, spikes, mem = model_output[0], model_output[1], model_output[2]
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 loss_dict = self.criterion(logits, target_ids, spikes, mem, self.model)
         
         if is_train:
@@ -162,12 +160,10 @@ class BreakthroughTrainer:
         if self.rank in [-1, 0]:
             for key, value in avg_metrics.items():
                 self.writer.add_scalar(f'Train/{key}', value, epoch)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if self.scheduler:
                 self.writer.add_scalar('Train/learning_rate', self.scheduler.get_last_lr()[0], epoch)
             else:
                 self.writer.add_scalar('Train/learning_rate', self.optimizer.param_groups[0]['lr'], epoch)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         return avg_metrics
 
@@ -194,8 +190,11 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            buffer_names = {name for name, _ in model_to_save.named_buffers() if 'mem' not in name}
-            model_state = {k: v for k, v in model_to_save.state_dict().items() if k not in buffer_names}
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 'mem' を含むバッファを保存対象から除外する
+            buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
+            model_state = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             state = {
                 'epoch': epoch, 'model_state_dict': model_state, 
@@ -246,7 +245,6 @@ class DistillationTrainer(BreakthroughTrainer):
             final_metrics = self.evaluate(val_loader, epoch)
         return final_metrics
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train: self.model.train()
         else: self.model.eval()
@@ -284,7 +282,6 @@ class DistillationTrainer(BreakthroughTrainer):
                 loss_dict['accuracy'] = accuracy
         
         return {k: v.cpu().item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SelfSupervisedTrainer(BreakthroughTrainer):
     """自己教師あり学習に特化したトレーナー。"""
