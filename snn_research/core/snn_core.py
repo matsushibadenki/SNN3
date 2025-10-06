@@ -13,8 +13,9 @@
 # TypeError修正:
 # nn.Sequential内でタプルを返すLIFニューロンを使用していたため、TypeErrorが発生していた。
 # STAttenBlock内のFFNを手動でアンパックして実行するように修正。
-# AttributeError修正:
-# SNNCoreに渡されるconfigは既に'model'セクションのため、不要な`.model`アクセスを削除。
+# TypeError修正 (SimpleSNN):
+# SimpleSNNが古いBioLIFNeuronを引数なしで呼び出していた問題を修正。
+# 他のモデルと整合性を取るため、AdaptiveLIFNeuronを使用するように変更。
 
 import torch
 import torch.nn as nn
@@ -23,7 +24,9 @@ from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
-from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron # 古いLIFニューロンのインポートを削除
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 # --- ニューロンモデル ---
@@ -274,7 +277,7 @@ class STAttenBlock(nn.Module):
         self.lif1 = AdaptiveLIFNeuron(features=d_model * 4)
         self.fc2 = nn.Linear(d_model * 4, d_model)
         self.lif2 = AdaptiveLIFNeuron(features=d_model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (Batch, Sequence, Channels)
@@ -290,7 +293,7 @@ class STAttenBlock(nn.Module):
         out_spike, _ = self.lif2(out) # タプルをアンパック
         
         x = identity + out_spike
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return x
 
 class SpikingTransformer(nn.Module):
@@ -357,9 +360,11 @@ class SimpleSNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(SimpleSNN, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        self.lif1 = LIFNeuron()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.lif1 = AdaptiveLIFNeuron(features=hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
-        self.lif2 = LIFNeuron()
+        self.lif2 = AdaptiveLIFNeuron(features=output_size)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(self, x):
         if x.dim() == 2:
@@ -388,17 +393,13 @@ class SNNCore(nn.Module):
         if isinstance(config, dict):
             config = OmegaConf.create(config)
         self.config = config
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # SNNCoreに渡されるconfigは既にモデル設定そのものであるため、.modelアクセスを削除
         model_type = self.config.get("architecture_type", self.config.get("type", "simple"))
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         self.model: nn.Module
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # .modelアクセスを削除
         params_untyped = OmegaConf.to_container(self.config, resolve=True)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if not isinstance(params_untyped, Dict):
             raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
         
