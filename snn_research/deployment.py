@@ -12,7 +12,7 @@ from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
 from typing import Iterator, Optional, Dict, Any, List, Union
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from snn_research.core.snn_core import SNNCore # SNNCoreをインポート
 
 
@@ -45,12 +45,8 @@ class SNNInferenceEngine:
         if model_path:
             try:
                 state_dict = torch.load(model_path, map_location=self.device)
-                # 'model.' プレフィックスが付いている場合、それを取り除く
-                if all(key.startswith('model.') for key in state_dict.keys()):
-                    state_dict = {k.partition('model.')[2]: v for k, v in state_dict.items()}
-                
-                # SNNCoreがラップしている内部モデルのstate_dictをロードする
-                self.model.model.load_state_dict(state_dict)
+                # SNNCoreインスタンス全体にstate_dictをロードする
+                self.model.load_state_dict(state_dict)
                 print(f"Model loaded from {model_path}")
             except FileNotFoundError:
                 print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
