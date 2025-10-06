@@ -6,6 +6,7 @@
 #              mypyエラー修正: mypyが推論できないtokenizerの属性アクセスエラーを型キャストで抑制。
 #              mypyエラー修正: 未定義属性(model_path, device)を修正し、_load_modelを統合。
 # AttributeError修正: app/main.pyから渡されるconfigの構造に合わせ、'deployment'キーに依存しないように修正。
+# RuntimeError修正: 'auto'デバイス名を、torchが認識できる具体的なデバイス名（'mps', 'cuda', 'cpu'）に解決する処理を追加。
 
 import torch
 import json
@@ -16,6 +17,11 @@ from .core.snn_core import BreakthroughSNN, SpikingTransformer
 from omegaconf import DictConfig, OmegaConf
 from snn_research.core.snn_core import SNNCore # SNNCoreをインポート
 
+def get_auto_device() -> str:
+    """実行環境に最適なデバイスを自動的に選択する。"""
+    if torch.cuda.is_available(): return "cuda"
+    if torch.backends.mps.is_available(): return "mps"
+    return "cpu"
 
 class SNNInferenceEngine:
     """
@@ -26,7 +32,10 @@ class SNNInferenceEngine:
             config = OmegaConf.create(config)
 
         self.config = config
-        self.device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        device_str = config.get("device", "auto")
+        self.device = get_auto_device() if device_str == "auto" else device_str
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 先にTokenizerをロードしてvocab_sizeを取得
         tokenizer_path = config.data.get("tokenizer_name", "gpt2")
