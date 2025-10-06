@@ -150,7 +150,9 @@ class KnowledgeDistillationManager:
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config') and hasattr(self.student_model.config, 'model'):
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_config = OmegaConf.to_container(self.student_model.config.model, resolve=True)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
@@ -168,7 +170,7 @@ class KnowledgeDistillationManager:
             print("❌ No text found in the provided data file. Aborting.")
             return
 
-        max_len = student_config.get("time_steps", 128) if student_config else 128
+        max_len = student_config.get("time_steps", 128) if student_config and isinstance(student_config, dict) else 128
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
