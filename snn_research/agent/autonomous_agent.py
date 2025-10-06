@@ -64,7 +64,6 @@ class AutonomousAgent:
         """
         タスクに最適な専門家モデルをモデルレジストリから検索する。
         """
-        # 検索時もタスク名をサニタイズして、レジストリのキーと一致させる
         safe_task_description = task_description.lower().replace(" ", "_")
         candidate_experts = await self.model_registry.find_models_for_task(safe_task_description, top_k=5)
         
@@ -72,26 +71,21 @@ class AutonomousAgent:
             print(f"最適な専門家が見つかりませんでした: {safe_task_description}")
             return None
 
-        # フィルタリングロジックを実装
+        # 精度とエネルギーの条件を満たすモデルを探す
         for expert in candidate_experts:
             metrics = expert.get("metrics", {})
             accuracy = metrics.get("accuracy", 0.0)
             spikes = metrics.get("avg_spikes_per_sample", float('inf'))
-
-            # 精度とエネルギーの条件をチェック
             if accuracy >= self.accuracy_threshold and spikes <= self.energy_budget:
                 print(f"✅ 条件を満たす専門家を発見しました: {expert['model_id']} (Accuracy: {accuracy:.4f}, Spikes: {spikes:.2f})")
                 return expert
-        
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # --- 妥協ロジック ---
-        # 条件を満たすモデルがなくても、候補が１つでもあれば、最も性能の良いものを採用する
+
+        # 妥協案: 条件を満たすモデルがなくても、最も精度の高いモデルを返す
         print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
-        best_candidate = candidate_experts[0] # リストは精度でソートされている
+        best_candidate = candidate_experts[0]
         print(f"   - 最高性能モデル: {best_candidate.get('metrics', {})} (要件: accuracy >= {self.accuracy_threshold}, spikes <= {self.energy_budget})")
         print(f"   - 妥協案として、最高性能モデル '{best_candidate.get('model_id')}' を採用します。")
         return best_candidate
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def learn_from_web(self, topic: str) -> str:
         """
@@ -144,8 +138,6 @@ class AutonomousAgent:
         
         if unlabeled_data_path:
             print("- No suitable expert found or retraining forced. Initiating on-demand learning...")
-            # DIコンテナの代わりに、直接KnowledgeDistillationManagerを初期化
-            # (より洗練されたアーキテクチャでは、DIコンテナを渡すのが望ましい)
             try:
                 from app.containers import TrainingContainer
                 container = TrainingContainer()
@@ -161,8 +153,6 @@ class AutonomousAgent:
                     device=container.device()
                 )
                 
-                # run_on_demand_pipeline は存在しないため、run_distillation を直接呼び出す想定
-                # データローダーの準備
                 with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
                     texts = [line.strip() for line in f if line.strip()]
                 
@@ -170,8 +160,8 @@ class AutonomousAgent:
                 
                 new_model_info = await manager.run_distillation(
                     train_loader=train_loader,
-                    val_loader=train_loader, # 簡単のため同じデータを使用
-                    epochs=3, # デモ用のエポック数
+                    val_loader=train_loader,
+                    epochs=3,
                     model_id=task_description,
                     task_description=f"Expert for {task_description}",
                     student_config=container.config.model.to_dict()
@@ -183,10 +173,16 @@ class AutonomousAgent:
                 print(f"❌ On-demand learning failed: {e}")
                 self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, -1.0, [], {"reason": "Training failed"})
                 return None
-        else:
-            print("- No expert found and no data provided for training.")
-            self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
-            return None
+        
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # データがない場合でも、妥協案として見つけたモデルを返す
+        if expert_model:
+            return expert_model
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            
+        print("- No expert found and no data provided for training.")
+        self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
+        return None
 
     async def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
         """
@@ -194,10 +190,8 @@ class AutonomousAgent:
         """
         print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
 
-        # SNNInferenceEngineを動的に設定・初期化
         model_config = model_info.get('config')
         
-        # モデル設定が取得できない場合、デフォルトのsmallモデル設定でフォールバック
         if not model_config:
             print("⚠️ Warning: Model config not found in registry. Falling back to default 'small' model config.")
             try:
