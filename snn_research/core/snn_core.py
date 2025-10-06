@@ -3,13 +3,16 @@
 #
 # 根本的なエラー修正:
 # SpikingTransformerのアーキテクチャを全面的に修正。
-# RNN的な時間ステップ処理とTransformer的なシーケンス処理の混在がエラーの根本原因であったため、
+# RNN的な時間ステップ処理とTransformer的なシーquence処理の混在がエラーの根本原因であったため、
 # Spiking Transformerの標準的な実装に修正。
 # 修正後の動作:
 # 1. 外部で`time_steps`のループを実行する。
 # 2. 各時間ステップにおいて、Attentionブロックはシーケンス全体(B, N, C)を受け取って処理する。
 # 3. 各ブロック内のニューロンは、時間ステップのループを通じて内部状態（膜電位）を更新する。
 # これにより、すべてのテンソル形状の不整合が解消される。
+# TypeError修正:
+# nn.Sequential内でタプルを返すLIFニューロンを使用していたため、TypeErrorが発生していた。
+# STAttenBlock内のFFNを手動でアンパックして実行するように修正。
 
 import torch
 import torch.nn as nn
@@ -263,17 +266,29 @@ class STAttenBlock(nn.Module):
         self.norm1 = SNNLayerNorm(d_model)
         self.attn = SpikeDrivenSelfAttention(d_model, n_head)
         self.norm2 = SNNLayerNorm(d_model)
-        self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_model * 4),
-            AdaptiveLIFNeuron(features=d_model * 4),
-            nn.Linear(d_model * 4, d_model),
-            AdaptiveLIFNeuron(features=d_model) # FFNの最後にもニューロンを追加
-        )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # FFNを分解して、LIFニューロンのタプル出力を扱えるようにする
+        self.fc1 = nn.Linear(d_model, d_model * 4)
+        self.lif1 = AdaptiveLIFNeuron(features=d_model * 4)
+        self.fc2 = nn.Linear(d_model * 4, d_model)
+        self.lif2 = AdaptiveLIFNeuron(features=d_model)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x shape: (Batch, Sequence, Channels)
         x = x + self.attn(self.norm1(x))
-        x = x + self.ffn(self.norm2(x))
+        
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # FFNを手動で実行し、タプルをアンパックする
+        identity = x
+        out = self.norm2(x)
+        out = self.fc1(out)
+        out_spike, _ = self.lif1(out) # タプルをアンパック
+        out = self.fc2(out_spike)
+        out_spike, _ = self.lif2(out) # タプルをアンパック
+        
+        x = identity + out_spike
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return x
 
 class SpikingTransformer(nn.Module):
