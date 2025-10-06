@@ -124,9 +124,13 @@ class KnowledgeDistillationManager:
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
         
-        model_to_save = self.distillation_trainer.model
-        model_state_dict = model_to_save.module.state_dict() if isinstance(model_to_save, nn.parallel.DistributedDataParallel) else model_to_save.state_dict()
-        torch.save(model_state_dict, save_path)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 'mem' を含むバッファを除外して、モデルの「重み」のみを保存する
+        model_to_save = self.distillation_trainer.model.module if isinstance(self.distillation_trainer.model, nn.parallel.DistributedDataParallel) else self.distillation_trainer.model
+        buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
+        model_state_to_save = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
+        torch.save(model_state_to_save, save_path)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("Model saved.")
 
         # 4. モデルレジストリへの登録
@@ -150,9 +154,7 @@ class KnowledgeDistillationManager:
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config') and hasattr(self.student_model.config, 'model'):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_config = OmegaConf.to_container(self.student_model.config.model, resolve=True)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
