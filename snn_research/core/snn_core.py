@@ -16,9 +16,9 @@
 # TypeError修正 (SimpleSNN):
 # SimpleSNNが古いBioLIFNeuronを引数なしで呼び出していた問題を修正。
 # 他のモデルと整合性を取るため、AdaptiveLIFNeuronを使用するように変更。
-# TypeError修正 (SimpleSNN.forward):
-# SimpleSNN.forwardが他のモデルと異なる引数シグネチャを持っていたため、
-# **kwargsを受け入れ、戻り値の型を(logits, spikes, mem)に統一した。
+# RuntimeError修正 (SimpleSNN):
+# SimpleSNNにEmbedding層がなく、LongTensorをLinear層に渡していたためMPSデバイスでエラーが発生していた。
+# Embedding層を追加し、他の言語モデルとインターフェースを統一した。
 
 import torch
 import torch.nn as nn
@@ -27,6 +27,7 @@ from spikingjelly.activation_based import surrogate, functional  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
+
 
 # --- ニューロンモデル ---
 class AdaptiveLIFNeuron(nn.Module):
@@ -348,43 +349,53 @@ class SpikingTransformer(nn.Module):
 
 # --- ◾️◾️◾️↑Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class SimpleSNN(nn.Module):
     """
-    基本的なLIFニューロンで構成されたシンプルなSNNモデル。
+    言語モデリングタスク用の、シンプルなリカレントSNN。
+    他のモデルとのインターフェース互換性を持つ。
     """
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, vocab_size: int, d_model: int, hidden_size: int, **kwargs: Any):
         super(SimpleSNN, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.fc1 = nn.Linear(d_model, hidden_size)
         self.lif1 = AdaptiveLIFNeuron(features=hidden_size)
-        self.fc2 = nn.Linear(hidden_size, output_size)
-        self.lif2 = AdaptiveLIFNeuron(features=output_size)
+        self.fc2 = nn.Linear(hidden_size, vocab_size) # 出力は語彙サイズのロジット
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    def forward(self, input_ids: torch.Tensor, **kwargs: Any) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
-        if input_ids.dim() == 2:
-            input_ids = input_ids.unsqueeze(0)
+    def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        B, T = input_ids.shape
         
-        T, B, _ = input_ids.shape
+        # 1. トークンをベクトルに変換
+        x = self.embedding(input_ids) # Shape: (B, T, d_model)
+
+        # 2. ニューロンの状態をリセット
         functional.reset_net(self)
         
         outputs = []
-        total_spikes = 0.0
-        for t in range(T):
-            x_t = input_ids[t, :, :]
-            out = self.fc1(x_t)
-            out, _ = self.lif1(out)
-            total_spikes += out.sum()
-            out = self.fc2(out)
-            out, _ = self.lif2(out)
-            total_spikes += out.sum()
-            outputs.append(out)
-            
-        stacked_outputs = torch.stack(outputs, dim=0)
+        total_spikes = torch.tensor(0.0, device=input_ids.device)
         
-        # 他のモデルと戻り値の型を合わせる
-        # SimpleSNNは簡易的なモデルのため、スパイク数と膜電位はNoneを返す
-        return stacked_outputs, None, None
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 3. シーケンス長（時間）でループ
+        for t in range(T):
+            x_t = x[:, t, :] # Shape: (B, d_model)
+            
+            # レイヤーを通過
+            out = self.fc1(x_t)
+            spikes, _ = self.lif1(out)
+            out = self.fc2(spikes) # 次のトークン予測のロジット
+            
+            outputs.append(out)
+            if return_spikes:
+                total_spikes += spikes.sum()
+
+        logits = torch.stack(outputs, dim=1) # Shape: (B, T, vocab_size)
+        
+        # 他のモデルと戻り値のインターフェースを統一
+        avg_spikes = total_spikes / (B * T) if return_spikes and B * T > 0 else torch.tensor(0.0)
+        # 簡易モデルのため、膜電位はダミー値を返す
+        mem = torch.tensor(0.0, device=input_ids.device) 
+
+        return logits, avg_spikes, mem
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SNNCore(nn.Module):
     """
@@ -425,12 +436,14 @@ class SNNCore(nn.Module):
                 num_layers=params.get("num_layers", 12),
                 time_steps=params.get("time_steps", 32)
             )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         elif model_type == "simple":
             self.model = SimpleSNN(
-                input_size=params.get("input_size", 10),
-                hidden_size=params.get("hidden_size", 50),
-                output_size=params.get("output_size", 10)
+                vocab_size=vocab_size,
+                d_model=params.get("d_model", 128),
+                hidden_size=params.get("d_state", 256) # d_stateをhidden_sizeとして流用
             )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
