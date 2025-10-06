@@ -5,6 +5,8 @@
 #                 PlannerTrainer内の構文エラーを修正。
 # mypyエラー修正: 不要なlossクラスのimportを削除
 # 改善点: BPTTTrainer内の不要なコードを削除し、役割を明確化。
+# ValueError修正: BreakthroughTrainerとDistillationTrainer内のモデル出力のアンパッキングを、
+#                 インデックス参照から直接的なアンパッキングに変更し、堅牢性を向上させた。
 
 import torch
 import torch.nn as nn
@@ -20,7 +22,7 @@ from torch.optim import Adam
 
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
@@ -91,9 +93,11 @@ class BreakthroughTrainer:
         
         with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                model_output = self.model(input_ids, return_spikes=True, return_full_mems=True)
-                logits, spikes, mem = model_output[0], model_output[1], model_output[2]
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # モデルからの出力を直接アンパッキングする
+                logits, spikes, mem = self.model(input_ids, return_spikes=True, return_full_mems=True)
                 loss_dict = self.criterion(logits, target_ids, spikes, mem, self.model)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         if is_train:
             self.optimizer.zero_grad()
@@ -190,11 +194,9 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 'mem' を含むバッファを保存対象から除外する
             buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
             model_state = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             state = {
                 'epoch': epoch, 'model_state_dict': model_state, 
@@ -253,8 +255,9 @@ class DistillationTrainer(BreakthroughTrainer):
 
         with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                student_output = self.model(student_input, return_spikes=True, return_full_mems=True)
-                student_logits, spikes, mem = student_output[0], student_output[1], student_output[2]
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                student_logits, spikes, mem = self.model(student_input, return_spikes=True, return_full_mems=True)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 assert isinstance(self.criterion, DistillationLoss)
                 loss_dict = self.criterion(
