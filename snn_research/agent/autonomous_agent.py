@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn_research/agent/autonomous_agent.py
+# matsushibadenki/snn3/SNN3-27170475db1dde34e4e83ac31427cebd290f9474/snn_research/agent/autonomous_agent.py
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/agent/autonomous_agent.py
 # タイトル: 自律エージェント
 # 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
@@ -144,14 +144,29 @@ class AutonomousAgent:
                 container.config.from_yaml("configs/base_config.yaml")
                 container.config.from_yaml("configs/models/small.yaml")
 
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # 依存関係を正しい順序で構築し、Optimizerにパラメータを渡す
+                device = container.device()
+                student_model = container.snn_model().to(device)
+                optimizer = container.optimizer(params=student_model.parameters())
+                scheduler = container.scheduler(optimizer=optimizer) if container.config.training.gradient_based.use_scheduler() else None
+
+                distillation_trainer = container.distillation_trainer(
+                    model=student_model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    device=device
+                )
+
                 manager = KnowledgeDistillationManager(
-                    student_model=container.snn_model(),
-                    trainer=container.distillation_trainer(),
+                    student_model=student_model,
+                    trainer=distillation_trainer,
                     teacher_model_name=container.config.training.gradient_based.distillation.teacher_model(),
                     tokenizer_name=container.config.data.tokenizer_name(),
                     model_registry=self.model_registry,
-                    device=container.device()
+                    device=device
                 )
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
                     texts = [line.strip() for line in f if line.strip()]
@@ -174,11 +189,9 @@ class AutonomousAgent:
                 self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, -1.0, [], {"reason": "Training failed"})
                 return None
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # データがない場合でも、妥協案として見つけたモデルを返す
         if expert_model:
             return expert_model
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
         print("- No expert found and no data provided for training.")
         self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
