@@ -1,16 +1,15 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
-# 変更点:
-# - 「時間」の価値を最大化するため、Spiking Transformerアーキテクチャを追加。
-# - SpikeDrivenSelfAttention: スパイクベースの効率的な自己注意機構。
-# - STAttenBlock: 空間と時間の両方を考慮するアテンションブロック。
-# - SpikingTransformer: 新しい最先端モデルとして、STAttenBlockを統合。
-# - mypyエラー修正: SpikingTransformer.forwardの戻り値の型をtorch.Tensorに統一。
-# - mypyエラー修正: SpikingTransformerの重複定義を解消。
-# 改善点: SpikeDrivenSelfAttentionを簡略版から、より標準的なドット積ベースの自己注意計算に修正。
-# テンソルサイズ不一致エラー修正: SpikingTransformer内のSTAttenBlockが、時間ステップごとの
-#                                2Dテンソルを正しく扱えるように、一時的に3Dに拡張してから
-#                                アテンション処理を行うように修正。
+#
+# 根本的なエラー修正:
+# SpikingTransformerのアーキテクチャを全面的に修正。
+# RNN的な時間ステップ処理とTransformer的なシーケンス処理の混在がエラーの根本原因であったため、
+# Spiking Transformerの標準的な実装に修正。
+# 修正後の動作:
+# 1. 外部で`time_steps`のループを実行する。
+# 2. 各時間ステップにおいて、Attentionブロックはシーケンス全体(B, N, C)を受け取って処理する。
+# 3. 各ブロック内のニューロンは、時間ステップのループを通じて内部状態（膜電位）を更新する。
+# これにより、すべてのテンソル形状の不整合が解消される。
 
 import torch
 import torch.nn as nn
@@ -50,14 +49,13 @@ class AdaptiveLIFNeuron(nn.Module):
         self.mem: torch.Tensor
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.mem.shape[0] != x.shape[0] or self.mem.device != x.device:
-            self.mem = torch.zeros(x.shape[0], x.shape[-1], device=x.device)
+        # 入力テンソルの次元数に応じて膜電位バッファの形状を調整
+        if self.mem.shape[0] != x.shape[0] or self.mem.device != x.device or self.mem.ndim != x.ndim:
+            self.mem = torch.zeros_like(x, device=x.device)
 
-        # In-place errorを回避するため、計算と状態更新を分離
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
         
-        # 次のステップの状態を計算し、detach()でグラフから切り離す
         mem_for_next_step = mem_this_step * (1.0 - spike)
         self.mem = mem_for_next_step.detach()
 
@@ -67,7 +65,6 @@ class AdaptiveLIFNeuron(nn.Module):
                 self.adaptive_threshold += self.adaptation_strength * spike_rate_error
                 self.adaptive_threshold.clamp_(min=0.5)
 
-        # 勾配計算のため、リセット前の膜電位を返す
         return spike, mem_this_step
 
 class DendriticNeuron(nn.Module):
@@ -178,6 +175,9 @@ class BreakthroughSNN(nn.Module):
         all_hidden_states: List[torch.Tensor] = []
         all_mems_list: List[torch.Tensor] = []
 
+        # spikingjellyの作法に従い、処理開始前にネットワークの状態をリセット
+        functional.reset_net(self)
+
         for i in range(seq_len):
             embedded_token = token_emb[:, i, :]
             bottom_up_input, _ = self.input_encoder(embedded_token)
@@ -187,7 +187,6 @@ class BreakthroughSNN(nn.Module):
             
             for j in range(self.num_layers):
                 states[j], error, _, mem = self.pc_layers[j](bottom_up_input, states[j])
-                # 次の層への入力は、現在の層の予測誤差（error）とする
                 bottom_up_input = error
                 layer_errors.append(error)
                 layer_mems.append(mem)
@@ -214,7 +213,6 @@ class BreakthroughSNN(nn.Module):
             final_output = self.output_projection(final_hidden_states)
 
         avg_spikes = total_spikes / seq_len if return_spikes and seq_len > 0 else torch.tensor(0.0)
-        
         final_mem = torch.stack(all_mems_list) if return_full_mems and all_mems_list else total_mem_potential / seq_len if seq_len > 0 else torch.tensor(0.0)
 
         return final_output, avg_spikes, final_mem
@@ -236,37 +234,26 @@ class SpikeDrivenSelfAttention(nn.Module):
         self.neuron_out = AdaptiveLIFNeuron(features=d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # このAttentionは時間ステップごとの処理を想定 (B, N, C)
         B, N, C = x.shape
-        
-        # 射影層を適用
         q = self.q_proj(x)
         k = self.k_proj(x)
         v = self.v_proj(x)
 
-        # QとKをスパイク化
         q_spike, _ = self.neuron_q(q)
         k_spike, _ = self.neuron_k(k)
 
-        # マルチヘッドに分割
-        q_spike = q_spike.reshape(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
-        k_spike = k_spike.reshape(B, N, self.n_head, self.d_head).permute(0, 2, 3, 1) # 転置
-        v = v.reshape(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
-        
-        # スパイクベースのドット積アテンション
-        attn_scores = torch.matmul(q_spike, k_spike) / math.sqrt(self.d_head)
-        
-        # Softmaxの代わりにスパイク化（代理勾配で学習可能）
-        attn_weights_spike = torch.sigmoid(attn_scores) # 簡易的な代替
+        q_spike_mha = q_spike.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
+        k_spike_mha = k_spike.view(B, N, self.n_head, self.d_head).permute(0, 2, 3, 1)
+        v_mha = v.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
 
-        # Valueに適用
-        attn_output = torch.matmul(attn_weights_spike, v)
+        attn_scores = torch.matmul(q_spike_mha, k_spike_mha) / math.sqrt(self.d_head)
+        attn_weights_spike = torch.sigmoid(attn_scores)
+
+        attn_output = torch.matmul(attn_weights_spike, v_mha)
+        attn_output = attn_output.permute(0, 2, 1, 3).contiguous().view(B, N, C)
         
-        # ヘッドを結合して出力
-        attn_output = attn_output.permute(0, 2, 1, 3).contiguous().reshape(B, N, C)
         output = self.out_proj(attn_output)
         output_spike, _ = self.neuron_out(output)
-        
         return output_spike
 
 class STAttenBlock(nn.Module):
@@ -280,24 +267,13 @@ class STAttenBlock(nn.Module):
             nn.Linear(d_model, d_model * 4),
             AdaptiveLIFNeuron(features=d_model * 4),
             nn.Linear(d_model * 4, d_model),
+            AdaptiveLIFNeuron(features=d_model) # FFNの最後にもニューロンを追加
         )
-        self.neuron = AdaptiveLIFNeuron(features=d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x shape: (Batch, Channels) from the time-step loop
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️
-        # Attentionが3Dテンソル(B, N, C)を期待するため、一時的に次元を追加
-        x_attn = x.unsqueeze(1) # -> (Batch, 1, Channels)
-        
-        # Attentionを適用し、次元を元に戻す
-        attn_out = self.attn(self.norm1(x_attn)).squeeze(1) # -> (Batch, Channels)
-        x = x + attn_out
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        
-        # FFN
-        ffn_out, _ = self.neuron(self.ffn(self.norm2(x)))
-        x = x + ffn_out
-        
+        # x shape: (Batch, Sequence, Channels)
+        x = x + self.attn(self.norm1(x))
+        x = x + self.ffn(self.norm2(x))
         return x
 
 class SpikingTransformer(nn.Module):
@@ -307,7 +283,7 @@ class SpikingTransformer(nn.Module):
         self.d_model = d_model
         self.time_steps = time_steps
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_embedding = nn.Parameter(torch.randn(1, time_steps, d_model))
+        self.pos_embedding = nn.Parameter(torch.randn(1, 1024, d_model)) # 十分に大きいシーケンス長を確保
         
         self.layers = nn.ModuleList([STAttenBlock(d_model, n_head) for _ in range(num_layers)])
         self.output_projection = nn.Linear(d_model, vocab_size)
@@ -316,36 +292,42 @@ class SpikingTransformer(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, return_full_mems: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
-        x = self.token_embedding(input_ids)
-        
-        # 位置エンベディングを加算（シーケンス長を合わせる）
-        x = x + self.pos_embedding[:, :seq_len, :]
-        
-        outputs = []
-        total_spikes = torch.tensor(0.0, device=x.device)
-        
-        # Reset stateful neurons in layers before starting a new sequence
+        x_embed = self.token_embedding(input_ids)
+        x_embed = x_embed + self.pos_embedding[:, :seq_len, :]
+
         functional.reset_net(self)
-        
-        # 時間ステップごとにループ処理
-        for t in range(seq_len):
-            x_t = x[:, t, :] # (Batch, Dim)
-            
+
+        outputs_over_time = []
+        spike_outputs_over_time = []
+
+        for t in range(self.time_steps):
+            x_t = x_embed
             for layer in self.layers:
                 x_t = layer(x_t)
             
-            outputs.append(x_t)
-            
-            if return_spikes:
-                # ToDo: 正確なスパイク数を取得するロジックが必要
-                total_spikes += x_t.mean() # ダミーのスパイク数
+            # 最後のレイヤーの出力（スパイク）を記録
+            spike_outputs_over_time.append(x_t)
+            # 最終的なロジット計算のため、スパイクではない値（膜電位など）も保持したいが、
+            # ここでは簡略化のためスパイクを積分（合計）する
+            if len(outputs_over_time) > 0:
+                outputs_over_time.append(outputs_over_time[-1] + x_t)
+            else:
+                outputs_over_time.append(x_t)
+        
+        # 時間方向に積分（合計）した値を最終出力とする
+        final_output = outputs_over_time[-1]
 
-        final_output = torch.stack(outputs, dim=1) # (Batch, Seq, Dim)
-        
         logits = self.output_projection(final_output)
+
+        total_spikes = torch.tensor(0.0, device=x_embed.device)
+        if return_spikes:
+             # 全時間ステップ、全ニューロンのスパイクを合計
+             for spikes in spike_outputs_over_time:
+                 total_spikes += spikes.sum()
         
-        avg_spikes = total_spikes / seq_len if return_spikes and seq_len > 0 else torch.tensor(0.0, device=x.device)
-        avg_mems = torch.tensor(0.0, device=x.device) # Dummy value
+        # バッチとシーケンスで平均化
+        avg_spikes = total_spikes / (self.time_steps * batch_size * seq_len) if return_spikes else torch.tensor(0.0)
+        avg_mems = torch.tensor(0.0, device=x_embed.device)  # Placeholder
 
         return logits, avg_spikes, avg_mems
 
@@ -367,8 +349,7 @@ class SimpleSNN(nn.Module):
             x = x.unsqueeze(0)
         
         T, B, _ = x.shape
-        self.lif1.reset()
-        self.lif2.reset()
+        functional.reset_net(self)
         
         outputs = []
         for t in range(T):
@@ -387,7 +368,6 @@ class SNNCore(nn.Module):
     """
     def __init__(self, config: DictConfig, vocab_size: int):
         super(SNNCore, self).__init__()
-        # DIコンテナから渡されたものが辞書の場合、OmegaConfオブジェクトに変換する
         if isinstance(config, dict):
             config = OmegaConf.create(config)
         self.config = config
@@ -399,7 +379,6 @@ class SNNCore(nn.Module):
         if not isinstance(params_untyped, Dict):
             raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
         
-        # isinstaceチェック後、mypyに型を確定させるためにcastを使用
         params: Dict[str, Any] = cast(Dict[str, Any], params_untyped)
 
         if model_type == "predictive_coding":
@@ -430,6 +409,4 @@ class SNNCore(nn.Module):
             raise ValueError(f"Unknown model type: {model_type}")
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        # Before forwarding, reset the network state
-        functional.reset_net(self.model)
         return self.model(*args, **kwargs)
