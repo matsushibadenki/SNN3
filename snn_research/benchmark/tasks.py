@@ -6,6 +6,8 @@
 #   len()呼び出しのキャストなどを行った。
 # - BreakthroughSNNの呼び出しを修正し、型推論エラーを解消。
 # - 変更点: 外部ライブラリの仕様変更によりエラーとなっていたXSumタスクを無効化。
+# - ValueError修正: SNNClassifier.forwardの戻り値を3つのタプル(logits, spikes, mem)に修正し、
+#                   Trainerが期待するインターフェースと一致させた。
 
 import os
 import json
@@ -96,14 +98,19 @@ class SST2Task(BenchmarkTask):
                 self.classifier = nn.Linear(self.snn_backbone.d_model, 2)
             
             def forward(self, input_ids, **kwargs):
-                # NOTE: SNNの出力から最後のタイムステップの特徴量を取得して分類
+                # SNNの出力から最後のタイムステップの特徴量を取得して分類
                 hidden_states, spikes, mem = self.snn_backbone(
                     input_ids,
                     return_spikes=True,
                     output_hidden_states=True
                 )
                 pooled_output = hidden_states[:, -1, :] # 最後のトークンの特徴量を使用
-                return self.classifier(pooled_output), spikes
+                logits = self.classifier(pooled_output)
+                
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # Trainerが3つの戻り値を期待しているため、インターフェースを合わせる
+                return logits, spikes, mem
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if model_type == 'SNN':
             # BreakthroughSNNのアーキテクチャで初期化
@@ -133,7 +140,8 @@ class SST2Task(BenchmarkTask):
                 inputs = {k: v.to(self.device) for k, v in batch.items()}
                 targets = inputs.pop("labels")
                 
-                outputs, spikes = model(**inputs)
+                # モデルからの戻り値が3つであることを想定
+                outputs, spikes, _ = model(**inputs)
                 if spikes is not None:
                     total_spikes += spikes.sum().item()
                 
