@@ -3,7 +3,7 @@
 #
 # 根本的なエラー修正:
 # SpikingTransformerのアーキテクチャを全面的に修正。
-# RNN的な時間ステップ処理とTransformer的なシーquence処理の混在がエラーの根本原因であったため、
+# RNN的な時間ステップ処理とTransformer的なシーケンス処理の混在がエラーの根本原因であったため、
 # Spiking Transformerの標準的な実装に修正。
 # 修正後の動作:
 # 1. 外部で`time_steps`のループを実行する。
@@ -13,6 +13,8 @@
 # TypeError修正:
 # nn.Sequential内でタプルを返すLIFニューロンを使用していたため、TypeErrorが発生していた。
 # STAttenBlock内のFFNを手動でアンパックして実行するように修正。
+# AttributeError修正:
+# SNNCoreに渡されるconfigは既に'model'セクションのため、不要な`.model`アクセスを削除。
 
 import torch
 import torch.nn as nn
@@ -386,11 +388,17 @@ class SNNCore(nn.Module):
         if isinstance(config, dict):
             config = OmegaConf.create(config)
         self.config = config
-        model_type = self.config.model.get("architecture_type", self.config.model.get("type", "simple"))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # SNNCoreに渡されるconfigは既にモデル設定そのものであるため、.modelアクセスを削除
+        model_type = self.config.get("architecture_type", self.config.get("type", "simple"))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         self.model: nn.Module
 
-        params_untyped = OmegaConf.to_container(self.config.model, resolve=True)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # .modelアクセスを削除
+        params_untyped = OmegaConf.to_container(self.config, resolve=True)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if not isinstance(params_untyped, Dict):
             raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
         
