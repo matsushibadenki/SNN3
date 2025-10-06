@@ -5,6 +5,7 @@
 #              mypyエラー修正: modelの型ヒントをUnionで両対応させた。
 #              mypyエラー修正: mypyが推論できないtokenizerの属性アクセスエラーを型キャストで抑制。
 #              mypyエラー修正: 未定義属性(model_path, device)を修正し、_load_modelを統合。
+# AttributeError修正: app/main.pyから渡されるconfigの構造に合わせ、'deployment'キーに依存しないように修正。
 
 import torch
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
 from typing import Iterator, Optional, Dict, Any, List, Union
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from snn_research.core.snn_core import SNNCore # SNNCoreをインポート
 
 
@@ -21,11 +22,14 @@ class SNNInferenceEngine:
     学習済みSNNモデルをロードして推論を実行するエンジン。
     """
     def __init__(self, config: DictConfig):
+        if isinstance(config, dict):
+            config = OmegaConf.create(config)
+
         self.config = config
-        self.device = config.deployment.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        self.device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         
         # 先にTokenizerをロードしてvocab_sizeを取得
-        tokenizer_path = config.deployment.get("tokenizer_path", "gpt2")
+        tokenizer_path = config.data.get("tokenizer_name", "gpt2")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
             if self.tokenizer.pad_token is None:
@@ -38,16 +42,24 @@ class SNNInferenceEngine:
         
         # vocab_sizeを渡してSNNCoreを初期化
         vocab_size = len(self.tokenizer)
-        self.model = SNNCore(config, vocab_size=vocab_size)
+        # SNNCoreには'model'セクションのコンフィグを渡す
+        model_config = config.get("model", config)
+        self.model = SNNCore(model_config, vocab_size=vocab_size)
         
-        model_path = config.deployment.get("model_path")
+        model_path = config.model.get("path") if hasattr(config, "model") else None
+
         if model_path:
             try:
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                state_dict = torch.load(model_path, map_location=self.device)
+                checkpoint = torch.load(model_path, map_location=self.device)
+                # checkpointが辞書で、'model_state_dict'キーを持つかチェック
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    state_dict = checkpoint['model_state_dict']
+                else:
+                    state_dict = checkpoint
+                    
                 # SNNCoreインスタンス全体にstate_dictをロードする
                 self.model.load_state_dict(state_dict)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
                 print(f"Model loaded from {model_path}")
             except FileNotFoundError:
                 print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
