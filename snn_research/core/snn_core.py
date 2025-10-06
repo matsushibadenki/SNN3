@@ -50,9 +50,11 @@ class AdaptiveLIFNeuron(nn.Module):
         if self.mem.shape[0] != x.shape[0] or self.mem.device != x.device:
             self.mem = torch.zeros(x.shape[0], x.shape[-1], device=x.device)
 
-        self.mem = self.mem * self.mem_decay + x
-        spike = self.surrogate_function(self.mem - self.adaptive_threshold)
-        self.mem = self.mem * (1.0 - spike.detach())
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # In-place errorを回避するため、計算と状態更新を分離
+        mem_this_step = self.mem * self.mem_decay + x
+        spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
+        self.mem = mem_this_step * (1.0 - spike.detach())
 
         if self.training:
             with torch.no_grad():
@@ -60,7 +62,8 @@ class AdaptiveLIFNeuron(nn.Module):
                 self.adaptive_threshold += self.adaptation_strength * spike_rate_error
                 self.adaptive_threshold.clamp_(min=0.5)
 
-        return spike, self.mem
+        return spike, mem_this_step
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class DendriticNeuron(nn.Module):
     """
@@ -367,11 +370,9 @@ class SNNCore(nn.Module):
     """
     def __init__(self, config: DictConfig, vocab_size: int):
         super(SNNCore, self).__init__()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # DIコンテナから渡されたものが辞書の場合、OmegaConfオブジェクトに変換する
         if isinstance(config, dict):
             config = OmegaConf.create(config)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.config = config
         model_type = self.config.model.get("architecture_type", self.config.model.get("type", "simple"))
 
