@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn_research/deployment.py
+# snn_research/deployment.py
 # Title: SNN推論エンジン
 # Description: 訓練済みSNNモデルをロードし、テキスト生成のための推論を実行するクラス。
 #              HuggingFaceの`generate`メソッドに似たインターフェースを提供。
@@ -7,12 +7,13 @@
 #              mypyエラー修正: 未定義属性(model_path, device)を修正し、_load_modelを統合。
 # AttributeError修正: app/main.pyから渡されるconfigの構造に合わせ、'deployment'キーに依存しないように修正。
 # RuntimeError修正: 'auto'デバイス名を、torchが認識できる具体的なデバイス名（'mps', 'cuda', 'cpu'）に解決する処理を追加。
+# AttributeError修正: last_inference_statsを__init__で初期化し、generateメソッドが統計情報をリアルタイムでyieldするように修正。
 
 import torch
 import json
 from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
-from typing import Iterator, Optional, Dict, Any, List, Union
+from typing import Iterator, Optional, Dict, Any, List, Union, Tuple
 from .core.snn_core import BreakthroughSNN, SpikingTransformer
 from omegaconf import DictConfig, OmegaConf
 from snn_research.core.snn_core import SNNCore # SNNCoreをインポート
@@ -32,10 +33,10 @@ class SNNInferenceEngine:
             config = OmegaConf.create(config)
 
         self.config = config
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         device_str = config.get("device", "auto")
         self.device = get_auto_device() if device_str == "auto" else device_str
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        
+        self.last_inference_stats: Dict[str, Any] = {}
         
         # 先にTokenizerをロードしてvocab_sizeを取得
         tokenizer_path = config.data.get("tokenizer_name", "gpt2")
@@ -78,16 +79,16 @@ class SNNInferenceEngine:
         self.model.to(self.device)
         self.model.eval()
 
-    def generate(self, prompt: str, max_len: int, stop_sequences: Optional[List[str]] = None) -> Iterator[str]:
+    def generate(self, prompt: str, max_len: int, stop_sequences: Optional[List[str]] = None) -> Iterator[Tuple[str, Dict[str, float]]]:
         """
-        プロンプトに基づいてテキストをストリーミング生成する。
+        プロンプトに基づいてテキストと統計情報をストリーミング生成する。
         """
         tokenizer_callable = getattr(self.tokenizer, "__call__", None)
         if not callable(tokenizer_callable):
             raise TypeError("Tokenizer is not callable.")
         input_ids = tokenizer_callable(prompt, return_tensors="pt")["input_ids"].to(self.device)
         
-        total_spikes = 0
+        total_spikes = 0.0
         
         for i in range(max_len):
             with torch.no_grad():
@@ -105,8 +106,9 @@ class SNNInferenceEngine:
             
             if stop_sequences and any(seq in new_token for seq in stop_sequences):
                 break
-                
-            yield new_token
+
+            current_stats = {"total_spikes": total_spikes}
+            yield new_token, current_stats
             
             input_ids = torch.cat([input_ids, next_token_id], dim=1)
 
