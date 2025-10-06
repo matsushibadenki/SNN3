@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/app/services/chat_service.py
+# app/services/chat_service.py
 # チャット機能のビジネスロジックを担うサービス
 #
 # 機能:
@@ -8,6 +8,7 @@
 # - ストリーミング応答をサポート。
 # - 推論完了後に総スパイク数をコンソールに出力。
 # - UI表示用に、リアルタイムの統計情報も生成する。
+# 修正点: generateメソッドが返すタプル(トークン, 統計情報)を正しく処理するように修正。
 
 import time
 from snn_research.deployment import SNNInferenceEngine
@@ -44,13 +45,12 @@ class ChatService:
         
         full_response = ""
         token_count = 0
-        for chunk in self.snn_engine.generate(prompt, max_len=self.max_len):
+        for chunk, stats in self.snn_engine.generate(prompt, max_len=self.max_len):
             full_response += chunk
             token_count += 1
             history[-1][1] = full_response
             
             duration = time.time() - start_time
-            stats = self.snn_engine.last_inference_stats
             total_spikes = stats.get("total_spikes", 0)
             spikes_per_second = total_spikes / duration if duration > 0 else 0
             tokens_per_second = token_count / duration if duration > 0 else 0
@@ -67,10 +67,10 @@ class ChatService:
 
         # Final log to console
         duration = time.time() - start_time
-        stats = self.snn_engine.last_inference_stats
-        total_spikes = stats.get("total_spikes", 0)
+        # ループ終了後の最終的な統計情報を取得
+        final_stats = self.snn_engine.last_inference_stats
+        total_spikes = final_stats.get("total_spikes", 0)
         print(f"\nGenerated response: {full_response.strip()}")
         print(f"Inference time: {duration:.4f} seconds")
         print(f"Total spikes: {total_spikes:,.0f}")
         print("-" * 30)
-
