@@ -54,7 +54,10 @@ class AdaptiveLIFNeuron(nn.Module):
         # In-place errorを回避するため、計算と状態更新を分離
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
-        self.mem = mem_this_step * (1.0 - spike.detach())
+        
+        # 次のステップの状態を計算し、detach()でグラフから切り離す
+        mem_for_next_step = mem_this_step * (1.0 - spike)
+        self.mem = mem_for_next_step.detach()
 
         if self.training:
             with torch.no_grad():
@@ -62,6 +65,7 @@ class AdaptiveLIFNeuron(nn.Module):
                 self.adaptive_threshold += self.adaptation_strength * spike_rate_error
                 self.adaptive_threshold.clamp_(min=0.5)
 
+        # 勾配計算のため、リセット前の膜電位を返す
         return spike, mem_this_step
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
