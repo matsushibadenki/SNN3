@@ -109,3 +109,11 @@ model_registry:
     host: localhost
     port: 6379
     db: 0
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# アプリケーション設定 (app/main.py, app/langchain_main.py で使用)
+app:
+  server_name: "127.0.0.1"
+  server_port: 7860
+  max_len: 100 # 生成するテキストの最大長
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
