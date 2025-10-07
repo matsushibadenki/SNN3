@@ -2,6 +2,7 @@
 # タイトル: 知識蒸留マネージャー
 # 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
 # 改善点: run_on_demand_pipelineがモデルからstudent_configを正しく取得できるように修正。
+# BugFix: run_on_demand_pipelineが学習結果を正しく返すように修正。
 
 import torch
 import torch.nn as nn
@@ -150,16 +151,13 @@ class KnowledgeDistillationManager:
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
-            # SNNCoreラッパーはモデル設定を 'config' 属性に保持している
             if hasattr(self.student_model, 'config'):
                 student_config = OmegaConf.to_container(self.student_model.config, resolve=True)
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         texts = []
         with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
@@ -172,13 +170,15 @@ class KnowledgeDistillationManager:
         
         if not texts:
             print("❌ No text found in the provided data file. Aborting.")
-            return
+            return None
 
         max_len = student_config.get("time_steps", 128) if student_config and isinstance(student_config, dict) else 128
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        await self.run_distillation(
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # run_distillationの実行結果をnew_model_infoに格納
+        new_model_info = await self.run_distillation(
             train_loader=train_loader,
             val_loader=train_loader,
             epochs=15,
@@ -186,6 +186,9 @@ class KnowledgeDistillationManager:
             task_description=f"Expert for {task_description}",
             student_config=student_config
         )
+        # 呼び出し元に結果を返す
+        return new_model_info
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
         """
