@@ -193,7 +193,7 @@ class KnowledgeDistillationManager:
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
             val_loader=train_loader,
-            epochs=15,
+            epochs=30,  # ◀️ 学習精度
             model_id=task_description,
             task_description=f"Expert for {task_description}",
             student_config=student_config
