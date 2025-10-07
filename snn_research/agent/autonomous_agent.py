@@ -2,6 +2,7 @@
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/agent/autonomous_agent.py
 # タイトル: 自律エージェント
 # 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
+# 改善点: handle_taskメソッドを修正し、専門家モデルが性能要件を満たさない場合は、妥協せずに新しい学習を開始するようにロジックを変更。
 
 from typing import Dict, Any, Optional
 import asyncio
@@ -123,6 +124,7 @@ class AutonomousAgent:
         # ToDo: より高度な要約モデルに置き換える
         return text[:150] + "..."
     
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
         """
         タスクを処理する中心的なメソッド。専門家を検索し、いなければ学習を試みる。
@@ -130,10 +132,21 @@ class AutonomousAgent:
         print(f"--- Handling Task: {task_description} ---")
         self.memory.record_experience(self.current_state, "handle_task", {"task": task_description}, 0.0, [], {"reason": "Task received"})
 
-        expert_model = await self.find_expert(task_description)
+        expert_model: Optional[Dict[str, Any]] = None
+        if not force_retrain:
+            candidate_expert = await self.find_expert(task_description)
+            if candidate_expert:
+                # 見つかったモデルが性能要件を満たしているかチェック
+                metrics = candidate_expert.get("metrics", {})
+                accuracy = metrics.get("accuracy", 0.0)
+                spikes = metrics.get("avg_spikes_per_sample", float('inf'))
+                if accuracy >= self.accuracy_threshold and spikes <= self.energy_budget:
+                    print(f"✅ Found suitable expert model: {candidate_expert['model_id']}")
+                    expert_model = candidate_expert
+                else:
+                    print(f"ℹ️ Found an expert, but it does not meet the performance requirements. Will attempt to retrain.")
 
-        if expert_model and not force_retrain:
-            print(f"✅ Found existing expert model: {expert_model['model_id']}")
+        if expert_model:
             return expert_model
         
         if unlabeled_data_path:
@@ -144,8 +157,6 @@ class AutonomousAgent:
                 container.config.from_yaml("configs/base_config.yaml")
                 container.config.from_yaml("configs/models/small.yaml")
 
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # 依存関係を正しい順序で構築し、Optimizerにパラメータを渡す
                 device = container.device()
                 student_model = container.snn_model().to(device)
                 optimizer = container.optimizer(params=student_model.parameters())
@@ -166,21 +177,15 @@ class AutonomousAgent:
                     model_registry=self.model_registry,
                     device=device
                 )
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
-                with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
-                    texts = [line.strip() for line in f if line.strip()]
-                
-                train_loader = manager.prepare_dataset(texts, max_length=container.config.model.time_steps(), batch_size=container.config.training.batch_size())
-                
-                new_model_info = await manager.run_distillation(
-                    train_loader=train_loader,
-                    val_loader=train_loader,
-                    epochs=3,
-                    model_id=task_description,
-                    task_description=f"Expert for {task_description}",
+                # run_on_demand_pipelineを直接呼び出す
+                new_model_info = await manager.run_on_demand_pipeline(
+                    task_description=task_description,
+                    unlabeled_data_path=unlabeled_data_path,
+                    force_retrain=force_retrain,
                     student_config=container.config.model.to_dict()
                 )
+
                 self.memory.record_experience(self.current_state, "on_demand_learning", new_model_info, 1.0, [new_model_info['model_id']], {"reason": "New expert created"})
                 return new_model_info
 
@@ -189,13 +194,10 @@ class AutonomousAgent:
                 self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, -1.0, [], {"reason": "Training failed"})
                 return None
         
-        # データがない場合でも、妥協案として見つけたモデルを返す
-        if expert_model:
-            return expert_model
-            
         print("- No expert found and no data provided for training.")
         self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
         return None
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     async def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
         """
@@ -229,7 +231,7 @@ class AutonomousAgent:
             
             full_response = ""
             print("Response: ", end="", flush=True)
-            for chunk in inference_engine.generate(prompt, max_len=50):
+            for chunk, _ in inference_engine.generate(prompt, max_len=50):
                 print(chunk, end="", flush=True)
                 full_response += chunk
             print("\n--- Inference Complete ---")
