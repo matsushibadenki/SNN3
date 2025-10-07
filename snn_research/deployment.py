@@ -33,6 +33,7 @@ class SNNInferenceEngine:
         
         self.last_inference_stats: Dict[str, Any] = {}
         
+        # 先にTokenizerをロードしてvocab_sizeを取得
         tokenizer_path = config.data.get("tokenizer_name", "gpt2")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
@@ -44,6 +45,7 @@ class SNNInferenceEngine:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
         
+        # vocab_sizeを渡してSNNCoreを初期化
         vocab_size = len(self.tokenizer)
         model_config = config.get("model", config)
         self.model = SNNCore(model_config, vocab_size=vocab_size)
@@ -62,8 +64,9 @@ class SNNInferenceEngine:
                     # state_dictのキーから "model." プレフィックスを削除
                     new_state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
                     
+                    # SNNCoreラッパーの中の実際のモデルにstate_dictをロードする
                     self.model.model.load_state_dict(new_state_dict)
-                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                     print(f"✅ Model loaded from {model_path}")
                 except RuntimeError as e:
