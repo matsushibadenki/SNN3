@@ -87,7 +87,7 @@ class SpikeDrivenSelfAttention(nn.Module):
         attn_output = attn_output.permute(0, 2, 1, 3).contiguous().view(B, N, C)
         
         return self.out_proj(attn_output)
-        
+
 class STAttenBlock(nn.Module):
     def __init__(self, d_model: int, n_head: int):
         super().__init__()
