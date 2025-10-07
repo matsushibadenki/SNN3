@@ -20,9 +20,7 @@ import shutil
 import time
 from torch.optim import Adam
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
@@ -193,10 +191,15 @@ class BreakthroughTrainer:
 
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
-            model_to_save = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # SNNCoreラッパーではなく、中の実際のモデルを取得
+            model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
+            actual_model = model_to_save_container.model
+            
             # 'mem' を含むバッファを保存対象から除外する
-            buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
-            model_state = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
+            buffers_to_exclude = {name for name, _ in actual_model.named_buffers() if 'mem' in name}
+            model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             state = {
                 'epoch': epoch, 'model_state_dict': model_state, 
