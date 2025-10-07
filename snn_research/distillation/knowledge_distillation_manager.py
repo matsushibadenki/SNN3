@@ -1,9 +1,7 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
 # タイトル: 知識蒸留マネージャー
-# 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
-# 改善点: run_on_demand_pipelineがモデルからstudent_configを正しく取得できるように修正。
-# BugFix: run_on_demand_pipelineが学習結果を正しく返すように修正。
-# BugFix: collate_fnでattention_maskを返し、パディングを考慮した損失計算を可能にする。
+# BugFix: データセット側で入力とターゲットのペアを正しく作成するように修正し、
+#         collate_fnを簡素化することで、学習データの不整合問題を解消。
 
 import torch
 import torch.nn as nn
@@ -72,23 +70,36 @@ class KnowledgeDistillationManager:
                 )
                 input_ids = tokenized['input_ids'].squeeze(0)
                 
-                with torch.no_grad():
-                    teacher_logits = self.teacher_model(input_ids.unsqueeze(0).to(self.device)).logits.squeeze(0).cpu()
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # データセット側で正しい入力とターゲットのペアを作成する
+                student_input = input_ids[:-1]
+                student_target = input_ids[1:]
                 
+                with torch.no_grad():
+                    # 教師モデルの推論は入力全体で行う
+                    teacher_logits_full = self.teacher_model(input_ids.unsqueeze(0).to(self.device)).logits.squeeze(0).cpu()
+                    # 生徒の入力に対応する部分だけを切り出す
+                    teacher_logits = teacher_logits_full[:-1]
+                
+                # attention_maskも同様に調整
+                attention_mask = tokenized['attention_mask'].squeeze(0)[:-1]
+
                 return {
-                    'input_ids': input_ids,
-                    'attention_mask': tokenized['attention_mask'].squeeze(0),
+                    'input_ids': student_input,
+                    'attention_mask': attention_mask,
+                    'targets': student_target,
                     'teacher_logits': teacher_logits
                 }
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         dataset = _DistillationTextDataset(self.tokenizer, texts, max_length, self.teacher_model, self.device)
         
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # collate_fnを簡素化し、データセットが返したものをスタックするだけにする
         def collate_fn(batch):
             input_ids = torch.stack([item['input_ids'] for item in batch])
             attention_mask = torch.stack([item['attention_mask'] for item in batch])
-            targets = torch.roll(input_ids, shifts=-1, dims=1)
-            targets[:, -1] = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else -100
+            targets = torch.stack([item['targets'] for item in batch])
             teacher_logits = torch.stack([item['teacher_logits'] for item in batch])
             return input_ids, attention_mask, targets, teacher_logits
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
@@ -200,7 +211,6 @@ class KnowledgeDistillationManager:
 
         progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
         for batch in progress_bar:
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             inputs, attention_mask, _, _ = batch
             inputs = inputs.to(self.device)
             attention_mask = attention_mask.to(self.device)
@@ -215,7 +225,6 @@ class KnowledgeDistillationManager:
             num_tokens_in_batch = attention_mask.sum().item()
             total_spikes += avg_batch_spikes.item() * num_tokens_in_batch
             total_valid_tokens += num_tokens_in_batch
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         avg_spikes_per_sample = total_spikes / total_valid_tokens if total_valid_tokens > 0 else 0.0
 
