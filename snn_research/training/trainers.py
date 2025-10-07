@@ -1,6 +1,6 @@
 # matsushibadenki/snn/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
-# BugFix: モデル保存時に一時的な状態である'spikes'バッファを除外することで、読込時のsize mismatchエラーを解消。
+# 改善点: モデル保存時に'adaptive_threshold'も除外対象に追加し、安定性を向上。
 
 import torch
 import torch.nn as nn
@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 import os
 import collections
-from tqdm import tqdm  # type: ignore
+from tqdm import tqdm
 from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 import time
@@ -21,12 +21,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class BreakthroughTrainer:
-    """モニタリングと評価機能を完備した、SNNの統合トレーニングシステム。"""
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module,
                  scheduler: Optional[torch.optim.lr_scheduler.LRScheduler], device: str,
                  grad_clip_norm: float, rank: int, use_amp: bool, log_dir: str,
                  astrocyte_network: Optional[AstrocyteNetwork] = None,
                  meta_cognitive_snn: Optional[MetaCognitiveSNN] = None):
+        # ... (初期化部分は変更なし)
         self.model = model
         self.device = device
         self.optimizer = optimizer
@@ -45,7 +45,9 @@ class BreakthroughTrainer:
             self.writer = SummaryWriter(log_dir)
             print(f"✅ TensorBoard logging enabled. Log directory: {log_dir}")
 
+
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
+        # ... (変更なし)
         start_time = time.time()
         if is_train:
             self.model.train()
@@ -106,7 +108,9 @@ class BreakthroughTrainer:
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
+
     def train_epoch(self, dataloader: DataLoader, epoch: int) -> Dict[str, float]:
+        # ... (変更なし)
         total_metrics: Dict[str, float] = collections.defaultdict(float)
         num_batches = len(dataloader)
         progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch}", disable=(self.rank not in [-1, 0]))
@@ -131,7 +135,9 @@ class BreakthroughTrainer:
         
         return avg_metrics
 
+
     def evaluate(self, dataloader: DataLoader, epoch: int) -> Dict[str, float]:
+        # ... (変更なし)
         total_metrics: Dict[str, float] = collections.defaultdict(float)
         num_batches = len(dataloader)
         progress_bar = tqdm(dataloader, desc=f"Evaluating Epoch {epoch}", disable=(self.rank not in [-1, 0]))
@@ -151,15 +157,16 @@ class BreakthroughTrainer:
         
         return avg_metrics
 
+
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # 'mem'と'spikes'の両方を保存対象から除外する
-            buffers_to_exclude = {name for name, _ in actual_model.named_buffers() if 'mem' in name or 'spikes' in name}
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            buffers_to_exclude = {
+                name for name, buf in actual_model.named_buffers() 
+                if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
+            }
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
 
             state = {
@@ -190,7 +197,6 @@ class BreakthroughTrainer:
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
         actual_model = model_to_load_container.model
-        # strict=Falseにすることで、'mem'や'spikes'がなくてもエラーにならない
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -202,7 +208,7 @@ class BreakthroughTrainer:
         print(f"✅ チェックポイント '{path}' を正常にロードしました。Epoch {start_epoch} から学習を再開します。")
         return start_epoch
 
-
+# ... (他のTrainerクラスは変更なし)
 class DistillationTrainer(BreakthroughTrainer):
     """知識蒸留に特化したトレーナー。"""
     def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, teacher_model: Optional[nn.Module] = None) -> Dict[str, float]:
