@@ -1,7 +1,7 @@
 # matsushibadenki/snn3/snn_research/training/losses.py
 # SNN学習で使用する損失関数
 # 
-# BugFix: 学習を阻害していたsparsity_lossをすべての損失関数から削除。
+# BugFix: DistillationLossをより数値的に安定したlog_target=True形式に修正。
 
 import torch
 import torch.nn as nn
@@ -45,7 +45,10 @@ class DistillationLoss(nn.Module):
         self.temperature = temperature
         self.weights = {'ce': ce_weight, 'distill': distill_weight, 'spike_reg': spike_reg_weight, 'mem_reg': mem_reg_weight}
         self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=student_pad_id if student_pad_id is not None else -100)
-        self.distill_loss_fn = nn.KLDivLoss(reduction='none')
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # log_target=True を使用し、数値的安定性を向上させる
+        self.distill_loss_fn = nn.KLDivLoss(reduction='none', log_target=True)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.target_spike_rate = target_spike_rate
 
     def forward(self, student_logits: torch.Tensor, teacher_logits: torch.Tensor,
@@ -56,10 +59,13 @@ class DistillationLoss(nn.Module):
 
         ce_loss = self.ce_loss_fn(student_logits.view(-1, student_logits.size(-1)), targets.view(-1))
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # KLDivLossの入力を両方ともlog-probabilityに統一
         soft_student_log_probs = F.log_softmax(student_logits / self.temperature, dim=-1)
-        soft_teacher_probs = F.softmax(teacher_logits / self.temperature, dim=-1)
+        soft_teacher_log_probs = F.log_softmax(teacher_logits / self.temperature, dim=-1)
         
-        distill_loss_unreduced = self.distill_loss_fn(soft_student_log_probs, soft_teacher_probs).sum(dim=-1)
+        distill_loss_unreduced = self.distill_loss_fn(soft_student_log_probs, soft_teacher_log_probs).sum(dim=-1)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         if attention_mask is None:
             mask = (targets != self.ce_loss_fn.ignore_index)
