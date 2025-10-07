@@ -251,7 +251,6 @@ class SNNCore(nn.Module):
         if model_type not in model_map:
             raise ValueError(f"Unknown model type: {model_type}")
         
-        # **paramsの前にvocab_sizeを渡す
         self.model = model_map[model_type](vocab_size=vocab_size, **params)
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
