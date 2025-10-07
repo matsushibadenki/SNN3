@@ -159,12 +159,10 @@ class BreakthroughTrainer:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
                 if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
             }
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
 
             state = {
