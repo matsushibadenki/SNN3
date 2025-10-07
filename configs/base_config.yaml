@@ -30,9 +30,7 @@ training:
 
   gradient_based:
     type: "standard"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    learning_rate: 0.001 # 学習停滞を解消するため学習率を引き上げ
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    learning_rate: 0.001
     use_scheduler: true
     grad_clip_norm: 1.0
     warmup_epochs: 1
@@ -41,7 +39,9 @@ training:
       ce_weight: 1.0
       spike_reg_weight: 0.01
       sparsity_reg_weight: 0.0
-      mem_reg_weight: 0.00001
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+      mem_reg_weight: 0.0000001 # 学習を阻害しないよう、ペナルティを大幅に引き下げ
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     distillation:
       teacher_model: "gpt2"
       loss:
@@ -49,7 +49,9 @@ training:
         distill_weight: 0.7
         spike_reg_weight: 0.01
         sparsity_reg_weight: 0.0
-        mem_reg_weight: 0.00001
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        mem_reg_weight: 0.0000001 # 学習を阻害しないよう、ペナルティを大幅に引き下げ
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         temperature: 2.0
 
   biologically_plausible:
@@ -78,7 +80,7 @@ training:
       prediction_weight: 1.0
       spike_reg_weight: 0.01
       sparsity_reg_weight: 0.0
-      mem_reg_weight: 0.00001
+      mem_reg_weight: 0.0000001
 
   physics_informed:
     learning_rate: 0.0005
