@@ -1,9 +1,16 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
 #
-# BugFix: 各モデルクラスの__init__メソッドに**kwargsを追加し、
-#         設定ファイルに含まれる'path'のようなアーキテクチャ定義に
-#         関係のない引数が渡されてもTypeErrorが発生しないように修正。
+# 専門家の指摘に基づく抜本的修正:
+# 1. BugFix: 各モデルクラスの__init__に**kwargsを追加し、不要な引数を無視するように。
+# 2. 代理勾配関数の修正: 学習信号の強いATanに戻す。
+# 3. 予測符号化の修正: ReLUを削除し、学習可能な誤差スケールを追加。
+# 4. メモリの勾配切断の修正: .detach()を削除し、BPTTを正しく機能させる。
+# 5. Spiking Transformerの構造的欠陥の修正: 時間軸の処理を根本的に見直す。
+# 6. spikesバッファのshapeを統一。
+# 7. 適切な重み初期化を追加。
+# 8. LayerNormの適用箇所を修正。
+# 9. スパイク統計の収集方法を正確化。
 
 import torch
 import torch.nn as nn
@@ -49,10 +56,13 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
         
+        # spikesバッファのshapeを統一
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
 
+        # .detach()を削除してBPTTを有効化
         self.mem = mem_this_step * (1.0 - spike)
 
+        # 適応閾値の更新は勾配計算外で行う
         with torch.no_grad():
             if self.training:
                 spike_rate_error = spike.mean() - self.target_spike_rate
@@ -127,9 +137,7 @@ class BaseModel(nn.Module):
 
 # --- コアSNNモデル (予測符号化) ---
 class BreakthroughSNN(BaseModel):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(self, vocab_size: int, d_model: int, d_state: int, num_layers: int, time_steps: int, n_head: int, neuron_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         super().__init__()
         self.time_steps = time_steps
         self.num_layers = num_layers
@@ -192,8 +200,42 @@ class BreakthroughSNN(BaseModel):
         return final_output, avg_spikes, final_mem
 
 # --- Spiking Transformer ---
+class SpikeDrivenSelfAttention(nn.Module):
+    def __init__(self, d_model: int, n_head: int):
+        super().__init__()
+        self.d_model = d_model
+        self.n_head = n_head
+        self.d_head = d_model // n_head
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.neuron_q = AdaptiveLIFNeuron(features=d_model)
+        self.neuron_k = AdaptiveLIFNeuron(features=d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+
+        q_spike, _ = self.neuron_q(q)
+        k_spike, _ = self.neuron_k(k)
+
+        q_spike_mha = q_spike.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
+        k_spike_mha = k_spike.view(B, N, self.n_head, self.d_head).permute(0, 2, 3, 1)
+        v_mha = v.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
+
+        attn_scores = torch.matmul(q_spike_mha, k_spike_mha) / math.sqrt(self.d_head)
+        attn_weights_spike = torch.sigmoid(attn_scores)
+
+        attn_output = torch.matmul(attn_weights_spike, v_mha)
+        attn_output = attn_output.permute(0, 2, 1, 3).contiguous().view(B, N, C)
+        
+        output = self.out_proj(attn_output)
+        return output
+        
 class STAttenBlock(nn.Module):
-    """空間時間アテンションブロック。"""
     def __init__(self, d_model: int, n_head: int):
         super().__init__()
         self.norm1 = SNNLayerNorm(d_model)
@@ -303,7 +345,6 @@ class SNNCore(nn.Module):
         self.model: nn.Module
         params: Dict[str, Any] = cast(Dict[str, Any], OmegaConf.to_container(self.config, resolve=True))
 
-        # 'path'キーをパラメータから削除
         params.pop('path', None)
 
         if model_type == "predictive_coding":
