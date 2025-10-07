@@ -1,17 +1,17 @@
 # matsushibadenki/snn3/snn_research/core/neurons.py
 """
 AdaptiveLIFNeuron implementation based on expert feedback.
-- device/dtype-aware
-- vectorized updates (batch x units)
-- docstrings and type hints
 - BPTT-enabled state updates
 - Correct surrogate gradient usage
+- Docstrings and type hints
+- Vectorized updates (batch x units)
+- device/dtype-aware
 """
-from typing import Optional, Tuple, Dict
-
+from typing import Optional, Tuple
 import torch
 from torch import Tensor, nn
-from spikingjelly.activation_based import surrogate
+import math
+from spikingjelly.activation_based import surrogate, base
 
 class AdaptiveLIFNeuron(base.MemoryModule):
     """
@@ -21,7 +21,6 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     Args:
         features (int): Number of neurons in the layer.
         tau_mem (float): Membrane time constant.
-        tau_adapt (float): Adaptation time constant.
         base_threshold (float): Initial and base value for the firing threshold.
         adaptation_strength (float): How much a spike increases the threshold.
         target_spike_rate (float): Target spike rate for homeostatic regulation.
@@ -30,7 +29,6 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self,
         features: int,
         tau_mem: float = 20.0,
-        tau_adapt: float = 200.0,
         base_threshold: float = 1.0,
         adaptation_strength: float = 0.1,
         target_spike_rate: float = 0.02,
@@ -40,7 +38,6 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         
         # Time constants and decay rates
         self.mem_decay = math.exp(-1.0 / tau_mem)
-        self.adapt_decay = math.exp(-1.0 / tau_adapt)
 
         # Base threshold can be a learnable parameter
         self.base_threshold = nn.Parameter(torch.full((features,), base_threshold))
@@ -96,7 +93,9 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         reset_mask = spike.detach() 
         self.mem = self.mem * (1.0 - reset_mask)
 
-        # Update adaptive threshold
-        self.adaptive_threshold = self.adaptive_threshold * self.adapt_decay + self.adaptation_strength * spike
+        # Update adaptive threshold (no grad needed for this homeostatic process)
+        with torch.no_grad():
+            if self.training:
+                self.adaptive_threshold = self.adaptive_threshold * self.mem_decay + self.adaptation_strength * spike
         
         return spike, self.mem
