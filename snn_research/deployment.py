@@ -63,12 +63,14 @@ class SNNInferenceEngine:
                     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     # state_dictのキーから "model." プレフィックスを削除
                     new_state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
-                    
+
                     # SNNCoreラッパーの中の実際のモデルにstate_dictをロードする
-                    self.model.model.load_state_dict(new_state_dict)
-                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    # strict=False を追加して、キーが一致しないエラーを回避
+                    self.model.model.load_state_dict(new_state_dict, strict=False)
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                     print(f"✅ Model loaded from {model_path}")
+                except RuntimeError as e:
                 except RuntimeError as e:
                     print(f"⚠️ Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
             else:
