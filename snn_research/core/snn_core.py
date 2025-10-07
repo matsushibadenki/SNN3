@@ -1,27 +1,7 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
 #
-# 根本的なエラー修正:
-# SpikingTransformerのアーキテクチャを全面的に修正。
-# RNN的な時間ステップ処理とTransformer的なシーキンス処理の混在がエラーの根本原因であったため、
-# Spiking Transformerの標準的な実装に修正。
-# 修正後の動作:
-# 1. 外部で`time_steps`のループを実行する。
-# 2. 各時間ステップにおいて、Attentionブロックはシーケンス全体(B, N, C)を受け取って処理する。
-# 3. 各ブロック内のニューロンは、時間ステップのループを通じて内部状態（膜電位）を更新する。
-# これにより、すべてのテンソル形状の不整合が解消される。
-# TypeError修正:
-# nn.Sequential内でタプルを返すLIFニューロンを使用していたため、TypeErrorが発生していた。
-# STAttenBlock内のFFNを手動でアンパックして実行するように修正。
-# TypeError修正 (SimpleSNN):
-# SimpleSNNが古いBioLIFNeuronを引数なしで呼び出していた問題を修正。
-# 他のモデルと整合性を取るため、AdaptiveLIFNeuronを使用するように変更。
-# RuntimeError修正 (SimpleSNN):
-# SimpleSNNにEmbedding層がなく、LongTensorをLinear層に渡していたためMPSデバイスでエラーが発生していた。
-# Embedding層を追加し、他の言語モデルとインターフェースを統一した。
-# RuntimeError修正 (SpikingTransformer):
-# 内部状態`mem`を固定サイズのバッファとしていたため、可変長の入力に対応できなかった。
-# `mem`を動的にリセット可能な属性に変更し、`reset`メソッドを実装することで問題を解消。
+# BugFix: AdaptiveLIFNeuron内の.detach()呼び出しを削除し、BPTTを可能にする。
 
 import torch
 import torch.nn as nn
@@ -56,24 +36,24 @@ class AdaptiveLIFNeuron(base.MemoryModule):
             "adaptive_threshold", torch.full((features,), base_threshold)
         )
         self.adaptive_threshold: torch.Tensor
-        # memをバッファから通常の属性に変更し、Noneで初期化
         self.mem: Optional[torch.Tensor] = None
 
     def reset(self):
         """ニューロンの状態をリセットする。spikingjellyのreset_netから呼び出される。"""
-        super().reset() # 親クラスのresetも呼び出す
+        super().reset()
         self.mem = None
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        # 内部状態(mem)が初期化されていない、または入力形状と異なる場合にリセット
         if self.mem is None or self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x, device=x.device)
 
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
         
-        mem_for_next_step = mem_this_step * (1.0 - spike)
-        self.mem = mem_for_next_step.detach()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾◾️◾️◾️◾️
+        # .detach() を削除し、勾配が時間を通じて流れるようにする
+        self.mem = mem_this_step * (1.0 - spike)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if self.training:
             with torch.no_grad():
@@ -191,7 +171,6 @@ class BreakthroughSNN(nn.Module):
         all_hidden_states: List[torch.Tensor] = []
         all_mems_list: List[torch.Tensor] = []
 
-        # spikingjellyの作法に従い、処理開始前にネットワークの状態をリセット
         functional.reset_net(self)
 
         for i in range(seq_len):
@@ -233,7 +212,7 @@ class BreakthroughSNN(nn.Module):
 
         return final_output, avg_spikes, final_mem
 
-# --- ◾️◾️◾️↓Spiking Transformer アーキテクチャ (エラー修正済)↓◾️◾️◾️ ---
+# --- Spiking Transformer ---
 class SpikeDrivenSelfAttention(nn.Module):
     """スパイク駆動の自己注意機構。"""
     def __init__(self, d_model: int, n_head: int):
@@ -279,23 +258,20 @@ class STAttenBlock(nn.Module):
         self.norm1 = SNNLayerNorm(d_model)
         self.attn = SpikeDrivenSelfAttention(d_model, n_head)
         self.norm2 = SNNLayerNorm(d_model)
-        # FFNを分解して、LIFニューロンのタプル出力を扱えるようにする
         self.fc1 = nn.Linear(d_model, d_model * 4)
         self.lif1 = AdaptiveLIFNeuron(features=d_model * 4)
         self.fc2 = nn.Linear(d_model * 4, d_model)
         self.lif2 = AdaptiveLIFNeuron(features=d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x shape: (Batch, Sequence, Channels)
         x = x + self.attn(self.norm1(x))
         
-        # FFNを手動で実行し、タプルをアンパックする
         identity = x
         out = self.norm2(x)
         out = self.fc1(out)
-        out_spike, _ = self.lif1(out) # タプルをアンパック
+        out_spike, _ = self.lif1(out)
         out = self.fc2(out_spike)
-        out_spike, _ = self.lif2(out) # タプルをアンパック
+        out_spike, _ = self.lif2(out)
         
         x = identity + out_spike
         return x
@@ -307,7 +283,7 @@ class SpikingTransformer(nn.Module):
         self.d_model = d_model
         self.time_steps = time_steps
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_embedding = nn.Parameter(torch.randn(1, 1024, d_model)) # 十分に大きいシーケンス長を確保
+        self.pos_embedding = nn.Parameter(torch.randn(1, 1024, d_model))
         
         self.layers = nn.ModuleList([STAttenBlock(d_model, n_head) for _ in range(num_layers)])
         self.output_projection = nn.Linear(d_model, vocab_size)
@@ -329,81 +305,64 @@ class SpikingTransformer(nn.Module):
             for layer in self.layers:
                 x_t = layer(x_t)
             
-            # 最後のレイヤーの出力（スパイク）を記録
             spike_outputs_over_time.append(x_t)
-            # 最終的なロジット計算のため、スパイクではない値（膜電位など）も保持したいが、
-            # ここでは簡略化のためスパイクを積分（合計）する
             if len(outputs_over_time) > 0:
                 outputs_over_time.append(outputs_over_time[-1] + x_t)
             else:
                 outputs_over_time.append(x_t)
         
-        # 時間方向に積分（合計）した値を最終出力とする
         final_output = outputs_over_time[-1]
 
         logits = self.output_projection(final_output)
 
         total_spikes = torch.tensor(0.0, device=x_embed.device)
         if return_spikes:
-             # 全時間ステップ、全ニューロンのスパイクを合計
              for spikes in spike_outputs_over_time:
                  total_spikes += spikes.sum()
         
-        # バッチとシーケンスで平均化
         avg_spikes = total_spikes / (self.time_steps * batch_size * seq_len) if return_spikes else torch.tensor(0.0)
-        avg_mems = torch.tensor(0.0, device=x_embed.device)  # Placeholder
+        avg_mems = torch.tensor(0.0, device=x_embed.device)
 
         return logits, avg_spikes, avg_mems
 
-# --- ◾️◾️◾️↑Spiking Transformer アーキテクチャ↑◾️◾️◾️ ---
-
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class SimpleSNN(nn.Module):
     """
     言語モデリングタスク用の、シンプルなリカレントSNN。
-    他のモデルとのインターフェース互換性を持つ。
     """
     def __init__(self, vocab_size: int, d_model: int, hidden_size: int, **kwargs: Any):
         super(SimpleSNN, self).__init__()
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.fc1 = nn.Linear(d_model, hidden_size)
         self.lif1 = AdaptiveLIFNeuron(features=hidden_size)
-        self.fc2 = nn.Linear(hidden_size, vocab_size) # 出力は語彙サイズのロジット
+        self.fc2 = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         B, T = input_ids.shape
         
-        # 1. トークンをベクトルに変換
-        x = self.embedding(input_ids) # Shape: (B, T, d_model)
+        x = self.embedding(input_ids)
 
-        # 2. ニューロンの状態をリセット
         functional.reset_net(self)
         
         outputs = []
         total_spikes = torch.tensor(0.0, device=input_ids.device)
         
-        # 3. シーケンス長（時間）でループ
         for t in range(T):
-            x_t = x[:, t, :] # Shape: (B, d_model)
+            x_t = x[:, t, :]
             
-            # レイヤーを通過
             out = self.fc1(x_t)
             spikes, _ = self.lif1(out)
-            out = self.fc2(spikes) # 次のトークン予測のロジット
+            out = self.fc2(spikes)
             
             outputs.append(out)
             if return_spikes:
                 total_spikes += spikes.sum()
 
-        logits = torch.stack(outputs, dim=1) # Shape: (B, T, vocab_size)
+        logits = torch.stack(outputs, dim=1)
         
-        # 他のモデルと戻り値のインターフェースを統一
         avg_spikes = total_spikes / (B * T) if return_spikes and B * T > 0 else torch.tensor(0.0)
-        # 簡易モデルのため、膜電位はダミー値を返す
         mem = torch.tensor(0.0, device=input_ids.device) 
 
         return logits, avg_spikes, mem
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SNNCore(nn.Module):
     """
@@ -414,12 +373,10 @@ class SNNCore(nn.Module):
         if isinstance(config, dict):
             config = OmegaConf.create(config)
         self.config = config
-        # SNNCoreに渡されるconfigは既にモデル設定そのものであるため、.modelアクセスを削除
         model_type = self.config.get("architecture_type", self.config.get("type", "simple"))
 
         self.model: nn.Module
 
-        # .modelアクセスを削除
         params_untyped = OmegaConf.to_container(self.config, resolve=True)
         if not isinstance(params_untyped, Dict):
             raise ValueError(f"Model configuration must be a dictionary. Got: {type(params_untyped)}")
@@ -444,14 +401,12 @@ class SNNCore(nn.Module):
                 num_layers=params.get("num_layers", 12),
                 time_steps=params.get("time_steps", 32)
             )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         elif model_type == "simple":
             self.model = SimpleSNN(
                 vocab_size=vocab_size,
                 d_model=params.get("d_model", 128),
-                hidden_size=params.get("d_state", 256) # d_stateをhidden_sizeとして流用
+                hidden_size=params.get("d_state", 256)
             )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
