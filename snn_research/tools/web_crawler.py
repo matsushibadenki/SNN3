@@ -1,6 +1,7 @@
 # snn_research/tools/web_crawler.py
 # Title: Web Crawler Tool
 # Description: 指定されたURLからWebページのコンテンツを取得し、HTMLからテキストデータを抽出するツール。
+# 改善点: URLがMarkdownリンク形式で渡された場合や、末尾に不要な文字が含まれている場合でも対応できるようにサニタイズ処理を強化。
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -9,6 +10,7 @@ from typing import Set, List, Optional
 import time
 import os
 import json
+import re
 
 class WebCrawler:
     """
@@ -18,6 +20,15 @@ class WebCrawler:
         self.visited_urls: Set[str] = set()
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+
+    def _sanitize_url(self, url: str) -> str:
+        """Markdownリンク形式や不要な文字が含まれるURLをサニタイズする。"""
+        # [https://example.com](...) or (https://example.com) のような形式からURLを抽出
+        match = re.search(r'https?://[^\]\)]+', url)
+        if match:
+            # 抽出したURLの末尾にある可能性のある不要な文字（バックスラッシュなど）を削除
+            return match.group(0).rstrip('\\/')
+        return url.rstrip('\\/')
 
     def _is_valid_url(self, url: str, base_domain: str) -> bool:
         """巡回対象として適切なURLか判断する。"""
@@ -45,8 +56,9 @@ class WebCrawler:
         Returns:
             str: 保存されたjsonlファイルのパス。
         """
-        urls_to_visit: List[str] = [start_url]
-        base_domain = urlparse(start_url).netloc
+        sanitized_start_url = self._sanitize_url(start_url)
+        urls_to_visit: List[str] = [sanitized_start_url]
+        base_domain = urlparse(sanitized_start_url).netloc
         
         output_filename = f"crawled_data_{int(time.time())}.jsonl"
         output_filepath = os.path.join(self.output_dir, output_filename)
@@ -60,7 +72,9 @@ class WebCrawler:
 
                 try:
                     print(f"📄 クロール中: {current_url}")
-                    response = requests.get(current_url, timeout=10)
+                    # ユーザーエージェントを設定して、ブロックされるリスクを低減
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+                    response = requests.get(current_url, timeout=10, headers=headers)
                     response.raise_for_status()
                     self.visited_urls.add(current_url)
                     page_count += 1
@@ -68,28 +82,22 @@ class WebCrawler:
                     text_content = self._extract_text_from_html(response.text)
                     
                     if text_content:
-                        # データをjsonl形式で保存
                         record = {"text": text_content, "source_url": current_url}
-                        f.write(json.dumps(record) + "\n")
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-                    # ページ内の新しいリンクを探す
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for link in soup.find_all('a', href=True):
-                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                        # mypyがlink['href']でエラーを出すため、より安全な方法で属性を取得
                         if isinstance(link, Tag):
                             href = link.get('href')
                             if isinstance(href, str):
                                 absolute_link = urljoin(current_url, href)
                                 if self._is_valid_url(absolute_link, base_domain):
                                     urls_to_visit.append(absolute_link)
-                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     
-                    time.sleep(1)  # サーバーへの負荷を軽減
+                    time.sleep(1)
 
                 except requests.RequestException as e:
                     print(f"❌ クロールエラー: {current_url} ({e})")
 
         print(f"✅ クロール完了。{page_count}ページのデータを '{output_filepath}' に保存しました。")
         return output_filepath
-
