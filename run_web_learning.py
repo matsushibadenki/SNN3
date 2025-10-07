@@ -55,7 +55,7 @@ def main():
     
     container = TrainingContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    container.config.from_yaml("configs/models/small.yaml")
+    container.config.from_yaml("configs/models/medium.yaml")
 
     # 依存関係を正しい順序で構築する
     device = container.device()
