@@ -3,7 +3,7 @@
 #
 # 根本的なエラー修正:
 # SpikingTransformerのアーキテクチャを全面的に修正。
-# RNN的な時間ステップ処理とTransformer的なシーケンス処理の混在がエラーの根本原因であったため、
+# RNN的な時間ステップ処理とTransformer的なシーキンス処理の混在がエラーの根本原因であったため、
 # Spiking Transformerの標準的な実装に修正。
 # 修正後の動作:
 # 1. 外部で`time_steps`のループを実行する。
@@ -20,8 +20,8 @@
 # SimpleSNNにEmbedding層がなく、LongTensorをLinear層に渡していたためMPSデバイスでエラーが発生していた。
 # Embedding層を追加し、他の言語モデルとインターフェースを統一した。
 # RuntimeError修正 (SpikingTransformer):
-# チャットのように連続で長さの違う入力を処理した際に、LIFニューロンの内部状態(mem)と
-# 新しい入力の形状が一致せずエラーになる問題を修正。形状チェックを厳密化。
+# 内部状態`mem`を固定サイズのバッファとしていたため、可変長の入力に対応できなかった。
+# `mem`を動的にリセット可能な属性に変更し、`reset`メソッドを実装することで問題を解消。
 
 import torch
 import torch.nn as nn
@@ -56,13 +56,17 @@ class AdaptiveLIFNeuron(nn.Module):
             "adaptive_threshold", torch.full((features,), base_threshold)
         )
         self.adaptive_threshold: torch.Tensor
-        self.register_buffer("mem", torch.zeros(1, features))
-        self.mem: torch.Tensor
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # memをバッファから通常の属性に変更し、Noneで初期化
+        self.mem: Optional[torch.Tensor] = None
+
+    def reset(self):
+        """ニューロンの状態をリセットする。spikingjellyのreset_netから呼び出される。"""
+        self.mem = None
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 入力テンソルの形状が内部状態と異なる場合にリセットする
-        if self.mem.shape != x.shape:
+        # 内部状態(mem)が初期化されていない、または入力形状と異なる場合にリセット
+        if self.mem is None or self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x, device=x.device)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
