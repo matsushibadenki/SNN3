@@ -1,6 +1,7 @@
 # matsushibadenki/snn3/snn_research/distillation/knowledge_distillation_manager.py
 # タイトル: 知識蒸留マネージャー
 # 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
+# 改善点: run_on_demand_pipelineがモデルからstudent_configを正しく取得できるように修正。
 
 import torch
 import torch.nn as nn
@@ -124,13 +125,11 @@ class KnowledgeDistillationManager:
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 'mem' を含むバッファを除外して、モデルの「重み」のみを保存する
         model_to_save = self.distillation_trainer.model.module if isinstance(self.distillation_trainer.model, nn.parallel.DistributedDataParallel) else self.distillation_trainer.model
         buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
         model_state_to_save = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
         torch.save(model_state_to_save, save_path)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("Model saved.")
 
         # 4. モデルレジストリへの登録
@@ -151,13 +150,16 @@ class KnowledgeDistillationManager:
         """Webクローラー等からのデータでオンデマンド学習を実行するパイプライン。"""
         print(f"🚀 Starting on-demand pipeline for task: {task_description}")
 
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
-            if hasattr(self.student_model, 'config') and hasattr(self.student_model.config, 'model'):
-                student_config = OmegaConf.to_container(self.student_model.config.model, resolve=True)
+            # SNNCoreラッパーはモデル設定を 'config' 属性に保持している
+            if hasattr(self.student_model, 'config'):
+                student_config = OmegaConf.to_container(self.student_model.config, resolve=True)
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         texts = []
         with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
