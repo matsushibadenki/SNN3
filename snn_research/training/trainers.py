@@ -26,7 +26,6 @@ class BreakthroughTrainer:
                  grad_clip_norm: float, rank: int, use_amp: bool, log_dir: str,
                  astrocyte_network: Optional[AstrocyteNetwork] = None,
                  meta_cognitive_snn: Optional[MetaCognitiveSNN] = None):
-        # ... (初期化部分は変更なし)
         self.model = model
         self.device = device
         self.optimizer = optimizer
@@ -47,7 +46,6 @@ class BreakthroughTrainer:
 
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
-        # ... (変更なし)
         start_time = time.time()
         if is_train:
             self.model.train()
@@ -110,7 +108,6 @@ class BreakthroughTrainer:
 
 
     def train_epoch(self, dataloader: DataLoader, epoch: int) -> Dict[str, float]:
-        # ... (変更なし)
         total_metrics: Dict[str, float] = collections.defaultdict(float)
         num_batches = len(dataloader)
         progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch}", disable=(self.rank not in [-1, 0]))
@@ -137,7 +134,6 @@ class BreakthroughTrainer:
 
 
     def evaluate(self, dataloader: DataLoader, epoch: int) -> Dict[str, float]:
-        # ... (変更なし)
         total_metrics: Dict[str, float] = collections.defaultdict(float)
         num_batches = len(dataloader)
         progress_bar = tqdm(dataloader, desc=f"Evaluating Epoch {epoch}", disable=(self.rank not in [-1, 0]))
@@ -163,10 +159,12 @@ class BreakthroughTrainer:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
                 if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
             }
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
 
             state = {
@@ -208,11 +206,8 @@ class BreakthroughTrainer:
         print(f"✅ チェックポイント '{path}' を正常にロードしました。Epoch {start_epoch} から学習を再開します。")
         return start_epoch
 
-# ... (他のTrainerクラスは変更なし)
 class DistillationTrainer(BreakthroughTrainer):
-    """知識蒸留に特化したトレーナー。"""
     def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, teacher_model: Optional[nn.Module] = None) -> Dict[str, float]:
-        """知識蒸留のための学習ループ。"""
         final_metrics: Dict[str, float] = {}
         for epoch in range(1, epochs + 1):
             self.train_epoch(train_loader, epoch)
@@ -260,11 +255,9 @@ class DistillationTrainer(BreakthroughTrainer):
         return {k: v.cpu().item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
 class SelfSupervisedTrainer(BreakthroughTrainer):
-    """自己教師あり学習に特化したトレーナー。"""
     pass
 
 class PhysicsInformedTrainer(BreakthroughTrainer):
-    """物理情報SNNのためのトレーナー。"""
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train:
             self.model.train()
@@ -308,7 +301,6 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
 class PlannerTrainer:
-    """学習可能プランナーSNNのための専用トレーナー。"""
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -337,10 +329,6 @@ class PlannerTrainer:
             
             
 class BPTTTrainer:
-    """
-    BPTT (Backpropagation Through Time) を用いたシンプルなトレーナー。
-    主に基本的なモデルやアルゴリズムの動作確認を目的とする。
-    """
     def __init__(self, model: nn.Module, config: DictConfig):
         self.model = model
         self.config = config
@@ -349,7 +337,6 @@ class BPTTTrainer:
         self.model_type = self.config.model.get("type", "simple")
 
     def _calculate_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """モデルの出力形状に合わせて損失を計算する。"""
         if self.model_type == "spiking_transformer":
             return self.criterion(outputs.reshape(-1, outputs.size(-1)), targets.reshape(-1))
         else: # simple SNN
@@ -359,7 +346,6 @@ class BPTTTrainer:
             return self.criterion(outputs.permute(1, 0, 2).reshape(-1, V), targets.reshape(-1))
 
     def train_step(self, data: torch.Tensor, targets: torch.Tensor) -> float:
-        """単一の学習ステップを実行する。"""
         self.optimizer.zero_grad()
 
         if self.model_type == "spiking_transformer":
