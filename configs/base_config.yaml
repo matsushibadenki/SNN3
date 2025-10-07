@@ -15,19 +15,23 @@ data:
 
 # 学習パラメータ設定
 training:
+  # paradigm: "gradient_based", "biologically_plausible", "self_supervised", "physics_informed" を選択
   paradigm: "physics_informed"
   epochs: 10
   batch_size: 8
   
+  # --- メタ認知 (SNAKE) の設定 ---
   meta_cognition:
     enabled: true
-    error_threshold: 0.8
-    modulation_strength: 0.05
+    error_threshold: 0.8       # この損失値を超えると介入
+    modulation_strength: 0.05  # 注意変調の強さ
 
+  # --- 学習可能プランナーの設定 ---
   planner:
     learning_rate: 0.001
-    model_path: "runs/planner/best_model.pth"
+    model_path: "runs/planner/best_model.pth" # 学習済みプランナーモデルのパス
 
+  # --- 勾配ベース学習 (gradient_based) の設定 ---
   gradient_based:
     type: "standard"
     learning_rate: 0.0005
@@ -54,6 +58,7 @@ training:
         mem_reg_weight: 0.00001
         temperature: 2.0
 
+  # --- 生物学的学習 (biologically_plausible) の設定 ---
   biologically_plausible:
     learning_rule: "REWARD_MODULATED_STDP"
     neuron:
@@ -70,6 +75,7 @@ training:
       tau_eligibility: 100.0
       learning_rate: 0.01
 
+  # --- 自己教師あり学習 (self_supervised) の設定 ---
   self_supervised:
     learning_rate: 0.0008
     use_scheduler: true
@@ -82,6 +88,7 @@ training:
       sparsity_reg_weight: 0.0
       mem_reg_weight: 0.00001
 
+  # --- 物理情報学習 (physics_informed) の設定 (新規追加) ---
   physics_informed:
     learning_rate: 0.0005
     use_scheduler: true
@@ -91,14 +98,15 @@ training:
     loss:
       ce_weight: 1.0
       spike_reg_weight: 0.01
-      mem_smoothness_weight: 0.001
+      mem_smoothness_weight: 0.001 # 膜電位の滑らかさに対する正則化項
 
+  # ログと評価の設定
   log_dir: "runs/snn_experiment"
   eval_interval: 1
   log_interval: 1
   
 model_registry:
-  provider: file
+  provider: file # 'file' or 'redis'
   file:
     path: "runs/model_registry.json"
   redis:
@@ -106,7 +114,8 @@ model_registry:
     port: 6379
     db: 0
 
+# アプリケーション設定 (app/main.py, app/langchain_main.py で使用)
 app:
   server_name: "127.0.0.1"
   server_port: 7860
-  max_len: 100
+  max_len: 100 # 生成するテキストの最大長
