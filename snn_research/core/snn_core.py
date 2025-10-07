@@ -74,7 +74,7 @@ class DendriticNeuron(nn.Module):
             nn.Sequential(
                 nn.Linear(input_features, branch_features),
                 AdaptiveLIFNeuron(branch_features)
-            ) for _ in range(num_branches)
+            ) for _ in range(self.num_branches)
         ])
         self.soma_lif = AdaptiveLIFNeuron(branch_features * num_branches)
         self.output_projection = nn.Linear(branch_features * num_branches, input_features)
