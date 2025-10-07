@@ -1,8 +1,9 @@
 # snn_research/deployment.py
-# (省略...)
-# RuntimeError修正: 'auto'デバイス名を、torchが認識できる具体的なデバイス名（'mps', 'cuda', 'cpu'）に解決する処理を追加。
-# AttributeError修正: last_inference_statsを__init__で初期化し、generateメソッドが統計情報をリアルタイムでyieldするように修正。
+# Title: SNN推論エンジン
+# Description: 訓練済みSNNモデルをロードし、テキスト生成のための推論を実行するクラス。
+#              (省略...)
 # BugFix: 学習済みモデルの重みをラッパー(SNNCore)ではなく、中のモデル(SNNCore.model)にロードするように修正。
+# BugFix(revert): SNNCoreのstate_dictをSNNCoreにロードするのが正しいため、`self.model.load_state_dict`に戻す。
 
 import torch
 import json
@@ -61,17 +62,17 @@ class SNNInferenceEngine:
                     state_dict = checkpoint['model_state_dict']
                 else:
                     state_dict = checkpoint
-                
+                    
                 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # SNNCoreラッパーの中の実際のモデルにstate_dictをロードする
-                self.model.model.load_state_dict(state_dict)
+                # SNNCoreインスタンス全体にstate_dictをロードする
+                self.model.load_state_dict(state_dict)
                 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-                print(f"Model loaded from {model_path}")
+                print(f"✅ Model loaded from {model_path}")
             except FileNotFoundError:
-                print(f"Warning: Model file not found at {model_path}. Using an untrained model.")
+                print(f"⚠️ Warning: Model file not found at {model_path}. Using an untrained model.")
             except RuntimeError as e:
-                print(f"Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
+                print(f"⚠️ Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
 
         self.model.to(self.device)
         self.model.eval()
