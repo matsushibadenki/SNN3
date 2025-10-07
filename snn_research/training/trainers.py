@@ -1,6 +1,6 @@
 # matsushibadenki/snn/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
-# BugFix: DistillationTrainerの_run_stepが、新しいデータセット形式に正しく対応するように修正。
+# BugFix: モデル保存時に一時的な状態である'spikes'バッファを除外することで、読込時のsize mismatchエラーを解消。
 
 import torch
 import torch.nn as nn
@@ -156,7 +156,10 @@ class BreakthroughTrainer:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
-            buffers_to_exclude = {name for name, _ in actual_model.named_buffers() if 'mem' in name}
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 'mem'と'spikes'の両方を保存対象から除外する
+            buffers_to_exclude = {name for name, _ in actual_model.named_buffers() if 'mem' in name or 'spikes' in name}
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
 
             state = {
@@ -187,6 +190,7 @@ class BreakthroughTrainer:
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
         actual_model = model_to_load_container.model
+        # strict=Falseにすることで、'mem'や'spikes'がなくてもエラーにならない
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -213,14 +217,10 @@ class DistillationTrainer(BreakthroughTrainer):
         if is_train: self.model.train()
         else: self.model.eval()
             
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # データローダーから正しくペアリングされたデータを受け取る
         student_input, attention_mask, student_target, teacher_logits = [t.to(self.device) for t in batch]
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # attention_maskをモデルに渡す必要があるかもしれない (モデルの実装による)
                 student_logits, spikes, mem = self.model(student_input, return_spikes=True, return_full_mems=True)
                 
                 assert isinstance(self.criterion, DistillationLoss)
@@ -241,7 +241,6 @@ class DistillationTrainer(BreakthroughTrainer):
         
         with torch.no_grad():
             preds = torch.argmax(student_logits, dim=-1)
-            # ce_loss_fnのignore_indexを使ってマスクを生成する
             ignore_idx = self.criterion.ce_loss_fn.ignore_index
             mask = student_target != ignore_idx
             
