@@ -1,13 +1,8 @@
 # snn_research/deployment.py
-# Title: SNN推論エンジン
-# Description: 訓練済みSNNモデルをロードし、テキスト生成のための推論を実行するクラス。
-#              HuggingFaceの`generate`メソッドに似たインターフェースを提供。
-#              mypyエラー修正: modelの型ヒントをUnionで両対応させた。
-#              mypyエラー修正: mypyが推論できないtokenizerの属性アクセスエラーを型キャストで抑制。
-#              mypyエラー修正: 未定義属性(model_path, device)を修正し、_load_modelを統合。
-# AttributeError修正: app/main.pyから渡されるconfigの構造に合わせ、'deployment'キーに依存しないように修正。
+# (省略...)
 # RuntimeError修正: 'auto'デバイス名を、torchが認識できる具体的なデバイス名（'mps', 'cuda', 'cpu'）に解決する処理を追加。
 # AttributeError修正: last_inference_statsを__init__で初期化し、generateメソッドが統計情報をリアルタイムでyieldするように修正。
+# BugFix: 学習済みモデルの重みをラッパー(SNNCore)ではなく、中のモデル(SNNCore.model)にロードするように修正。
 
 import torch
 import json
@@ -66,9 +61,11 @@ class SNNInferenceEngine:
                     state_dict = checkpoint['model_state_dict']
                 else:
                     state_dict = checkpoint
-                    
-                # SNNCoreインスタンス全体にstate_dictをロードする
-                self.model.load_state_dict(state_dict)
+                
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # SNNCoreラッパーの中の実際のモデルにstate_dictをロードする
+                self.model.model.load_state_dict(state_dict)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                 print(f"Model loaded from {model_path}")
             except FileNotFoundError:
