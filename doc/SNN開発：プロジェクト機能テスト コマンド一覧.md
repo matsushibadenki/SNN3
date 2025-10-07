@@ -8,17 +8,17 @@ AIに新しいトピックをWebから学習させ、その知識について質
 
 ### **学習**
 
-python run\_web\_learning.py \\  
-    \--topic "最新のAI技術" \\  
-    \--start\_url "\[https://www.itmedia.co.jp/news/subtop/aiplus/\](https://www.itmedia.co.jp/news/subtop/aiplus/)" \\  
-    \--max\_pages 5
-
+python run_web_learning.py \
+    --topic "最新のAI技術" \
+    --start_url "https://www.itmedia.co.jp/news/subtop/aiplus/" \
+    --max_pages 5
+    
 ### **推論**
 
-python snn-cli.py agent solve \\  
-    \--task "最新のAI技術" \\  
-    \--prompt "SNNとは何ですか？" \\  
-    \--min\_accuracy 0.4
+python snn-cli.py agent solve \
+    --task "最新のAI技術" \
+    --prompt "SNNとは何ですか？" \
+    --min-accuracy 0.4
 
 ## **2\. ローカルデータからのオンデマンド学習と推論 (agent solve)**
 
