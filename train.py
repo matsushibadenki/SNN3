@@ -3,13 +3,9 @@
 #
 # 新しい統合学習実行スクリプト (完全版)
 #
-# 機能:
-# - DIコンテナを使用し、学習に必要なコンポーネントを動的に組み立てる。
-# - --override_config 引数で、コマンドラインから任意の設定を上書き可能。
-# - 分散学習 (`--distributed`) に対応。
-# - 勾配ベース学習と生物学的学習のパラダイムをconfigファイルで切り替え可能。
-# - 既存の機能をすべて維持し、省略しない完全なコード。
+# (省略...)
 # - 変更点: 不要になった古い生物学的学習(BioTrainer)のコードブロックを削除。
+# - BugFix: 'physics_informed'や'self_supervised'パラダイムでもモデルが保存されるように修正。
 
 import argparse
 import os
@@ -94,13 +90,15 @@ def train(
             scheduler = container.pi_scheduler(optimizer=optimizer) if config['training']['physics_informed']['use_scheduler'] else None
             trainer = container.physics_informed_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
         
-        start_epoch = trainer.load_checkpoint(args.resume_path) if args.resume_path and paradigm == "gradient_based" else 0
+        start_epoch = trainer.load_checkpoint(args.resume_path) if args.resume_path else 0
         for epoch in range(start_epoch, config['training']['epochs']):
             if train_sampler: train_sampler.set_epoch(epoch)
             trainer.train_epoch(train_loader, epoch)
             if rank in [-1, 0] and (epoch % config['training']['eval_interval'] == 0 or epoch == config['training']['epochs'] - 1):
                 val_metrics = trainer.evaluate(val_loader, epoch)
-                if paradigm == "gradient_based" and epoch % config['training']['log_interval'] == 0:
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                if paradigm in ["gradient_based", "self_supervised", "physics_informed"] and epoch % config['training']['log_interval'] == 0:
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     checkpoint_path = os.path.join(config['training']['log_dir'], f"checkpoint_epoch_{epoch}.pth")
                     trainer.save_checkpoint(
                         path=checkpoint_path, epoch=epoch, metric_value=val_metrics.get('total', float('inf')),
@@ -143,7 +141,9 @@ def main():
     parser.add_argument("--data_path", type=str, help="データセットのパス（configを上書き）")
     parser.add_argument("--override_config", type=str, action='append', help="設定を上書き (例: 'training.epochs=5')")
     parser.add_argument("--distributed", action="store_true", help="分散学習を有効にする")
-    parser.add_argument("--resume_path", type=str, help="チェックポイントから学習を再開する (gradient_basedのみ)")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    parser.add_argument("--resume_path", type=str, help="チェックポイントから学習を再開する")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
     parser.add_argument("--use_astrocyte", action="store_true", help="アストロサイトネットワークを有効にする (gradient_based系のみ)")
     args = parser.parse_args()
 
@@ -189,4 +189,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
