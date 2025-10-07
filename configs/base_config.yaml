@@ -38,17 +38,19 @@ training:
     loss:
       ce_weight: 1.0
       spike_reg_weight: 0.01
-      sparsity_reg_weight: 0.00000001
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+      sparsity_reg_weight: 0.0 # 学習を阻害するため無効化
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
       mem_reg_weight: 0.00001
     distillation:
       teacher_model: "gpt2"
       loss:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         ce_weight: 0.5
         distill_weight: 0.5
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         spike_reg_weight: 0.01
-        sparsity_reg_weight: 0.00000001
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        sparsity_reg_weight: 0.0 # 学習を阻害するため無効化
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         mem_reg_weight: 0.00001
         temperature: 2.0
 
@@ -77,7 +79,7 @@ training:
     loss:
       prediction_weight: 1.0
       spike_reg_weight: 0.01
-      sparsity_reg_weight: 0.00000001
+      sparsity_reg_weight: 0.0
       mem_reg_weight: 0.00001
 
   physics_informed:
