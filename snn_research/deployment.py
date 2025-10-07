@@ -47,32 +47,29 @@ class SNNInferenceEngine:
         
         # vocab_sizeを渡してSNNCoreを初期化
         vocab_size = len(self.tokenizer)
-        # SNNCoreには'model'セクションのコンフィグを渡す
         model_config = config.get("model", config)
         self.model = SNNCore(model_config, vocab_size=vocab_size)
         
         model_path_str = config.model.get("path") if hasattr(config, "model") else None
 
         if model_path_str:
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             model_path = Path(model_path_str).resolve()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-            try:
-                checkpoint = torch.load(model_path, map_location=self.device)
-                # checkpointが辞書で、'model_state_dict'キーを持つかチェック
-                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                    state_dict = checkpoint['model_state_dict']
-                else:
-                    state_dict = checkpoint
+            if model_path.exists():
+                try:
+                    checkpoint = torch.load(model_path, map_location=self.device)
+                    state_dict = checkpoint.get('model_state_dict', checkpoint)
                     
-                self.model.load_state_dict(state_dict)
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    # SNNCoreラッパーの中の実際のモデルにstate_dictをロードする
+                    self.model.model.load_state_dict(state_dict)
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-                print(f"✅ Model loaded from {model_path}")
-            except FileNotFoundError:
-                print(f"⚠️ Warning: Model file not found at {model_path}. Using an untrained model.")
-            except RuntimeError as e:
-                print(f"⚠️ Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
+                    print(f"✅ Model loaded from {model_path}")
+                except RuntimeError as e:
+                    print(f"⚠️ Warning: Failed to load state_dict, possibly due to architecture mismatch: {e}. Using an untrained model.")
+            else:
+                 print(f"⚠️ Warning: Model file not found at {model_path}. Using an untrained model.")
 
         self.model.to(self.device)
         self.model.eval()
