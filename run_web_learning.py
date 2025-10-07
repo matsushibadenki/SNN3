@@ -2,6 +2,7 @@
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/run_web_learning.py
 # タイトル: Autonomous Web Learning Script
 # 機能説明: 知識蒸留マネージャーを呼び出す際に、モデルのアーキテクチャ設定を正しく渡すように修正し、AttributeErrorを解消する。
+# BugFix: 設定ファイル(use_scheduler)を尊重して学習率スケジューラを条件付きで有効にするように修正。
 
 import argparse
 import os
@@ -60,13 +61,19 @@ def main():
     device = container.device()
     student_model = container.snn_model()
     optimizer = container.optimizer(params=student_model.parameters())
-    scheduler = container.scheduler(optimizer=optimizer)
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 設定ファイルに基づき、スケジューラを条件付きで作成
+    scheduler = container.scheduler(optimizer=optimizer) if container.config.training.gradient_based.use_scheduler() else None
+    
     distillation_trainer = container.distillation_trainer(
         model=student_model,
         optimizer=optimizer,
         scheduler=scheduler,
         device=device
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
     distillation_manager = KnowledgeDistillationManager(
         student_model=student_model,
         trainer=distillation_trainer,
@@ -76,18 +83,14 @@ def main():
         device=device
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # DIコンテナからモデル設定を取得
     student_config_dict = container.config.model.to_dict()
 
-    # run_on_demand_pipelineを非同期で実行し、student_configをキーワード引数として渡す
     asyncio.run(distillation_manager.run_on_demand_pipeline(
         task_description=args.topic,
         unlabeled_data_path=crawled_data_path,
         force_retrain=True,
         student_config=student_config_dict
     ))
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     print("\n🎉 自律的なWeb学習サイクルが完了しました。")
     print(f"  トピック「{args.topic}」に関する新しい専門家モデルが育成されました。")
