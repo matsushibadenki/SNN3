@@ -73,10 +73,10 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # --- アーキテクチャ選択 ---
-    # SNNCoreラッパーを直接生成するように修正。これにより、モデルが自身のconfigを持つようになる。
+    # SNNCoreに設定ファイルの`model`セクションを正しく渡すように修正。
     snn_model = providers.Factory(
         SNNCore,
-        config=config,
+        config=config.model,
         vocab_size=tokenizer.provided.vocab_size,
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
