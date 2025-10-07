@@ -1,15 +1,6 @@
 # matsushibadenki/snn/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
-# mypyエラー修正: 削除されていたPlannerTrainerを復元。
-#                 MetaCognitiveSNNのメソッド呼び出しを修正。
-#                 PlannerTrainer内の構文エラーを修正。
-# mypyエラー修正: 不要なlossクラスのimportを削除
-# 改善点: BPTTTrainer内の不要なコードを削除し、役割を明確化。
-# ValueError修正: BreakthroughTrainerとDistillationTrainer内のモデル出力のアンパッキングを、
-#                 インデックス参照から直接的なアンパッキングに変更し、堅牢性を向上させた。
-# BugFix: SNNCoreラッパーではなく、内部モデルのstate_dictを保存するように修正。
-# FutureWarning修正: torch.cuda.amp.GradScalerをtorch.amp.GradScalerに変更。
-# BugFix: DistillationTrainerがattention_maskを扱えるように修正。
+# BugFix: DistillationTrainerの_run_stepが、新しいデータセット形式に正しく対応するように修正。
 
 import torch
 import torch.nn as nn
@@ -218,15 +209,18 @@ class DistillationTrainer(BreakthroughTrainer):
             final_metrics = self.evaluate(val_loader, epoch)
         return final_metrics
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train: self.model.train()
         else: self.model.eval()
             
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # データローダーから正しくペアリングされたデータを受け取る
         student_input, attention_mask, student_target, teacher_logits = [t.to(self.device) for t in batch]
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
+                # attention_maskをモデルに渡す必要があるかもしれない (モデルの実装による)
                 student_logits, spikes, mem = self.model(student_input, return_spikes=True, return_full_mems=True)
                 
                 assert isinstance(self.criterion, DistillationLoss)
@@ -259,7 +253,6 @@ class DistillationTrainer(BreakthroughTrainer):
             loss_dict['accuracy'] = accuracy
         
         return {k: v.cpu().item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SelfSupervisedTrainer(BreakthroughTrainer):
     """自己教師あり学習に特化したトレーナー。"""
