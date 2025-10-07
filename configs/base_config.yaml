@@ -42,7 +42,9 @@ training:
     loss:
       ce_weight: 1.0
       spike_reg_weight: 0.01
-      sparsity_reg_weight: 0.00001
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+      sparsity_reg_weight: 0.00000001 # 過学習を防ぎつつ学習が進むように調整
+      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
       mem_reg_weight: 0.00001
     distillation:
       teacher_model: "gpt2"
@@ -50,7 +52,9 @@ training:
         ce_weight: 0.3
         distill_weight: 0.7
         spike_reg_weight: 0.01
-        sparsity_reg_weight: 0.00001
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        sparsity_reg_weight: 0.00000001 # 過学習を防ぎつつ学習が進むように調整
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         mem_reg_weight: 0.00001
         temperature: 2.0
 
@@ -81,7 +85,7 @@ training:
     loss:
       prediction_weight: 1.0
       spike_reg_weight: 0.01
-      sparsity_reg_weight: 0.00001
+      sparsity_reg_weight: 0.00000001
       mem_reg_weight: 0.00001
 
   # --- 物理情報学習 (physics_informed) の設定 (新規追加) ---
@@ -110,10 +114,8 @@ model_registry:
     port: 6379
     db: 0
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # アプリケーション設定 (app/main.py, app/langchain_main.py で使用)
 app:
   server_name: "127.0.0.1"
   server_port: 7860
   max_len: 100 # 生成するテキストの最大長
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
