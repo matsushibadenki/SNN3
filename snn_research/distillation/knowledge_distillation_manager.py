@@ -3,6 +3,7 @@
 # 機能説明: 循環インポートエラーを解消するため、型チェック時のみDistillationTrainerをインポートするように修正。
 # 改善点: run_on_demand_pipelineがモデルからstudent_configを正しく取得できるように修正。
 # BugFix: run_on_demand_pipelineが学習結果を正しく返すように修正。
+# BugFix: collate_fnでattention_maskを返し、パディングを考慮した損失計算を可能にする。
 
 import torch
 import torch.nn as nn
@@ -76,18 +77,21 @@ class KnowledgeDistillationManager:
                 
                 return {
                     'input_ids': input_ids,
-                    'attention_mask': tokenized['attention_mask'].squeeze(),
+                    'attention_mask': tokenized['attention_mask'].squeeze(0),
                     'teacher_logits': teacher_logits
                 }
 
         dataset = _DistillationTextDataset(self.tokenizer, texts, max_length, self.teacher_model, self.device)
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         def collate_fn(batch):
             input_ids = torch.stack([item['input_ids'] for item in batch])
+            attention_mask = torch.stack([item['attention_mask'] for item in batch])
             targets = torch.roll(input_ids, shifts=-1, dims=1)
-            targets[:, -1] = self.tokenizer.pad_token_id
+            targets[:, -1] = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else -100
             teacher_logits = torch.stack([item['teacher_logits'] for item in batch])
-            return input_ids, targets, teacher_logits
+            return input_ids, attention_mask, targets, teacher_logits
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
 
@@ -126,7 +130,6 @@ class KnowledgeDistillationManager:
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
         
-        # 'mem' を含むバッファを除外して、モデルの「重み」のみを保存する
         model_to_save = self.distillation_trainer.model.module if isinstance(self.distillation_trainer.model, nn.parallel.DistributedDataParallel) else self.distillation_trainer.model
         buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
         model_state_to_save = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
@@ -176,8 +179,6 @@ class KnowledgeDistillationManager:
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # run_distillationの実行結果をnew_model_infoに格納
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
             val_loader=train_loader,
@@ -186,9 +187,7 @@ class KnowledgeDistillationManager:
             task_description=f"Expert for {task_description}",
             student_config=student_config
         )
-        # 呼び出し元に結果を返す
         return new_model_info
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
         """
@@ -196,25 +195,29 @@ class KnowledgeDistillationManager:
         """
         model_to_eval = self.distillation_trainer.model
         model_to_eval.eval()
-        total_spikes = 0
-        total_samples = 0
+        total_spikes = 0.0
+        total_valid_tokens = 0
 
         progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
         for batch in progress_bar:
-            inputs, _, _ = batch
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            inputs, attention_mask, _, _ = batch
             inputs = inputs.to(self.device)
+            attention_mask = attention_mask.to(self.device)
 
             with torch.no_grad():
                 outputs = model_to_eval(inputs, return_spikes=True)
                 if isinstance(outputs, tuple) and len(outputs) > 1:
-                    _, spikes, _ = outputs
+                    _, avg_batch_spikes, _ = outputs
                 else:
-                    spikes = torch.zeros((), device=inputs.device)
+                    avg_batch_spikes = torch.zeros((), device=inputs.device)
 
-            total_spikes += spikes.sum().item()
-            total_samples += inputs.size(0)
+            num_tokens_in_batch = attention_mask.sum().item()
+            total_spikes += avg_batch_spikes.item() * num_tokens_in_batch
+            total_valid_tokens += num_tokens_in_batch
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-        avg_spikes_per_sample = total_spikes / total_samples if total_samples > 0 else 0
+        avg_spikes_per_sample = total_spikes / total_valid_tokens if total_valid_tokens > 0 else 0.0
 
         perplexity = calculate_perplexity(model_to_eval, dataloader, self.device)
         energy = calculate_energy_consumption(avg_spikes_per_sample)
