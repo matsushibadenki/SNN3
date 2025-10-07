@@ -19,6 +19,9 @@
 # RuntimeError修正 (SimpleSNN):
 # SimpleSNNにEmbedding層がなく、LongTensorをLinear層に渡していたためMPSデバイスでエラーが発生していた。
 # Embedding層を追加し、他の言語モデルとインターフェースを統一した。
+# RuntimeError修正 (SpikingTransformer):
+# チャットのように連続で長さの違う入力を処理した際に、LIFニューロンの内部状態(mem)と
+# 新しい入力の形状が一致せずエラーになる問題を修正。形状チェックを厳密化。
 
 import torch
 import torch.nn as nn
@@ -57,9 +60,11 @@ class AdaptiveLIFNeuron(nn.Module):
         self.mem: torch.Tensor
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        # 入力テンソルの次元数に応じて膜電位バッファの形状を調整
-        if self.mem.shape[0] != x.shape[0] or self.mem.device != x.device or self.mem.ndim != x.ndim:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 入力テンソルの形状が内部状態と異なる場合にリセットする
+        if self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x, device=x.device)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
