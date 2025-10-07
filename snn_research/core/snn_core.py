@@ -26,14 +26,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from spikingjelly.activation_based import surrogate, functional  # type: ignore
+from spikingjelly.activation_based import surrogate, functional, base  # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
 
 
 # --- ニューロンモデル ---
-class AdaptiveLIFNeuron(nn.Module):
+class AdaptiveLIFNeuron(base.MemoryModule):
     """
     適応的発火閾値を持つLIFニューロン (表現力向上のための標準ニューロン)
     """
@@ -56,19 +56,18 @@ class AdaptiveLIFNeuron(nn.Module):
             "adaptive_threshold", torch.full((features,), base_threshold)
         )
         self.adaptive_threshold: torch.Tensor
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # memをバッファから通常の属性に変更し、Noneで初期化
         self.mem: Optional[torch.Tensor] = None
 
     def reset(self):
         """ニューロンの状態をリセットする。spikingjellyのreset_netから呼び出される。"""
+        super().reset() # 親クラスのresetも呼び出す
         self.mem = None
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         # 内部状態(mem)が初期化されていない、または入力形状と異なる場合にリセット
         if self.mem is None or self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x, device=x.device)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
