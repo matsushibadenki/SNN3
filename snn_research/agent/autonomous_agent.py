@@ -200,28 +200,23 @@ class AutonomousAgent:
         """
         print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
 
+        # モデルレジストリから保存されているモデル設定を取得
         model_config = model_info.get('config')
         
         if not model_config:
-            print("⚠️ Warning: Model config not found in registry. Falling back to default 'small' model config.")
-            try:
-                # configs/models/small.yaml の内容を直接読み込む
-                default_config_path = Path(__file__).resolve().parent.parent.parent / "configs" / "models" / "small.yaml"
-                model_config = OmegaConf.load(default_config_path).get('model', {})
-            except FileNotFoundError:
-                print("❌ Error: Default 'small.yaml' not found. Cannot proceed with inference.")
-                return
+            print("❌ Error: Model config not found in registry. Cannot proceed with inference.")
+            return
 
-        # SNNInferenceEngineが必要とする完全な設定オブジェクトを構築する
-        # `data`セクションを追加
+        # SNNInferenceEngineが必要とする完全な設定オブジェクトを構築
         full_config = {
             'device': 'cuda' if torch.cuda.is_available() else 'cpu',
             'data': {
-                'tokenizer_name': "gpt2" # デフォルトのTokenizerを指定
+                'tokenizer_name': "gpt2"
             },
-            'model': model_config
+            # 学習時のモデル設定を 'model' キーの下に配置
+            'model': model_config 
         }
-        # model.pathを設定ファイルから上書き
+        # モデルのパスを上書き
         full_config['model']['path'] = model_info.get('model_path')
         
         config = OmegaConf.create(full_config)
