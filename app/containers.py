@@ -8,6 +8,7 @@
 # - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
 # - 変更点: 生物学的強化学習(BioRLTrainer)関連のプロバイダを再統合し、完全な状態に復元。
 # - mypyエラー修正: BioSNNのインポートパスを修正。
+# - BugFix: SNNCoreに設定ファイルの`model`セクションを正しく渡すように修正。
 
 import torch
 from dependency_injector import containers, providers
