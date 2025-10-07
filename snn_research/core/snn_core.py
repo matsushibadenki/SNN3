@@ -1,7 +1,7 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
 #
-# BugFix: 勾配爆発によるNaN発生を防ぐため、AdaptiveLIFNeuronの膜電位更新に.detach()を再適用する。
+# 改善点: 代理勾配関数をATanからSoftSignに変更し、学習信号を強化。
 
 import torch
 import torch.nn as nn
@@ -30,7 +30,10 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.base_threshold = base_threshold
         self.adaptation_strength = adaptation_strength
         self.target_spike_rate = target_spike_rate
-        self.surrogate_function = surrogate.ATan()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # より勾配の強いSoftSignに変更して学習を促進
+        self.surrogate_function = surrogate.SoftSign()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.mem_decay = math.exp(-1.0 / tau)
         self.register_buffer(
             "adaptive_threshold", torch.full((features,), base_threshold)
@@ -50,10 +53,7 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # .detach() を再適用し、BPTTにおける勾配爆発を防ぎ、学習を安定させる
         self.mem = (mem_this_step * (1.0 - spike)).detach()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if self.training:
             with torch.no_grad():
