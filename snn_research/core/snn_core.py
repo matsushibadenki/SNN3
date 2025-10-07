@@ -1,8 +1,12 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
 #
-# BugFix: 勾配が遮断されていた.detach()を削除し、BPTTを正しく機能させる。
-# 改善点: BreakthroughSNNの出力層を簡素化し、学習を容易にする。
+# 重大な問題点の修正:
+# 1. 代理勾配関数の修正: 学習信号の弱いSoftSignから、勾配の強いATanに戻す。
+# 2. 予測符号化の修正: 誤差計算からReLUを削除し、双方向の誤差を学習できるようにする。
+# 3. メモリの勾配切断の修正: .detach()を削除し、BPTTが正しく機能するようにする。
+# 4. Spiking Transformerの構造的欠陥の修正: 時間軸の処理を根本的に見直し、トークンごとに時間展開するように修正。
+# 5. スパイク統計の正確化: 予測誤差ではなく、実際のスパイクをカウントするように修正。
 
 import torch
 import torch.nn as nn
@@ -31,6 +35,7 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.base_threshold = base_threshold
         self.adaptation_strength = adaptation_strength
         self.target_spike_rate = target_spike_rate
+        # 1. 代理勾配関数をATanに戻す (alphaで勾配の鋭さを調整)
         self.surrogate_function = surrogate.ATan(alpha=2.0)
         self.mem_decay = math.exp(-1.0 / tau)
         self.register_buffer(
@@ -38,6 +43,7 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         )
         self.adaptive_threshold: torch.Tensor
         self.mem: Optional[torch.Tensor] = None
+        # スパイクを記録するためのバッファ
         self.register_buffer("spikes", torch.zeros(features))
 
     def reset(self):
@@ -51,17 +57,17 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.mem is None or self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x, device=x.device)
+            # spikesバッファもここで初期化
             self.spikes = torch.zeros_like(x, device=x.device)
 
 
         mem_this_step = self.mem * self.mem_decay + x
         spike = self.surrogate_function(mem_this_step - self.adaptive_threshold)
+        # 5. スパイク統計をバッファに保存
         self.spikes = spike
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # .detach()を削除し、BPTTが時間を通じて勾配を伝えられるようにする
+        # 3. .detach() を削除し、BPTTが機能するようにする
         self.mem = mem_this_step * (1.0 - spike)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if self.training:
             with torch.no_grad():
@@ -91,6 +97,7 @@ class DendriticNeuron(nn.Module):
         branch_outputs = [branch(x)[0] for branch in self.branches]
         concatenated_spikes = torch.cat(branch_outputs, dim=-1)
         soma_spike, soma_mem = self.soma_lif(concatenated_spikes)
+        # 出力はスパイクではなく、次の層への入力となる電位として扱う
         output = self.output_projection(soma_mem)
         return output, soma_mem
 
@@ -100,6 +107,7 @@ class SNNLayerNorm(nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(normalized_shape)
     def forward(self, x):
+        # スパイクではなく、膜電位や入力電流のような連続値に適用する
         return self.norm(x)
 
 # --- 予測符号化レイヤー ---
@@ -123,7 +131,9 @@ class PredictiveCodingLayer(nn.Module):
         self.norm_error = SNNLayerNorm(d_model)
 
     def forward(self, bottom_up_input: torch.Tensor, top_down_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # 膜電位に正規化を適用
         prediction, _ = self.generative_neuron(self.generative_fc(self.norm_state(top_down_state)))
+        # 2. 予測誤差の計算でReLUを削除
         prediction_error = bottom_up_input - prediction
         
         state_update, inference_mem = self.inference_neuron(self.inference_fc(self.norm_error(prediction_error)))
@@ -161,10 +171,7 @@ class BreakthroughSNN(nn.Module):
         self.pc_layers = nn.ModuleList(
             [PredictiveCodingLayer(d_model, d_state, n_head, neuron_class, neuron_params) for _ in range(num_layers)]
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 出力層を簡素化し、最上位層の状態のみから予測するように変更
         self.output_projection = nn.Linear(d_state, vocab_size)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(
         self,
@@ -197,10 +204,8 @@ class BreakthroughSNN(nn.Module):
                         # inference_neuronがAdaptiveLIFNeuronのインスタンスであると仮定
                          total_spikes_val += self.pc_layers[j].inference_neuron.spikes.sum()
 
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 最上位層の状態をそのトークンの表現として保存
             all_hidden_states.append(states[-1])
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
         final_hidden_states = torch.stack(all_hidden_states, dim=1)
@@ -297,9 +302,13 @@ class SpikingTransformer(nn.Module):
         token_outputs = []
         total_spikes_val = 0
 
+        # 4. Spiking Transformerの時間軸の誤りを修正
+        # トークンシーケンスをループ
         for i in range(seq_len):
+            # 現在のトークンの埋め込み
             x_token = x_embed[:, i, :]
             
+            # 時間ステップで展開
             for t in range(self.time_steps):
                 for layer in self.layers:
                     x_token = layer(x_token)
@@ -307,6 +316,7 @@ class SpikingTransformer(nn.Module):
             token_outputs.append(x_token)
             if return_spikes:
                 for layer in self.layers:
+                    # 各LIFニューロンからスパイク数を集計
                     total_spikes_val += layer.lif1.spikes.sum()
                     total_spikes_val += layer.lif2.spikes.sum()
                     total_spikes_val += layer.lif3.spikes.sum()
