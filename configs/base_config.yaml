@@ -30,10 +30,10 @@ training:
 
   gradient_based:
     type: "standard"
+    learning_rate: 0.001
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    learning_rate: 0.001 # 学習停滞を解消するため学習率を引き上げ
+    use_scheduler: false # 学習停滞を解消するためスケジューラを無効化
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    use_scheduler: true
     grad_clip_norm: 1.0
     warmup_epochs: 1
     use_amp: true
