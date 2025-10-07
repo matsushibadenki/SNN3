@@ -10,6 +10,7 @@
 # mypyエラー修正: .item()が返す型の曖昧さを解消するため、int()でキャストする。
 # 改善点: RAGSystemを統合し、ドキュメント検索による文脈生成機能を追加。
 # mypyエラー修正: asyncioをインポート。
+# 改善点: ルールベースのプランニングに日本語キーワードを追加。
 
 from typing import List, Dict, Any, Optional
 import torch
@@ -102,12 +103,14 @@ class HierarchicalPlanner:
             # --- フォールバック: ルールベースの簡易的な計画生成 ---
             print("⚠️ PlannerSNN model not found. Falling back to rule-based planning.")
             task_list = []
-            if "summarize" in high_level_goal:
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            if "summarize" in high_level_goal or "要約" in high_level_goal:
                 task_list.append(self.SKILL_MAP[0])
-            if "analyze" in high_level_goal or "sentiment" in high_level_goal:
+            if "analyze" in high_level_goal or "sentiment" in high_level_goal or "感情" in high_level_goal or "分析" in high_level_goal:
                 task_list.append(self.SKILL_MAP[1])
-            if "translate" in high_level_goal:
+            if "translate" in high_level_goal or "翻訳" in high_level_goal:
                 task_list.append(self.SKILL_MAP[2])
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             if not task_list:
                 task_list.append(self.SKILL_MAP[4]) # デフォルトは汎用QA
