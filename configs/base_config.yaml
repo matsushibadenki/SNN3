@@ -30,7 +30,9 @@ training:
 
   gradient_based:
     type: "standard"
-    learning_rate: 0.0005
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    learning_rate: 0.001 # 学習停滞を解消するため学習率を引き上げ
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     use_scheduler: true
     grad_clip_norm: 1.0
     warmup_epochs: 1
@@ -43,10 +45,8 @@ training:
     distillation:
       teacher_model: "gpt2"
       loss:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         ce_weight: 0.3
         distill_weight: 0.7
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         spike_reg_weight: 0.01
         sparsity_reg_weight: 0.0
         mem_reg_weight: 0.00001
