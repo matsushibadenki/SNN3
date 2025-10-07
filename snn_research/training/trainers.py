@@ -9,6 +9,7 @@
 #                 インデックス参照から直接的なアンパッキングに変更し、堅牢性を向上させた。
 # BugFix: SNNCoreラッパーではなく、内部モデルのstate_dictを保存するように修正。
 # FutureWarning修正: torch.cuda.amp.GradScalerをtorch.amp.GradScalerに変更。
+# BugFix: DistillationTrainerがattention_maskを扱えるように修正。
 
 import torch
 import torch.nn as nn
@@ -26,11 +27,6 @@ from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSup
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
-
-
-# --- BPTTとSLTTに関する実装メモ ---
-#
-# (省略...)
 
 
 class BreakthroughTrainer:
@@ -51,9 +47,7 @@ class BreakthroughTrainer:
         self.astrocyte_network = astrocyte_network
         self.meta_cognitive_snn = meta_cognitive_snn
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.scaler = torch.amp.GradScaler(enabled=self.use_amp)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.best_metric = float('inf')
         
         if self.rank in [-1, 0]:
@@ -71,7 +65,6 @@ class BreakthroughTrainer:
         
         with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # モデルからの出力を直接アンパッキングする
                 logits, spikes, mem = self.model(input_ids, return_spikes=True, return_full_mems=True)
                 loss_dict = self.criterion(logits, target_ids, spikes, mem, self.model)
         
@@ -225,11 +218,12 @@ class DistillationTrainer(BreakthroughTrainer):
             final_metrics = self.evaluate(val_loader, epoch)
         return final_metrics
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         if is_train: self.model.train()
         else: self.model.eval()
             
-        student_input, student_target, teacher_logits = [t.to(self.device) for t in batch]
+        student_input, attention_mask, student_target, teacher_logits = [t.to(self.device) for t in batch]
 
         with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
@@ -238,7 +232,7 @@ class DistillationTrainer(BreakthroughTrainer):
                 assert isinstance(self.criterion, DistillationLoss)
                 loss_dict = self.criterion(
                     student_logits=student_logits, teacher_logits=teacher_logits, targets=student_target,
-                    spikes=spikes, mem=mem, model=self.model
+                    spikes=spikes, mem=mem, model=self.model, attention_mask=attention_mask
                 )
         
         if is_train:
@@ -253,14 +247,19 @@ class DistillationTrainer(BreakthroughTrainer):
         
         with torch.no_grad():
             preds = torch.argmax(student_logits, dim=-1)
-            if hasattr(self.criterion, 'ce_loss_fn') and hasattr(self.criterion.ce_loss_fn, 'ignore_index'):
-                ignore_idx = self.criterion.ce_loss_fn.ignore_index
-                mask = student_target != ignore_idx
-                num_masked_elements = cast(torch.Tensor, mask).sum()
-                accuracy = (preds[mask] == student_target[mask]).float().sum() / num_masked_elements if num_masked_elements > 0 else torch.tensor(0.0)
-                loss_dict['accuracy'] = accuracy
+            # ce_loss_fnのignore_indexを使ってマスクを生成する
+            ignore_idx = self.criterion.ce_loss_fn.ignore_index
+            mask = student_target != ignore_idx
+            
+            num_valid_tokens = mask.sum()
+            if num_valid_tokens > 0:
+                accuracy = (preds[mask] == student_target[mask]).float().sum() / num_valid_tokens
+            else:
+                accuracy = torch.tensor(0.0, device=self.device)
+            loss_dict['accuracy'] = accuracy
         
         return {k: v.cpu().item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SelfSupervisedTrainer(BreakthroughTrainer):
     """自己教師あり学習に特化したトレーナー。"""
@@ -344,7 +343,6 @@ class BPTTTrainer:
     BPTT (Backpropagation Through Time) を用いたシンプルなトレーナー。
     主に基本的なモデルやアルゴリズムの動作確認を目的とする。
     """
-
     def __init__(self, model: nn.Module, config: DictConfig):
         self.model = model
         self.config = config
@@ -355,32 +353,24 @@ class BPTTTrainer:
     def _calculate_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """モデルの出力形状に合わせて損失を計算する。"""
         if self.model_type == "spiking_transformer":
-            # outputs: (Batch, Seq, Vocab), targets: (Batch, Seq)
             return self.criterion(outputs.reshape(-1, outputs.size(-1)), targets.reshape(-1))
         else: # simple SNN
-            # outputs: (Time, Batch, Vocab), targets: (Batch, Seq)
-            # Reshape outputs to (Batch*Seq, Vocab)
             T, B, V = outputs.shape
             S = targets.shape[1]
-            # 時間軸とシーケンス長が一致している必要がある
             assert T == S, f"Time dimension mismatch: {T} != {S}"
             return self.criterion(outputs.permute(1, 0, 2).reshape(-1, V), targets.reshape(-1))
-
 
     def train_step(self, data: torch.Tensor, targets: torch.Tensor) -> float:
         """単一の学習ステップを実行する。"""
         self.optimizer.zero_grad()
 
-        # モデルのフォワードパス
         if self.model_type == "spiking_transformer":
              outputs, _, _ = self.model(data)
         else:
              outputs = self.model(data)
 
-        # 損失計算
         loss = self._calculate_loss(outputs, targets)
         
-        # 勾配計算とパラメータ更新
         loss.backward()
         self.optimizer.step()
         
