@@ -1,6 +1,6 @@
 # matsushibadenki/snn3/snn_research/training/losses.py
 # SNN学習で使用する損失関数
-#
+# 
 # BugFix: 学習を阻害していたsparsity_lossをすべての損失関数から削除。
 
 import torch
@@ -32,7 +32,7 @@ class CombinedLoss(nn.Module):
         
         return {
             'total': total_loss, 'ce_loss': ce_loss,
-            'spike_reg_loss': spike_reg_loss, 
+            'spike_reg_loss': spike_reg_loss,
             'mem_reg_loss': mem_reg_loss, 'spike_rate': spike_rate
         }
 
