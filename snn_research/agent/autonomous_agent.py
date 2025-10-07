@@ -3,6 +3,7 @@
 # タイトル: 自律エージェント
 # 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
 # 改善点: handle_taskメソッドを修正し、専門家モデルが性能要件を満たさない場合は、妥協せずに新しい学習を開始するようにロジックを変更。
+# BugFix: run_inferenceでSNNInferenceEngineに渡すconfigの構造を修正。
 
 from typing import Dict, Any, Optional
 import asyncio
@@ -81,7 +82,6 @@ class AutonomousAgent:
                 print(f"✅ 条件を満たす専門家を発見しました: {expert['model_id']} (Accuracy: {accuracy:.4f}, Spikes: {spikes:.2f})")
                 return expert
 
-        # 妥協案: 条件を満たすモデルがなくても、最も精度の高いモデルを返す
         print(f"⚠️ 専門家は見つかりましたが、精度/エネルギー要件を満たすモデルがありませんでした。")
         best_candidate = candidate_experts[0]
         print(f"   - 最高性能モデル: {best_candidate.get('metrics', {})} (要件: accuracy >= {self.accuracy_threshold}, spikes <= {self.energy_budget})")
@@ -117,14 +117,11 @@ class AutonomousAgent:
         return f"Successfully learned about '{topic}'. Summary: {summary}"
 
     def _search_for_urls(self, query: str) -> list[str]:
-        # ToDo: 実際の検索エンジンAPIに置き換える
         return [f"https://www.google.com/search?q={query.replace(' ', '+')}"]
 
     def _summarize(self, text: str) -> str:
-        # ToDo: より高度な要約モデルに置き換える
         return text[:150] + "..."
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
         """
         タスクを処理する中心的なメソッド。専門家を検索し、いなければ学習を試みる。
@@ -136,7 +133,6 @@ class AutonomousAgent:
         if not force_retrain:
             candidate_expert = await self.find_expert(task_description)
             if candidate_expert:
-                # 見つかったモデルが性能要件を満たしているかチェック
                 metrics = candidate_expert.get("metrics", {})
                 accuracy = metrics.get("accuracy", 0.0)
                 spikes = metrics.get("avg_spikes_per_sample", float('inf'))
@@ -178,7 +174,6 @@ class AutonomousAgent:
                     device=device
                 )
                 
-                # run_on_demand_pipelineを直接呼び出す
                 new_model_info = await manager.run_on_demand_pipeline(
                     task_description=task_description,
                     unlabeled_data_path=unlabeled_data_path,
@@ -197,8 +192,8 @@ class AutonomousAgent:
         print("- No expert found and no data provided for training.")
         self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
         return None
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
         """
         指定されたモデルで推論を実行する。
@@ -210,21 +205,26 @@ class AutonomousAgent:
         if not model_config:
             print("⚠️ Warning: Model config not found in registry. Falling back to default 'small' model config.")
             try:
-                small_config_path = next(Path('.').rglob('configs/models/small.yaml'))
-                model_config = OmegaConf.load(small_config_path).get('model', {})
-            except (StopIteration, FileNotFoundError):
+                # configs/models/small.yaml の内容を直接読み込む
+                default_config_path = Path(__file__).resolve().parent.parent.parent / "configs" / "models" / "small.yaml"
+                model_config = OmegaConf.load(default_config_path).get('model', {})
+            except FileNotFoundError:
                 print("❌ Error: Default 'small.yaml' not found. Cannot proceed with inference.")
                 return
 
-        deployment_config = {
-            'deployment': {
-                'model_path': model_info.get('model_path'),
-                'tokenizer_path': "gpt2",
-                'device': 'cuda' if torch.cuda.is_available() else 'cpu'
+        # SNNInferenceEngineが必要とする完全な設定オブジェクトを構築する
+        # `data`セクションを追加
+        full_config = {
+            'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+            'data': {
+                'tokenizer_name': "gpt2" # デフォルトのTokenizerを指定
             },
             'model': model_config
         }
-        config = OmegaConf.create(deployment_config)
+        # model.pathを設定ファイルから上書き
+        full_config['model']['path'] = model_info.get('model_path')
+        
+        config = OmegaConf.create(full_config)
 
         try:
             inference_engine = SNNInferenceEngine(config=config)
@@ -241,3 +241,4 @@ class AutonomousAgent:
         except Exception as e:
             print(f"\n❌ Inference failed: {e}")
             self.memory.record_experience(self.current_state, "inference", {"error": str(e)}, -0.5, [model_info.get('model_id')], {})
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
