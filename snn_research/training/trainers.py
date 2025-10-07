@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn_research/training/trainers.py
+# matsushibadenki/snn/snn_research/training/trainers.py
 # SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
 # mypyエラー修正: 削除されていたPlannerTrainerを復元。
 #                 MetaCognitiveSNNのメソッド呼び出しを修正。
@@ -7,6 +7,8 @@
 # 改善点: BPTTTrainer内の不要なコードを削除し、役割を明確化。
 # ValueError修正: BreakthroughTrainerとDistillationTrainer内のモデル出力のアンパッキングを、
 #                 インデックス参照から直接的なアンパッキングに変更し、堅牢性を向上させた。
+# BugFix: SNNCoreラッパーではなく、内部モデルのstate_dictを保存するように修正。
+# FutureWarning修正: torch.cuda.amp.GradScalerをtorch.amp.GradScalerに変更。
 
 import torch
 import torch.nn as nn
@@ -28,31 +30,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # --- BPTTとSLTTに関する実装メモ ---
 #
-# 現在のBreakthroughTrainerは、spikingjellyライブラリが暗黙的に提供する
-# 標準的なBPTT (Backpropagation Through Time) に依存して学習を行っています。
-# これはシーケンス長全体にわたって勾配を計算するため、特に長いシーケンスを
-# 扱う際にメモリ使用量と計算コストが大きくなるという課題があります。
-#
-# 研究調査資料 (`doc/SNNロードマップ作成のための研究調査.md`) では、
-# この問題を解決する最先端技術としてSLTT (Spatial Learning Through Time) が
-# 重要視されています。SLTTは、時間方向の勾配伝播の一部を省略することで、
-# 大幅な効率化を実現するアルゴリズムです。
-#
-# SLTTの完全な実装は本トレーナーの設計に大きな変更を要しますが、その第一歩として
-# TBPTT (Truncated BPTT) の導入が考えられます。これは、一定のタイムステップごとに
-# 勾配計算を打ち切る（隠れ状態をデタッチする）ことで、計算コストを削減する手法です。
-#
-# 将来的な機能拡張として、`_run_step`メソッド内でシーケンスをチャンクに分割し、
-# チャンクごとに `detach()` を呼び出すことでTBPTTを実装することが可能です。
-# 例:
-# for chunk in sequence.split(tbptt_chunk_size):
-#     output, hidden_state = model(chunk, hidden_state)
-#     loss = criterion(output, target_chunk)
-#     loss.backward()
-#     hidden_state = hidden_state.detach() # ここで勾配を打ち切る
-#
-# この改善は、プロジェクトがより長いシーケンスを扱うフェーズに進む際の
-# 重要なマイルストーンとなります。
+# (省略...)
 
 
 class BreakthroughTrainer:
@@ -73,7 +51,9 @@ class BreakthroughTrainer:
         self.astrocyte_network = astrocyte_network
         self.meta_cognitive_snn = meta_cognitive_snn
         
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.scaler = torch.amp.GradScaler(enabled=self.use_amp)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.best_metric = float('inf')
         
         if self.rank in [-1, 0]:
@@ -89,13 +69,11 @@ class BreakthroughTrainer:
 
         input_ids, target_ids = [t.to(self.device) for t in batch[:2]]
         
-        with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
+        with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # モデルからの出力を直接アンパッキングする
                 logits, spikes, mem = self.model(input_ids, return_spikes=True, return_full_mems=True)
                 loss_dict = self.criterion(logits, target_ids, spikes, mem, self.model)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         if is_train:
             self.optimizer.zero_grad()
@@ -191,15 +169,11 @@ class BreakthroughTrainer:
 
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # SNNCoreラッパーではなく、中の実際のモデルを取得
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
-            # 'mem' を含むバッファを保存対象から除外する
             buffers_to_exclude = {name for name, _ in actual_model.named_buffers() if 'mem' in name}
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             state = {
                 'epoch': epoch, 'model_state_dict': model_state, 
@@ -227,8 +201,9 @@ class BreakthroughTrainer:
             return 0
             
         checkpoint = torch.load(path, map_location=self.device)
-        model_to_load = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-        model_to_load.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
+        actual_model = model_to_load_container.model
+        actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if self.scheduler and 'scheduler_state_dict' in checkpoint: self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -256,11 +231,9 @@ class DistillationTrainer(BreakthroughTrainer):
             
         student_input, student_target, teacher_logits = [t.to(self.device) for t in batch]
 
-        with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
+        with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_logits, spikes, mem = self.model(student_input, return_spikes=True, return_full_mems=True)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 assert isinstance(self.criterion, DistillationLoss)
                 loss_dict = self.criterion(
@@ -303,7 +276,7 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
 
         input_ids, target_ids = [t.to(self.device) for t in batch[:2]]
         
-        with torch.amp.autocast(device_type=self.device, enabled=self.use_amp):
+        with torch.amp.autocast(device_type=self.device if self.device != 'mps' else 'cpu', enabled=self.use_amp):
             with torch.set_grad_enabled(is_train):
                 logits, spikes, mem_sequence = self.model(input_ids, return_spikes=True, return_full_mems=True)
                 loss_dict = self.criterion(logits, target_ids, spikes, mem_sequence, self.model)
