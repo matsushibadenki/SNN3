@@ -7,6 +7,8 @@
 # - ストリーミング応答をサポート (`_stream` メソッドを実装)。
 # - `_stream` が `GenerationChunk` を返すように修正し、mypyエラーを解消。
 # - mypyエラー修正: generateの引数の型を修正。
+# 修正点: generateメソッドが返すタプル(トークン, 統計情報)を正しく処理するように修正。
+
 
 from langchain_core.language_models.llms import LLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
@@ -47,9 +49,7 @@ class SNNLangChainAdapter(LLM):
         max_len = self.snn_engine.config.deployment.get("max_len", 50)
         
         # SNNInferenceEngineのジェネレータを直接使用
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        for chunk_text in self.snn_engine.generate(prompt, max_len=max_len, stop_sequences=stop):
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        for chunk_text, _ in self.snn_engine.generate(prompt, max_len=max_len, stop_sequences=stop):
             chunk = GenerationChunk(text=chunk_text)
             yield chunk
             if run_manager:
