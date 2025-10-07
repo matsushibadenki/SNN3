@@ -1,9 +1,8 @@
-# snn_research/deployment.py
+# matsushibadenki/snn3/snn_research/deployment.py
 # Title: SNN推論エンジン
 # Description: 訓練済みSNNモデルをロードし、テキスト生成のための推論を実行するクラス。
-#              (省略...)
-# BugFix: 学習済みモデルの重みをラッパー(SNNCore)ではなく、中のモデル(SNNCore.model)にロードするように修正。
-# BugFix(revert): SNNCoreのstate_dictをSNNCoreにロードするのが正しいため、`self.model.load_state_dict`に戻す。
+#              (省略)
+# BugFix: モデルのパスを絶対パスに解決してからロードすることで、ファイルが見つからない問題を解消。
 
 import torch
 import json
@@ -52,9 +51,13 @@ class SNNInferenceEngine:
         model_config = config.get("model", config)
         self.model = SNNCore(model_config, vocab_size=vocab_size)
         
-        model_path = config.model.get("path") if hasattr(config, "model") else None
+        model_path_str = config.model.get("path") if hasattr(config, "model") else None
 
-        if model_path:
+        if model_path_str:
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            model_path = Path(model_path_str).resolve()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
             try:
                 checkpoint = torch.load(model_path, map_location=self.device)
                 # checkpointが辞書で、'model_state_dict'キーを持つかチェック
@@ -63,10 +66,7 @@ class SNNInferenceEngine:
                 else:
                     state_dict = checkpoint
                     
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # SNNCoreインスタンス全体にstate_dictをロードする
                 self.model.load_state_dict(state_dict)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                 print(f"✅ Model loaded from {model_path}")
             except FileNotFoundError:
