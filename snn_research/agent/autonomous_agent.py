@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/SNN3-27170475db1dde34e4e83ac31427cebd290f9474/snn_research/agent/autonomous_agent.py
+# matsushibadenki/snn3/SNN3-5b728d05237b1a32304ee6af1a9240f1ebfe55ff/snn_research/agent/autonomous_agent.py
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/agent/autonomous_agent.py
 # タイトル: 自律エージェント
 # 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
@@ -151,7 +151,10 @@ class AutonomousAgent:
                 from app.containers import TrainingContainer
                 container = TrainingContainer()
                 container.config.from_yaml("configs/base_config.yaml")
-                container.config.from_yaml("configs/models/small.yaml")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # 常にsmall.yamlを使っていた問題を修正。より性能の高いmedium.yamlをデフォルトにする。
+                container.config.from_yaml("configs/models/medium.yaml")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                 device = container.device()
                 student_model = container.snn_model().to(device)
@@ -205,21 +208,27 @@ class AutonomousAgent:
         
         if not model_config:
             print("❌ Error: Model config not found in registry. Cannot proceed with inference.")
+            self.memory.record_experience(self.current_state, "inference", {"error": "Model config not found"}, -0.5, [model_info.get('model_id')], {})
             return
 
         # SNNInferenceEngineが必要とする完全な設定オブジェクトを構築
-        full_config = {
+        # ベースとなる設定を作成
+        full_config_dict: Dict[str, Any] = {
             'device': 'cuda' if torch.cuda.is_available() else 'cpu',
             'data': {
                 'tokenizer_name': "gpt2"
             },
-            # 学習時のモデル設定を 'model' キーの下に配置
-            'model': model_config 
+            'model': {}
         }
-        # モデルのパスを上書き
-        full_config['model']['path'] = model_info.get('model_path')
         
-        config = OmegaConf.create(full_config)
+        # モデル設定をマージし、パスを上書き
+        full_config_dict['model'] = model_config
+        
+        model_path = model_info.get('model_path')
+        if model_path:
+            full_config_dict['model']['path'] = model_path
+        
+        config = OmegaConf.create(full_config_dict)
 
         try:
             inference_engine = SNNInferenceEngine(config=config)
