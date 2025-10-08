@@ -55,12 +55,9 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     def reset(self):
         """Resets the neuron's state variables."""
         super().reset()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # .detach_() を呼び出して、計算グラフから切り離す
-        self.mem.detach_().zero_()
-        self.adaptive_threshold.detach_().zero_()
-        self.spikes.detach_().zero_()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.mem.zero_()
+        self.adaptive_threshold.zero_()
+        self.spikes.zero_()
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
@@ -102,5 +99,3 @@ class AdaptiveLIFNeuron(base.MemoryModule):
                 self.adaptive_threshold = self.adaptive_threshold * self.mem_decay + self.adaptation_strength * spike
         
         return spike, self.mem
-
-}
