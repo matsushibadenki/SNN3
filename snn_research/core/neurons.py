@@ -47,21 +47,21 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         # Surrogate gradient function
         self.surrogate_function = surrogate.ATan(alpha=2.0)
 
-        # State variables (buffers)
-        self.register_buffer("mem", torch.zeros(features))
-        self.register_buffer("adaptive_threshold", torch.zeros(features))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 【根本修正】バッチサイズに依存しないように状態変数をNoneで初期化
+        self.register_buffer("mem", None)
+        self.register_buffer("adaptive_threshold", None)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.register_buffer("spikes", torch.zeros(features))
 
     def reset(self):
         """Resets the neuron's state variables."""
         super().reset()
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # detach_()によるインプレース操作から、新しいテンソルを再生成する方式に変更。
-        # これにより、計算グラフの参照が残る問題を確実に回避する。
-        self.mem = torch.zeros_like(self.mem)
-        self.adaptive_threshold = torch.zeros_like(self.adaptive_threshold)
-        self.spikes = torch.zeros_like(self.spikes)
+        self.mem = None
+        self.adaptive_threshold = None
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.spikes.zero_()
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
@@ -75,9 +75,10 @@ class AdaptiveLIFNeuron(base.MemoryModule):
                 - Spikes (Tensor): Output spikes of shape (batch_size, features).
                 - Membrane potential (Tensor): Membrane potential of shape (batch_size, features).
         """
-        # Ensure state buffers are correctly sized for the batch
-        if self.mem.shape[0] != x.shape[0]:
+        # 【根本修正】状態変数がNoneの場合、入力テンソルの形状に合わせて初回のみ初期化
+        if self.mem is None:
             self.mem = torch.zeros_like(x)
+        if self.adaptive_threshold is None:
             self.adaptive_threshold = torch.zeros_like(x)
 
         # Update membrane potential (BPTT-friendly)
