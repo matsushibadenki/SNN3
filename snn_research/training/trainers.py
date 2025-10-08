@@ -162,10 +162,7 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # SNNCoreでラップされている場合、中のモデルを取り出す
             actual_model = model_to_save_container.model if hasattr(model_to_save_container, 'model') else model_to_save_container
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
@@ -200,10 +197,7 @@ class BreakthroughTrainer:
             
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # SNNCoreでラップされている場合、中のモデルを取り出す
         actual_model = model_to_load_container.model if hasattr(model_to_load_container, 'model') else model_to_load_container
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -248,10 +242,7 @@ class DistillationTrainer(BreakthroughTrainer):
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化
             # if self.astrocyte_network: self.astrocyte_network.step()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         with torch.no_grad():
             preds = torch.argmax(student_logits, dim=-1)
@@ -300,11 +291,8 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
                 self.optimizer.step()
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化
             # if self.astrocyte_network:
             #     self.astrocyte_network.step()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.no_grad():
             preds = torch.argmax(logits, dim=-1)
@@ -317,8 +305,7 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
-class PlannerTrainer:
-# (後略)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class PlannerTrainer:
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
         self.model = model.to(device)
@@ -345,7 +332,7 @@ class PlannerTrainer:
             self.optimizer.step()
             
             progress_bar.set_postfix({"loss": loss.item()})
-            
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
 class BPTTTrainer:
     def __init__(self, model: nn.Module, config: DictConfig):
