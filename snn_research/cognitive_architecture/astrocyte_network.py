@@ -49,24 +49,23 @@ class AstrocyteNetwork:
         for i, layer in enumerate(self.monitored_neurons):
             layer_name = f"AdaptiveLIF_{i}"
             
-            # 現在のバッチでの平均発火率を取得 (spikeはバッファではないため直接アクセス不可)
-            # このため、実際の監視はTrainer内から行うのがより現実的。
-            # ここではダミーとして、閾値から発火率を推定する。
-            current_threshold = layer.adaptive_threshold.mean().item()
-            estimated_rate = 1 / (1 + current_threshold) # 簡易的な推定
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 【根本修正】ダミーの推定ロジックを削除し、ニューロンに記録されている実際の平均スパイク活動(layer.spikes)を直接使用する。
+            current_rate = layer.spikes.mean().item()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             # 長期的な発火率を更新 (指数移動平均)
             if layer_name in self.long_term_spike_rates:
                 self.long_term_spike_rates[layer_name] = (
-                    0.99 * self.long_term_spike_rates[layer_name] + 0.01 * estimated_rate
+                    0.99 * self.long_term_spike_rates[layer_name] + 0.01 * current_rate
                 )
             else:
-                self.long_term_spike_rates[layer_name] = torch.tensor(estimated_rate)
+                self.long_term_spike_rates[layer_name] = torch.tensor(current_rate)
 
             long_term_rate = self.long_term_spike_rates[layer_name].item()
             target_rate = layer.target_spike_rate
             
-            print(f"  - 層 {layer_name}: 長期平均発火率(推定)={long_term_rate:.4f} (目標: {target_rate:.4f})")
+            print(f"  - 層 {layer_name}: 長期平均発火率={long_term_rate:.4f} (目標: {target_rate:.4f})")
 
             # 恒常性維持のための調整 (ホメオスタティック可塑性)
             # 発火率が目標から大きく外れている場合、適応強度を調整する
