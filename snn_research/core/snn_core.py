@@ -156,7 +156,9 @@ class BreakthroughSNN(BaseModel):
         for i in range(seq_len):
             embedded_token = self.input_encoder(token_emb[:, i, :])
             
-            functional.reset_net(self)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # functional.reset_net(self) # 不適切なリセットを削除
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             for t in range(self.time_steps):
                 bottom_up_input = embedded_token
                 for j in range(self.num_layers):
@@ -194,7 +196,9 @@ class SpikingTransformer(BaseModel):
         for i in range(seq_len):
             x_token = x_embed[:, i, :]
             
-            functional.reset_net(self)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # functional.reset_net(self) # 不適切なリセットを削除
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             for t in range(self.time_steps):
                 for layer in self.layers:
                     x_token = layer(x_token)
