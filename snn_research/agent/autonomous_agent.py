@@ -221,9 +221,11 @@ class AutonomousAgent:
         })
         
         # 重要な修正：学習済みモデルの正しいパスを 'model.path' に設定する
-        model_path = model_info.get('model_path')
+        model_path = model_info.get('model_path') or model_info.get('path')
         if model_path:
-            OmegaConf.update(full_config, "model.path", model_path, merge=True)
+            # 絶対パスに変換して、どこから実行しても見つけられるようにする
+            absolute_path = str(Path(model_path).resolve())
+            OmegaConf.update(full_config, "model.path", absolute_path, merge=True)
         
         config = full_config
 
