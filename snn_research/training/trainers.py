@@ -76,11 +76,9 @@ class BreakthroughTrainer:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
                 self.optimizer.step()
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化し、問題の切り分けを行う
             # if self.astrocyte_network:
             #     self.astrocyte_network.step()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if self.meta_cognitive_snn:
                 end_time = time.time()
                 computation_time = end_time - start_time
