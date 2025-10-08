@@ -31,20 +31,17 @@ training:
   gradient_based:
     type: "standard"
     learning_rate: 0.001
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # 【SNN能力向上】学習停滞を打破するため、学習率スケジューラを有効化
-    use_scheduler: true 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    use_scheduler: true
     grad_clip_norm: 1.0
     warmup_epochs: 1
     use_amp: true
     loss:
       ce_weight: 1.0
       # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-      # 【SNN能力向上】学習を促進しつつ安定させるため、正則化のバランスを再調整
-      spike_reg_weight: 0.01 
+      # 【SNN能力向上】学習停滞を打破し、探索的な学習を促すためのパラメータ調整
+      spike_reg_weight: 0.001  # スパイク抑制を少し弱める
       sparsity_reg_weight: 0.0
-      mem_reg_weight: 0.0001
+      mem_reg_weight: 0.00001 # 膜電位の抑制を少し弱める
       # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
     distillation:
       teacher_model: "gpt2"
@@ -52,10 +49,10 @@ training:
         ce_weight: 0.3
         distill_weight: 0.7
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 【SNN能力向上】学習を促進しつつ安定させるため、正則化のバランスを再調整
-        spike_reg_weight: 0.01
+        # 【SNN能力向上】学習停滞を打破し、探索的な学習を促すためのパラメータ調整
+        spike_reg_weight: 0.001  # スパイク抑制を少し弱める
         sparsity_reg_weight: 0.0
-        mem_reg_weight: 0.0001
+        mem_reg_weight: 0.00001 # 膜電位の抑制を少し弱める
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         temperature: 2.0
 
