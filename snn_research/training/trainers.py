@@ -13,9 +13,7 @@ from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 import time
 from torch.optim import Adam
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from spikingjelly.activation_based import functional
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
@@ -49,10 +47,7 @@ class BreakthroughTrainer:
 
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 各バッチの処理前に、ニューロンの状態をリセットする
         functional.reset_net(self.model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         start_time = time.time()
         if is_train:
             self.model.train()
@@ -81,8 +76,11 @@ class BreakthroughTrainer:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
                 self.optimizer.step()
             
-            if self.astrocyte_network:
-                self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化し、問題の切り分けを行う
+            # if self.astrocyte_network:
+            #     self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             if self.meta_cognitive_snn:
                 end_time = time.time()
                 computation_time = end_time - start_time
@@ -164,9 +162,11 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            actual_model = model_to_save_container.model
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # SNNCoreでラップされている場合、中のモデルを取り出す
+            actual_model = model_to_save_container.model if hasattr(model_to_save_container, 'model') else model_to_save_container
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
-            # 【根本修正】推論時の不整合を防ぐため、'adaptive_threshold' も除外対象に明確に追加する
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
                 if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
@@ -200,7 +200,10 @@ class BreakthroughTrainer:
             
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-        actual_model = model_to_load_container.model
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # SNNCoreでラップされている場合、中のモデルを取り出す
+        actual_model = model_to_load_container.model if hasattr(model_to_load_container, 'model') else model_to_load_container
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -221,10 +224,7 @@ class DistillationTrainer(BreakthroughTrainer):
         return final_metrics
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 各バッチの処理前に、ニューロンの状態をリセットする
         functional.reset_net(self.model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if is_train: self.model.train()
         else: self.model.eval()
             
@@ -248,7 +248,10 @@ class DistillationTrainer(BreakthroughTrainer):
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
-            if self.astrocyte_network: self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化
+            # if self.astrocyte_network: self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         with torch.no_grad():
             preds = torch.argmax(student_logits, dim=-1)
@@ -269,10 +272,7 @@ class SelfSupervisedTrainer(BreakthroughTrainer):
 
 class PhysicsInformedTrainer(BreakthroughTrainer):
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 各バッチの処理前に、ニューロンの状態をリセットする
         functional.reset_net(self.model)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if is_train:
             self.model.train()
         else:
@@ -300,8 +300,11 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
                 self.optimizer.step()
             
-            if self.astrocyte_network:
-                self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 【根本修正】不安定さの原因となっているAstrocyteNetworkを一時的に無効化
+            # if self.astrocyte_network:
+            #     self.astrocyte_network.step()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         with torch.no_grad():
             preds = torch.argmax(logits, dim=-1)
@@ -314,6 +317,8 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
+class PlannerTrainer:
+# (後略)
 class PlannerTrainer:
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
         self.model = model.to(device)
