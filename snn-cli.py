@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/SNN3-795fc435275ae7d745bcfdb00438fabb1b71c3a4/snn-cli.py
+# matsushibadenki/snn3/SNN3-5b728d05237b1a32304ee6af1a9240f1ebfe55ff/snn-cli.py
 # ファイルパス: matsushibadenki/snn3/snn-cli.py
 # タイトル: 統合CLIツール (typer版)
 # 機能説明: プロジェクトの全機能をサブコマンド形式で実行するための統一インターフェース。
@@ -58,7 +58,9 @@ app.add_typer(rl_app, name="rl")
 def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
     prompt: Optional[str] = typer.Option(None, help="推論を実行する場合の入力プロンプト"),
-    unlabeled_data_path: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    unlabeled_data: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     force_retrain: bool = typer.Option(False, "--force-retrain", help="モデル登録簿を無視して強制的に再学習"),
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
@@ -79,11 +81,13 @@ def agent_solve(
         energy_budget=max_spikes
     )
     
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     selected_model_info = asyncio.run(agent.handle_task(
         task_description=task,
-        unlabeled_data_path=str(unlabeled_data_path) if unlabeled_data_path else None,
+        unlabeled_data_path=str(unlabeled_data) if unlabeled_data else None,
         force_retrain=force_retrain
     ))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     if selected_model_info and prompt:
         print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
