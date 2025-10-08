@@ -13,6 +13,9 @@ from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 import time
 from torch.optim import Adam
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from spikingjelly.activation_based import functional
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
@@ -46,6 +49,10 @@ class BreakthroughTrainer:
 
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 各バッチの処理前に、ニューロンの状態をリセットする
+        functional.reset_net(self.model)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         start_time = time.time()
         if is_train:
             self.model.train()
@@ -213,6 +220,10 @@ class DistillationTrainer(BreakthroughTrainer):
         return final_metrics
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 各バッチの処理前に、ニューロンの状態をリセットする
+        functional.reset_net(self.model)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if is_train: self.model.train()
         else: self.model.eval()
             
@@ -257,6 +268,10 @@ class SelfSupervisedTrainer(BreakthroughTrainer):
 
 class PhysicsInformedTrainer(BreakthroughTrainer):
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 各バッチの処理前に、ニューロンの状態をリセットする
+        functional.reset_net(self.model)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if is_train:
             self.model.train()
         else:
