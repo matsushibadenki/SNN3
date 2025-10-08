@@ -212,23 +212,20 @@ class AutonomousAgent:
             return
 
         # SNNInferenceEngineが必要とする完全な設定オブジェクトを構築
-        # ベースとなる設定を作成
-        full_config_dict: Dict[str, Any] = {
+        full_config = OmegaConf.create({
             'device': 'cuda' if torch.cuda.is_available() else 'cpu',
             'data': {
                 'tokenizer_name': "gpt2"
             },
-            'model': {}
-        }
+            'model': model_config
+        })
         
-        # モデル設定をマージし、パスを上書き
-        full_config_dict['model'] = model_config
-        
+        # 重要な修正：学習済みモデルの正しいパスを 'model.path' に設定する
         model_path = model_info.get('model_path')
         if model_path:
-            full_config_dict['model']['path'] = model_path
+            OmegaConf.update(full_config, "model.path", model_path, merge=True)
         
-        config = OmegaConf.create(full_config_dict)
+        config = full_config
 
         try:
             inference_engine = SNNInferenceEngine(config=config)
