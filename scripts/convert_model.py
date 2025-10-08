@@ -1,8 +1,9 @@
-# matsushibadenki/snn2/scripts/convert_model.py
+# scripts/convert_model.py
 # ANNモデルからSNNモデルへの変換・蒸留を実行するためのスクリプト
 #
 # 変更点:
 # - [改善] オンライン知識蒸留で、ダミーではなく指定された教師モデルをロードするように修正。
+# - [修正] 基本設定ファイル(base_config.yaml)を読み込むように修正し、Tokenizerの読み込みエラーを解消。
 
 import argparse
 import sys
@@ -52,6 +53,12 @@ def main():
 
     # DIコンテナからSNNモデルのインスタンスと設定を取得
     container = TrainingContainer()
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 基本設定ファイルを読み込む
+    container.config.from_yaml("configs/base_config.yaml")
+    # ◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
     container.config.from_yaml(args.snn_model_config)
     snn_model = container.snn_model()
     snn_config = container.config.model.to_dict()
