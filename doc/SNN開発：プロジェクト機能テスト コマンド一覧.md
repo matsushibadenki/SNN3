@@ -1,111 +1,94 @@
-# **プロジェクト機能テスト コマンド一覧**
+# **プロジェクト機能テスト コマンド一覧 (更新版)**
 
-このドキュメントは、プロジェクトの各機能をテストするための簡単なコマンドをまとめたものです。
+このドキュメントは、プロジェクトの各機能をテストするためのコマンドをまとめたものです。
 
-## **1. Webからの自律学習と推論 (run_web_learning.py)**
+## **A) 迅速な機能テスト（数分で完了）**
 
-AIに新しいトピックをWebから学習させ、その知識について質問します。
+### **1\. オンデマンド学習の動作確認**
 
-### **学習**
+**目的:** agent solveコマンドが、**小規模なサンプルデータ**を使ってエラーなく学習・推論サイクルを完了できるかを確認します。
 
-python run_web_learning.py \
-    --topic "最新のAI技術" \
-    --start_url "https://www.itmedia.co.jp/news/subtop/aiplus/" \
-    --max_pages 5
+python snn-cli.py agent solve \\  
+    \--task "高速テスト" \\  
+    \--prompt "これはテストです。" \\  
+    \--unlabeled-data data/sample\_data.jsonl \\  
+    \--force-retrain
 
-### **推論**
+**Note:** このテストはあくまでシステムの動作確認用です。小規模データのため、意味のある応答は生成されません。
 
-python snn-cli.py agent solve \
-    --task "最新のAI技術" \
-    --prompt "SNNとは何ですか？" \
-    --min-accuracy 0.0
+### **2\. 手動でのモデル学習**
 
-## **2. ローカルデータからのオンデマンド学習と推論 (agent solve)**
+**目的:** gradient-trainコマンドが、指定された設定でエラーなく学習を完了できるかを確認します。
 
-手元のデータを使って、新しい「専門家モデル」を育成し、タスクを実行させます。
+python snn-cli.py gradient-train \\  
+    \--model\_config configs/models/small.yaml \\  
+    \--data\_path data/sample\_data.jsonl \\  
+    \--override\_config "training.epochs=3"
 
-### **学習**
+## **B) SNN能力向上のための本格的な学習（時間がかかります）**
 
-python snn-cli.py agent solve \
-    --task "文章要約" \
-    --unlabeled_data_path data/sample_data.jsonl
+### **3\. Webからの自律学習**
 
-### **推論**
+**目的:** AIに新しいトピックをWebから自律的に学習させ、その知識に基づいた専門家モデルを生成させます。
 
-python snn-cli.py agent solve \
-    --task "文章要約" \
-    --prompt "SNNは、生物の神経系における情報の伝達と処理のメカニズムを模倣したニューラルネットワークの一種である。"
+python run\_web\_learning.py \\  
+    \--topic "最新の半導体技術" \\  
+    \--start\_url "\[https://pc.watch.impress.co.jp/\](https://pc.watch.impress.co.jp/)" \\  
+    \--max\_pages 10
 
-## **3. 手動でのモデル学習 (gradient-train)**
+### **4\. 大規模データセットによるオンデマンド学習**
 
-特定のモデル設定（例：large.yaml）を使って、手動でモデルを学習させます。
+**目的:** wikitext-103（100万行以上のテキスト）を使い、汎用的な言語能力を持つ専門家モデルを育成します。**AIの応答品質を本格的に向上させるには、このコマンドの実行が必要です。**
 
-### **学習**
+**ステップ 1: 大規模データセットの準備（初回のみ）**
 
-python snn-cli.py gradient-train \
-    --model_config configs/models/large.yaml \
-    --data_path data/sample_data.jsonl \
-    --override_config "training.epochs=5"
+python scripts/data\_preparation.py
 
-*学習後、モデルは runs/snn_experiment/best_model.pth に保存されます。*
+**ステップ 2: 本格的な学習の実行**
 
-### **推論 (対話UI)**
+python snn-cli.py agent solve \\  
+    \--task "汎用言語モデル" \\  
+    \--force-retrain
 
-python app/main.py \
-    --model_config configs/models/large.yaml \
-    --model_path runs/snn_experiment/best_model.pth
+**Note:** この学習はマシンスペックにより数時間以上かかる可能性があります。学習後、以下のコマンドで対話ができます。
 
-## **4. 複雑なタスクの計画と実行 (planner execute)**
+### **5\. 学習済みモデルとの対話**
 
-複数のステップが必要な複雑なタスクをプランナーに依頼します。
+**目的:** 上記の本格的な学習で育成した専門家モデルを呼び出して対話します。
 
-### **実行**
+\# 「汎用言語モデル」との対話  
+python snn-cli.py agent solve \\  
+    \--task "汎用言語モデル" \\  
+    \--prompt "SNNとは何ですか？"
 
-python snn-cli.py planner execute \
-    --request "この記事を要約して、その内容の感情を分析してください。" \
-    --context "SNNは非常にエネルギー効率が高いことで知られているが、その性能はまだANNに及ばない点もある。"
+\# 「最新の半導体技術」専門家との対話  
+python snn-cli.py agent solve \\  
+    \--task "最新の半導体技術" \\  
+    \--prompt "3nmプロセスとは何ですか？"
 
-## **5. 自己進化 (evolve run)**
+## **C) その他の高度な機能**
 
-AIに自身の性能を評価させ、モデルのアーキテクチャを改善させます。
+### **6\. 複雑なタスクの計画と実行**
 
-### **実行**
+python snn-cli.py planner execute \\  
+    \--request "この記事を要約して、その内容の感情を分析してください。" \\  
+    \--context "SNNは非常にエネルギー効率が高いことで知られているが、その性能はまだANNに及ばない点もある。"
 
-python snn-cli.py evolve run \
-    --task_description "高難度タスク" \
-    --initial_accuracy 0.4 \
-    --model_config "configs/models/small.yaml"
+### **7\. 自己進化**
 
-*実行後、configs/models/small_evolved_v2.yaml のような新しい設定ファイルが生成されます。*
+python snn-cli.py evolve run \\  
+    \--task\_description "高難度タスク" \\  
+    \--initial\_accuracy 0.4 \\  
+    \--model\_config "configs/models/small.yaml"
 
-## **6. 強化学習 (rl run)**
+### **8\. 強化学習**
 
-生物学的な学習ルール（報酬変調型STDP）を用いて、AIが試行錯誤から学習するプロセスを実行します。
+python snn-cli.py rl run \--episodes 100
 
-### **実行**
+### **9\. デジタル生命体の自律ループ**
 
-python snn-cli.py rl run --episodes 100
+python snn-cli.py life-form start \--cycles 10
 
-## **7. デジタル生命体の自律ループ (life-form start)**
+### **10\. 対話UIの起動**
 
-AIが自らの「好奇心」や「退屈」といった内部状態に基づき、自律的に活動するループを開始します。
-
-### **実行**
-
-python snn-cli.py life-form start --cycles 10
-
-## **8. 対話UIの起動 (app/main.py)**
-
-学習済みのモデルとチャット形式で対話できるWeb UIを起動します。
-
-### **実行**
-
-python app/main.py --model_config configs/models/medium.yaml
-
-## **9. ベンチマークの実行 (run_benchmark.py)**
-
-SNNとANNの性能を比較評価します。
-
-### **実行**
-
-python scripts/run_benchmark.py --task sst2
+python app/main.py \--model\_config configs/models/medium.yaml  
