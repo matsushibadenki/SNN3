@@ -55,9 +55,13 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     def reset(self):
         """Resets the neuron's state variables."""
         super().reset()
-        self.mem.zero_()
-        self.adaptive_threshold.zero_()
-        self.spikes.zero_()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # detach_()によるインプレース操作から、新しいテンソルを再生成する方式に変更。
+        # これにより、計算グラフの参照が残る問題を確実に回避する。
+        self.mem = torch.zeros_like(self.mem)
+        self.adaptive_threshold = torch.zeros_like(self.adaptive_threshold)
+        self.spikes = torch.zeros_like(self.spikes)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
