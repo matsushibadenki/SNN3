@@ -141,8 +141,12 @@ class KnowledgeDistillationManager:
         save_path = os.path.join(save_dir, "best_model.pth")
         print(f"Step 3: Saving the model to {save_path}...")
         
+        # 根本原因の解決：推論時の不整合を防ぐため、保存すべきでない一時的なバッファを全て除外する
         model_to_save = self.distillation_trainer.model.module if isinstance(self.distillation_trainer.model, nn.parallel.DistributedDataParallel) else self.distillation_trainer.model
-        buffers_to_exclude = {name for name, _ in model_to_save.named_buffers() if 'mem' in name}
+        buffers_to_exclude = {
+            name for name, _ in model_to_save.named_buffers() 
+            if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
+        }
         model_state_to_save = {k: v for k, v in model_to_save.state_dict().items() if k not in buffers_to_exclude}
         torch.save(model_state_to_save, save_path)
         print("Model saved.")
