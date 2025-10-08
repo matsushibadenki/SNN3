@@ -151,10 +151,7 @@ class AutonomousAgent:
                 from app.containers import TrainingContainer
                 container = TrainingContainer()
                 container.config.from_yaml("configs/base_config.yaml")
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # 常にsmall.yamlを使っていた問題を修正。より性能の高いmedium.yamlをデフォルトにする。
                 container.config.from_yaml("configs/models/medium.yaml")
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                 device = container.device()
                 student_model = container.snn_model().to(device)
@@ -177,9 +174,21 @@ class AutonomousAgent:
                     device=device
                 )
                 
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # 【SNN能力向上】大規模データセットが存在すれば、そちらを優先して使用する
+                wikitext_path = "data/wikitext-103_train.jsonl"
+                if os.path.exists(wikitext_path):
+                    print(f"✅ 大規模データセット '{wikitext_path}' を発見。学習に使用します。")
+                    learning_data_path = wikitext_path
+                else:
+                    learning_data_path = unlabeled_data_path
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
                 new_model_info = await manager.run_on_demand_pipeline(
                     task_description=task_description,
-                    unlabeled_data_path=unlabeled_data_path,
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    unlabeled_data_path=learning_data_path,
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     force_retrain=force_retrain,
                     student_config=container.config.model.to_dict()
                 )
