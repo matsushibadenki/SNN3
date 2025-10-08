@@ -190,14 +190,17 @@ class KnowledgeDistillationManager:
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 学習エポック数を30から50に増やし、学習精度を向上させる
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
             val_loader=train_loader,
-            epochs=30,  # ◀️ 学習精度
+            epochs=50,
             model_id=task_description,
             task_description=f"Expert for {task_description}",
             student_config=student_config
         )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return new_model_info
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
