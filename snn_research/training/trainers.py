@@ -166,6 +166,7 @@ class BreakthroughTrainer:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
             actual_model = model_to_save_container.model
             
+            # 【根本修正】推論時の不整合を防ぐため、'adaptive_threshold' も除外対象に明確に追加する
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
                 if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
