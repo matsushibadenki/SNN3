@@ -16,7 +16,7 @@ class CombinedLoss(nn.Module):
         pad_id = tokenizer.pad_token_id
         self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id if pad_id is not None else -100)
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.weights = {'ce': ce_weight, 'spike_reg': spike_reg_weight, 'mem_reg': 0.0} # mem_regを無効化
+        self.weights = {'ce': ce_weight, 'spike_reg': spike_reg_weight, 'mem_reg': mem_reg_weight} # mem_regを再有効化
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.target_spike_rate = target_spike_rate
 
@@ -46,7 +46,7 @@ class DistillationLoss(nn.Module):
         student_pad_id = tokenizer.pad_token_id
         self.temperature = temperature
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.weights = {'ce': ce_weight, 'distill': distill_weight, 'spike_reg': spike_reg_weight, 'mem_reg': 0.0} # mem_regを無効化
+        self.weights = {'ce': ce_weight, 'distill': distill_weight, 'spike_reg': spike_reg_weight, 'mem_reg': mem_reg_weight} # mem_regを再有効化
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=student_pad_id if student_pad_id is not None else -100)
         self.distill_loss_fn = nn.KLDivLoss(reduction='none', log_target=True)
