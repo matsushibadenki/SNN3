@@ -20,6 +20,7 @@ from typing import Optional, Tuple, List, Dict, Any, Callable
 from app.containers import TrainingContainer
 from snn_research.data.datasets import get_dataset_class, DistillationDataset, DataFormat, SNNBaseDataset
 from snn_research.training.trainers import BreakthroughTrainer
+from scripts.data_preparation import prepare_wikitext_data
 
 # DIコンテナのセットアップ
 container = TrainingContainer()
@@ -37,9 +38,17 @@ def train(
     
     paradigm = config['training']['paradigm']
     is_distillation = paradigm == "gradient_based" and config['training']['gradient_based']['type'] == "distillation"
-    
-    # データパスが指定されていなければconfigの値を使用
-    data_path = args.data_path or config['data']['path']
+
+    # 【SNN能力向上】大規模データセット(WikiText)が存在すれば、そちらを優先して使用する
+    wikitext_path = "data/wikitext-103_train.jsonl"
+    if os.path.exists(wikitext_path):
+        print(f"✅ 大規模データセット '{wikitext_path}' を発見。学習に使用します。")
+        data_path = wikitext_path
+    else:
+        # データパスが指定されていなければconfigの値を使用
+        data_path = args.data_path or config['data']['path']
+        print(f"⚠️ 大規模データセットが見つからないため、'{data_path}' を使用します。")
+        print(f"   より性能を向上させるには、`python scripts/data_preparation.py` を実行してください。")
     
     DatasetClass = get_dataset_class(DataFormat(config['data']['format']))
     dataset = DistillationDataset(
