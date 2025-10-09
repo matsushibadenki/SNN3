@@ -2,14 +2,10 @@
 #
 # 統合CLIツール (typer版)
 #
-# プロジェクトの全機能をサブコマンド形式で実行するための統一インターフェース。
-# argparseとtyperの混在によって発生していた引数解析エラーを解消するため、
-# typerに完全に移行。gradient-trainが追加の引数を正しく
-# train.pyに渡せるように修正。
-#
 # 修正点:
-# - uiサブコマンドを追加し、標準UIとLangChain連携UIを
-#   選択して起動できるようにした。
+# - uiサブコマンドを追加し、標準UIとLangChain連携UIを選択して起動できるようにした。
+# - life-formサブコマンドに `explain-last-action` を追加し、
+#   AIが自身の行動理由を説明する機能（自己言及）を呼び出せるようにした。
 
 import sys
 from pathlib import Path
@@ -19,7 +15,6 @@ import typer
 from typing import List, Optional
 
 # --- プロジェクトルートをPythonパスに追加 ---
-# これにより、プロジェクト内のモジュールを正しくインポートできる
 sys.path.append(str(Path(__file__).resolve().parent))
 
 # --- 各機能のコアロジックをインポート ---
@@ -34,10 +29,8 @@ from snn_research.distillation.model_registry import SimpleModelRegistry
 from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import app.main as gradio_app
 import app.langchain_main as langchain_gradio_app
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- CLIアプリケーションの定義 ---
 app = typer.Typer(
@@ -62,10 +55,8 @@ app.add_typer(evolve_app, name="evolve")
 rl_app = typer.Typer(help="生物学的強化学習を実行")
 app.add_typer(rl_app, name="rl")
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 ui_app = typer.Typer(help="Gradioベースの対話UIを起動")
 app.add_typer(ui_app, name="ui")
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- agent サブコマンドの実装 ---
 @agent_app.command("solve", help="指定されたタスクを解決します。専門家モデルの検索、オンデマンド学習、推論を実行します。")
@@ -130,6 +121,23 @@ def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイ
     life_form = DigitalLifeForm()
     life_form.awareness_loop(cycles=cycles)
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+@life_form_app.command("explain-last-action", help="AI自身に、直近の行動理由を自然言語で説明させます。")
+def life_form_explain():
+    """
+    DigitalLifeFormに自己言及を実行させる。
+    """
+    print("🤔 AIに自身の行動理由を説明させます...")
+    life_form = DigitalLifeForm()
+    explanation = life_form.explain_last_action()
+    print("\n" + "="*20 + " 🤖 AIによる自己解説 " + "="*20)
+    if explanation:
+        print(explanation)
+    else:
+        print("説明の生成に失敗しました。")
+    print("="*64)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 # --- evolve サブコマンドの実装 ---
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
 def evolve_run(
@@ -190,16 +198,12 @@ def rl_run(
     
     print(f"\n✅ 学習完了。最終的な平均報酬: {total_reward / episodes:.4f}")
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- ui サブコマンドの実装 ---
 @ui_app.command("start", help="標準のGradio UIを起動します。")
 def ui_start(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
-    """
-    app/main.py を呼び出して、標準のGradio UIを起動する。
-    """
     original_argv = sys.argv
     sys.argv = [
         "app/main.py",
@@ -219,9 +223,6 @@ def ui_start_langchain(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
-    """
-    app/langchain_main.py を呼び出して、LangChain連携UIを起動する。
-    """
     original_argv = sys.argv
     sys.argv = [
         "app/langchain_main.py",
@@ -235,7 +236,6 @@ def ui_start_langchain(
         langchain_gradio_app.main()
     finally:
         sys.argv = original_argv
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- gradient-train サブコマンドの実装 ---
 @app.command(
@@ -250,18 +250,14 @@ def ui_start_langchain(
 )
 def gradient_train(ctx: typer.Context):
     print("🔧 勾配ベースの学習プロセスを開始します...")
-    # このコマンド以降のすべての引数を取得
     train_args = ctx.args
     
-    # train.py を実行するために sys.argv を一時的に書き換える
     original_argv = sys.argv
-    # 最初の引数はスクリプト名である必要があるため、'train.py' を設定
     sys.argv = ["train.py"] + train_args
     
     try:
         gradient_based_trainer.main()
     finally:
-        # 実行が終わったら sys.argv を元に戻す
         sys.argv = original_argv
 
 if __name__ == "__main__":
