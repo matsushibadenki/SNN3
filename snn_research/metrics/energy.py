@@ -8,6 +8,10 @@ from typing import Dict, Any
 from torch import Tensor
 from snn_research.core.neurons import AdaptiveLIFNeuron, IzhikevichNeuron
 
+# エネルギー消費係数（論文等で参照される一般的な値）
+# 45nmプロセスにおけるシナプス演算のエネルギー消費の推定値
+ENERGY_PER_SNN_OP = 0.9e-12  # Joules (picojoules)
+ENERGY_PER_ANN_OP = 4.6e-12  # Joules (picojoules)
 
 class EnergyMetrics:
     """SNNのエネルギー効率を測定するメトリクス"""
@@ -61,11 +65,18 @@ class EnergyMetrics:
         """
         ann_ops = float(ann_params * batch_size)
         
-        energy_ratio = (snn_ops * 0.1) / (ann_ops * 1.0)
-        efficiency_gain = (1.0 - energy_ratio) * 100
+        snn_energy = snn_ops * ENERGY_PER_SNN_OP
+        ann_energy = ann_ops * ENERGY_PER_ANN_OP
+        
+        energy_ratio = snn_energy / ann_energy if ann_energy > 0 else 0.0
+        efficiency_gain = (1.0 - energy_ratio) * 100 if ann_energy > 0 else 0.0
         
         return {
             'ann_ops': ann_ops,
+            'snn_estimated_energy_joules': snn_energy,
+            'ann_estimated_energy_joules': ann_energy,
             'energy_ratio': energy_ratio,
-            'efficiency_gain': efficiency_gain
+            'efficiency_gain_percent': efficiency_gain
         }
+
+}
