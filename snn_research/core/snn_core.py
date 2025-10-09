@@ -179,7 +179,8 @@ class BreakthroughSNN(BaseModel):
         logits = self.output_projection(final_hidden_states)
         
         total_spikes = self.get_total_spikes()
-        avg_spikes = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else torch.tensor(0.0, device=device)
+        avg_spikes_val = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else 0.0
+        avg_spikes = torch.tensor(avg_spikes_val, device=device)
         
         return logits, avg_spikes, torch.tensor(0.0, device=device)
 
@@ -220,7 +221,8 @@ class SpikingTransformer(BaseModel):
         logits = self.output_projection(x_normalized)
         
         total_spikes = self.get_total_spikes()
-        avg_spikes = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else torch.tensor(0.0, device=device)
+        avg_spikes_val = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else 0.0
+        avg_spikes = torch.tensor(avg_spikes_val, device=device)
         
         return logits, avg_spikes, torch.tensor(0.0, device=device)
 
@@ -244,8 +246,11 @@ class SimpleSNN(BaseModel):
             out = self.fc2(out)
             outputs.append(out)
         logits = torch.stack(outputs, dim=1)
-        avg_spikes = self.get_total_spikes() / (B * T) if return_spikes else torch.tensor(0.0)
-        return logits, avg_spikes, torch.tensor(0.0)
+        
+        avg_spikes_val = self.get_total_spikes() / (B * T) if return_spikes else 0.0
+        avg_spikes = torch.tensor(avg_spikes_val, device=input_ids.device)
+
+        return logits, avg_spikes, torch.tensor(0.0, device=input_ids.device)
 
 class SNNCore(nn.Module):
     def __init__(self, config: DictConfig, vocab_size: int):
