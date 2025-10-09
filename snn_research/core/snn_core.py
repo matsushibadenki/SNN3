@@ -55,7 +55,9 @@ class PredictiveCodingLayer(nn.Module):
         prediction_error = normalized_error * self.error_scale
         
         state_update, _ = self.inference_neuron(self.inference_fc(self.norm_error(prediction_error)))
-        updated_state = top_down_state + state_update
+        
+        # 状態更新にモーメンタムを導入し、発散を防ぐ
+        updated_state = top_down_state * 0.9 + state_update * 0.1
         
         return updated_state, prediction_error, prediction
 
@@ -80,6 +82,9 @@ class SpikeDrivenSelfAttention(nn.Module):
         q = q.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
         k = k.view(B, N, self.n_head, self.d_head).permute(0, 2, 3, 1)
         v = v.view(B, N, self.n_head, self.d_head).permute(0, 2, 1, 3)
+        
+        # TODO: 評価レポートの指摘に基づき、より効率的なイベント駆動型Attentionメカニズムを検討する。
+        # 現状の実装は、スパイクを生成した後に密な行列積を行っており、SNNのスパース性を十分に活用できていない。
         attn_scores = torch.matmul(q, k) / math.sqrt(self.d_head)
         attn_weights = torch.sigmoid(attn_scores)
         attn_output = torch.matmul(attn_weights, v)
