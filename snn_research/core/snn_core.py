@@ -33,6 +33,10 @@ class SNNLayerNorm(nn.Module):
         return self.norm(x)
 
 class PredictiveCodingLayer(nn.Module):
+    # mypyエラー解消のため型ヒントを明示
+    error_mean: torch.Tensor
+    error_std: torch.Tensor
+
     def __init__(self, d_model: int, d_state: int, neuron_class: Type[nn.Module], neuron_params: Dict[str, Any]):
         super().__init__()
         self.generative_fc = nn.Linear(d_state, d_model)
@@ -48,8 +52,6 @@ class PredictiveCodingLayer(nn.Module):
         # 【追加1】誤差の統計を追跡（Exponential Moving Average）
         self.register_buffer('error_mean', torch.zeros(1))
         self.register_buffer('error_std', torch.ones(1))
-        self.error_mean: torch.Tensor
-        self.error_std: torch.Tensor
         self.error_momentum = 0.9
 
     def forward(self, bottom_up_input: torch.Tensor, top_down_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -124,36 +126,24 @@ class STAttenBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Process input with vectorized spike operations.
-        
-        Args:
-            x (torch.Tensor): Input of shape (batch_size, seq_len, d_model).
-        
-        Returns:
-            torch.Tensor: Output of shape (batch_size, seq_len, d_model).
         """
         B, T, D = x.shape
         
-        # Self-attention branch (並列処理可能)
-        attn_out = self.attn(self.norm1(x))  # (B, T, D)
-        x_attn = x + attn_out  # (B, T, D)
+        attn_out = self.attn(self.norm1(x))
+        x_attn = x + attn_out
         
-        # 【修正1】ベクトル化されたLIF処理
-        # (B, T, D) -> (B*T, D) に変形して一括処理
         x_flat = x_attn.reshape(B * T, D)
         spike_flat, _ = self.lif1(x_flat)
         x_res = spike_flat.reshape(B, T, D)
         
-        # Feedforward branch
-        ffn_in = self.norm2(x_res)  # (B, T, D)
+        ffn_in = self.norm2(x_res)
         
-        # 【修正2】FFNもベクトル化
         ffn_flat = ffn_in.reshape(B * T, D)
-        ffn_hidden, _ = self.lif2(self.fc1(ffn_flat))  # (B*T, 4D)
-        ffn_out_flat = self.fc2(ffn_hidden)  # (B*T, D)
+        ffn_hidden, _ = self.lif2(self.fc1(ffn_flat))
+        ffn_out_flat = self.fc2(ffn_hidden)
         ffn_out = ffn_out_flat.reshape(B, T, D)
         
-        # Final residual connection
-        x_ffn = x_res + ffn_out  # (B, T, D)
+        x_ffn = x_res + ffn_out
         x_ffn_flat = x_ffn.reshape(B * T, D)
         out_flat, _ = self.lif3(x_ffn_flat)
         out = out_flat.reshape(B, T, D)
@@ -202,58 +192,36 @@ class BreakthroughSNN(BaseModel):
         self._init_weights()
 
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Forward pass with corrected temporal processing.
-        
-        Args:
-            input_ids (torch.Tensor): Input token IDs of shape (batch_size, seq_len).
-            return_spikes (bool): Whether to return spike statistics.
-            **kwargs: Additional arguments (ignored for compatibility).
-        
-        Returns:
-            Tuple containing:
-                - logits (torch.Tensor): Output logits of shape (batch_size, seq_len, vocab_size).
-                - avg_spikes (torch.Tensor): Average spike rate.
-                - placeholder (torch.Tensor): Placeholder for compatibility.
-        """
         batch_size, seq_len = input_ids.shape
         device = input_ids.device
         
-        # Embed all tokens at once
-        token_emb = self.token_embedding(input_ids)  # (B, T, D)
-        embedded_sequence = self.input_encoder(token_emb)  # (B, T, D)
+        token_emb = self.token_embedding(input_ids)
+        embedded_sequence = self.input_encoder(token_emb)
         
-        # Initialize states once for the entire sequence
         inference_neuron = cast(AdaptiveLIFNeuron, self.pc_layers[0].inference_neuron)
         states = [torch.zeros(batch_size, inference_neuron.features, device=device) 
                   for _ in range(self.num_layers)]
         
-        # Process the entire sequence through time
         all_timestep_outputs = []
         
-        for t in range(self.time_steps):
+        for _ in range(self.time_steps):
             sequence_outputs = []
             
             for i in range(seq_len):
                 bottom_up_input = embedded_sequence[:, i, :]
                 
-                # Process through all layers
                 for j in range(self.num_layers):
                     states[j], error, _ = self.pc_layers[j](bottom_up_input, states[j])
                     bottom_up_input = error
                 
-                # Collect layer states
                 sequence_outputs.append(torch.cat(states, dim=1))
             
             all_timestep_outputs.append(torch.stack(sequence_outputs, dim=1))
         
-        # Use final timestep output (or average across timesteps)
-        final_hidden_states = all_timestep_outputs[-1]  # (B, T, D_state*num_layers)
+        final_hidden_states = all_timestep_outputs[-1]
         
-        # Project to vocabulary
-        logits = self.output_projection(final_hidden_states)  # (B, T, vocab_size)
+        logits = self.output_projection(final_hidden_states)
         
-        # Calculate spike statistics
         total_spikes = self.get_total_spikes()
         avg_spikes = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else torch.tensor(0.0, device=device)
         
@@ -274,37 +242,27 @@ class SpikingTransformer(BaseModel):
         self._init_weights()
 
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Forward pass with corrected self-attention over the entire sequence.
-        
-        Args:
-            input_ids (torch.Tensor): Input token IDs of shape (batch_size, seq_len).
-            return_spikes (bool): Whether to return spike statistics.
-            **kwargs: Additional arguments (ignored for compatibility).
-        
-        Returns:
-            Tuple containing:
-                - logits (torch.Tensor): Output logits of shape (batch_size, seq_len, vocab_size).
-                - avg_spikes (torch.Tensor): Average spike rate.
-                - placeholder (torch.Tensor): Placeholder for compatibility.
-        """
         batch_size, seq_len = input_ids.shape
         device = input_ids.device
         
-        # Embed tokens with positional encoding
-        x = self.token_embedding(input_ids)  # (B, T, D)
-        x = x + self.pos_embedding[:, :seq_len, :]  # (B, T, D)
+        x = self.token_embedding(input_ids)
+        x = x + self.pos_embedding[:, :seq_len, :]
         
-        # Process the entire sequence through time
-        for t in range(self.time_steps):
+        for _ in range(self.time_steps):
             for layer in self.layers:
-                x = layer(x)  # (B, T, D) - 自己注意機構がシーケンス全体を考慮
+                layer.lif1.set_stateful(True)
+                layer.lif2.set_stateful(True)
+                layer.lif3.set_stateful(True)
+                x = layer(x)
         
-        # Project to vocabulary
-        x_normalized = self.final_norm(x)  # (B, T, D)
-        logits = self.output_projection(x_normalized)  # (B, T, vocab_size)
+        for layer in self.layers:
+            layer.lif1.set_stateful(False)
+            layer.lif2.set_stateful(False)
+            layer.lif3.set_stateful(False)
+
+        x_normalized = self.final_norm(x)
+        logits = self.output_projection(x_normalized)
         
-        # Calculate spike statistics
         total_spikes = self.get_total_spikes()
         avg_spikes = total_spikes / (seq_len * self.time_steps * batch_size) if return_spikes else torch.tensor(0.0, device=device)
         
