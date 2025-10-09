@@ -21,6 +21,7 @@ from app.containers import TrainingContainer
 from snn_research.data.datasets import get_dataset_class, DistillationDataset, DataFormat, SNNBaseDataset
 from snn_research.training.trainers import BreakthroughTrainer
 from scripts.data_preparation import prepare_wikitext_data
+from snn_research.core.snn_core import SNNCore
 
 # DIコンテナのセットアップ
 container = TrainingContainer()
@@ -78,7 +79,7 @@ def train(
         if is_distributed and paradigm != "gradient_based":
             raise NotImplementedError(f"{paradigm} learning does not support DDP yet.")
         
-        snn_model = container.snn_model().to(device)
+        snn_model: nn.Module = container.snn_model().to(device)
         if is_distributed:
             snn_model = DDP(snn_model, device_ids=[rank], find_unused_parameters=True)
         
