@@ -11,14 +11,15 @@
 # - ROADMAPの「Astrocyteによる動的ニューロン進化」に基づき、
 #   活動が低いニューロン層をより表現力の高いモデル(Izhikevich)に
 #   動的に置き換える自己進化機能を実装。
+#
+# 修正点:
+# - mypyエラーを解消するため、_find_monitored_neurons内のリストに明示的な型アノテーションを追加。
 
 import torch
 import torch.nn as nn
 from typing import List, Dict, Type
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.core.neurons import AdaptiveLIFNeuron, IzhikevichNeuron
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class AstrocyteNetwork:
     """
@@ -38,13 +39,15 @@ class AstrocyteNetwork:
         self.long_term_spike_rates: Dict[str, torch.Tensor] = {}
         print(f"✨ アストロサイト・ネットワークが {len(self.monitored_neurons)} 個のニューロン層の監視を開始しました。")
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _find_monitored_neurons(self) -> List[nn.Module]:
         """モデル内の監視対象ニューロン(LIF or Izhikevich)を再帰的に探索する。"""
-        neurons = []
+        neurons: List[nn.Module] = []
         for module in self.snn_model.modules():
             if isinstance(module, (AdaptiveLIFNeuron, IzhikevichNeuron)):
                 neurons.append(module)
         return neurons
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def step(self):
         """
@@ -66,7 +69,6 @@ class AstrocyteNetwork:
         self.monitored_neurons = self._find_monitored_neurons()
 
         for i, layer in enumerate(self.monitored_neurons):
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             layer_name = f"{type(layer).__name__}_{i}"
             
             # ニューロンに記録されている実際の平均スパイク活動を直接使用する
@@ -100,7 +102,6 @@ class AstrocyteNetwork:
                     self._evolve_neuron_model(layer_to_evolve=layer, target_class=IzhikevichNeuron)
             else:
                 print(f"  - 層 {layer_name}: 長期平均発火率={long_term_rate:.4f} (進化済み)")
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _evolve_neuron_model(self, layer_to_evolve: nn.Module, target_class: Type[nn.Module]):
         """
