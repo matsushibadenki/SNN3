@@ -19,6 +19,9 @@
 #
 # 改善点 (v2):
 # - DigitalLifeFormのインスタンス化をDIコンテナ経由で行うように修正。
+#
+# 改善点 (v3):
+# - DigitalLifeFormのコンストラクタに必要な引数をすべて渡すように修正し、mypyエラーを解消。
 
 import sys
 from pathlib import Path
