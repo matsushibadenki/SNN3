@@ -100,14 +100,23 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         reset_mask = spike.detach() 
         self.mem = self.mem * (1.0 - reset_mask)
 
-        # Update adaptive threshold (no grad needed for this homeostatic process)
-        with torch.no_grad():
-            if self.training:
-                self.adaptive_threshold = self.adaptive_threshold * self.mem_decay + self.adaptation_strength * spike
+        # 修正4: 適応閾値の勾配フロー
+        if self.training:
+            # スパイクのみdetachして、閾値の勾配は保持
+            self.adaptive_threshold = (
+                self.adaptive_threshold * self.mem_decay + 
+                self.adaptation_strength * spike.detach()
+            )
+        else:
+            # 推論時は勾配不要
+            with torch.no_grad():
+                self.adaptive_threshold = (
+                    self.adaptive_threshold * self.mem_decay + 
+                    self.adaptation_strength * spike
+                )
         
         return spike, self.mem
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class IzhikevichNeuron(base.MemoryModule):
     """
     Izhikevich neuron model, capable of producing a wide variety of firing patterns.
@@ -148,6 +157,7 @@ class IzhikevichNeuron(base.MemoryModule):
         self.u = None
         self.spikes.zero_()
 
+    # 修正1: Izhikevichモデルの数値安定化
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
         Processes one timestep of input current.
@@ -160,29 +170,28 @@ class IzhikevichNeuron(base.MemoryModule):
                 - Spikes (Tensor): Output spikes of shape (batch_size, features).
                 - Membrane potential (Tensor): Membrane potential `v`.
         """
+        # 状態変数の初期化
         if self.v is None or self.v.shape != x.shape:
             self.v = torch.full_like(x, self.c)
         if self.u is None or self.u.shape != x.shape:
             self.u = torch.full_like(x, self.b * self.c)
 
-        # Generate spikes
+        # スパイク判定（リセット前）
         spike = self.surrogate_function(self.v - self.v_peak)
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
 
-        # Reset mechanism (non-differentiable)
+        # リセット処理（勾配を切断）
         reset_mask = (self.v >= self.v_peak).detach()
-        self.v = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
-        self.u = torch.where(reset_mask, self.u + self.d, self.u)
+        v_reset = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
+        u_reset = torch.where(reset_mask, self.u + self.d, self.u)
 
-        # Update dynamics (BPTT-friendly)
-        # Using two steps for numerical stability (dv/dt then du/dt)
-        dv = (0.04 * self.v**2 + 5 * self.v + 140 - self.u + x)
-        self.v = self.v + dv * 0.5  # Step 1
-        dv = (0.04 * self.v**2 + 5 * self.v + 140 - self.u + x)
-        self.v = self.v + dv * 0.5  # Step 2
+        # Izhikevich dynamics（リセット後の値で計算）
+        dt = 1.0  # タイムステップを明示
+        dv = 0.04 * v_reset**2 + 5 * v_reset + 140 - u_reset + x
+        du = self.a * (self.b * v_reset - u_reset)
         
-        du = self.a * (self.b * self.v - self.u)
-        self.u = self.u + du
+        # 数値安定性のための範囲制限
+        self.v = torch.clamp(v_reset + dv * dt, min=-100.0, max=50.0)
+        self.u = u_reset + du * dt
 
         return spike, self.v
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
