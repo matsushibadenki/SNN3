@@ -33,7 +33,9 @@ from snn_research.cognitive_architecture.rag_snn import RAGSystem
 # --- CLIアプリケーションの定義 ---
 app = typer.Typer(
     help="Project SNN: 統合CLIツール",
-    rich_markup_mode="md",
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    rich_markup_mode="markdown",
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     add_completion=False
 )
 
