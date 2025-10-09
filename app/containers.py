@@ -20,8 +20,10 @@ import os
 # --- プロジェクト内モジュールのインポート ---
 from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
 from snn_research.deployment import SNNInferenceEngine
-from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss
-from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
+from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
@@ -32,8 +34,11 @@ import redis
 from snn_research.tools.web_crawler import WebCrawler
 
 # --- 生物学的学習のためのインポート ---
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.learning_rules.stdp import STDP
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
+from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.rl_env.simple_env import SimpleEnvironment
@@ -164,6 +169,25 @@ class TrainingContainer(containers.DeclarativeContainer):
         astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
     )
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # === 確率的アンサンブル学習 (probabilistic_ensemble) のためのプロバイダ ===
+    pe_optimizer = providers.Factory(AdamW, lr=config.training.probabilistic_ensemble.learning_rate)
+    pe_scheduler = providers.Factory(_create_scheduler, optimizer=pe_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.probabilistic_ensemble.warmup_epochs)
+    
+    probabilistic_ensemble_loss = providers.Factory(
+        ProbabilisticEnsembleLoss,
+        tokenizer=tokenizer,
+        ce_weight=config.training.probabilistic_ensemble.loss.ce_weight,
+        variance_reg_weight=config.training.probabilistic_ensemble.loss.variance_reg_weight,
+    )
+
+    probabilistic_ensemble_trainer = providers.Factory(
+        ProbabilisticEnsembleTrainer, model=snn_model, optimizer=pe_optimizer, criterion=probabilistic_ensemble_loss, scheduler=pe_scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.probabilistic_ensemble.grad_clip_norm,
+        rank=-1, use_amp=config.training.probabilistic_ensemble.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
+
     # === 生物学的学習 (biologically_plausible) のためのプロバイダ ===
     bio_learning_rule = providers.Selector(
         config.training.biologically_plausible.learning_rule,
@@ -183,7 +207,16 @@ class TrainingContainer(containers.DeclarativeContainer):
             a_minus=config.training.biologically_plausible.stdp.a_minus,
             tau_trace=config.training.biologically_plausible.stdp.tau_trace,
         ),
+        CAUSAL_TRACE=providers.Factory(
+            CausalTraceCreditAssignment,
+            learning_rate=config.training.biologically_plausible.causal_trace.learning_rate,
+            tau_eligibility=config.training.biologically_plausible.causal_trace.tau_eligibility,
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     bio_snn_model = providers.Factory(
         BioSNN,
