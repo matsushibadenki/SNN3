@@ -78,5 +78,3 @@ class EnergyMetrics:
             'energy_ratio': energy_ratio,
             'efficiency_gain_percent': efficiency_gain
         }
-
-}
