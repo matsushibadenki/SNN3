@@ -9,6 +9,10 @@
 #   分散型モデルレジストリ(DistributedModelRegistry)を実装。
 # - ファイルロック機構を導入し、複数プロセスからの同時書き込みによる
 #   レジストリファイルの破損を防止する。
+#
+# 改善点 (v2):
+# - ROADMAPフェーズ4「社会学習」に基づき、エージェントがスキル（モデル）を
+#   共有するための`publish_skill`および`download_skill`メソッドを実装。
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
@@ -16,6 +20,7 @@ import json
 from pathlib import Path
 import fcntl
 import time
+import shutil
 
 class ModelRegistry(ABC):
     """
@@ -73,15 +78,18 @@ class SimpleModelRegistry(ModelRegistry):
             "task_description": task_description,
             "metrics": metrics,
             "model_path": model_path,
-            "config": config
+            "config": config,
+            "published": False # 社会学習のためのフラグ
         }
         if model_id not in self.models:
             self.models[model_id] = []
-        self.models[model_id].append(new_model_info)
+        # 同じモデルIDのエントリは上書きする
+        self.models[model_id] = [new_model_info]
         self._save()
         print(f"Model for task '{model_id}' registered at '{model_path}'.")
 
     async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
+        # ... (変更なし)
         if task_description in self.models:
             models_for_task = self.models[task_description]
             
@@ -104,7 +112,9 @@ class SimpleModelRegistry(ModelRegistry):
             return resolved_models
         return []
 
+
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
+        # ... (変更なし)
         models = self.models.get(model_id)
         if models:
             model_info = models[0] 
@@ -116,6 +126,7 @@ class SimpleModelRegistry(ModelRegistry):
         return None
 
     async def list_models(self) -> List[Dict[str, Any]]:
+        # ... (変更なし)
         all_models = []
         for model_id, model_list in self.models.items():
             for model_info in model_list:
@@ -123,18 +134,22 @@ class SimpleModelRegistry(ModelRegistry):
                 all_models.append(model_info_with_id)
         return all_models
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 class DistributedModelRegistry(SimpleModelRegistry):
     """
     ファイルロックを使用して、複数のプロセスからの安全なアクセスを保証する
-    分散環境向けのモデルレジストリ。
+    分散環境向けのモデルレジストリ。社会学習機能も持つ。
     """
-    def __init__(self, registry_path: str = "runs/model_registry.json", timeout: int = 10):
+    def __init__(self, registry_path: str = "runs/model_registry.json", timeout: int = 10, shared_skill_dir: str = "runs/shared_skills"):
         super().__init__(registry_path)
         self.timeout = timeout
+        self.shared_skill_dir = Path(shared_skill_dir)
+        self.shared_skill_dir.mkdir(parents=True, exist_ok=True)
 
     def _load(self) -> Dict[str, List[Dict[str, Any]]]:
+        # ... (変更なし)
         start_time = time.time()
+        # ファイルが存在しない場合でもエラーにならないように 'a+' を使用
         with open(self.registry_path, 'a+', encoding='utf-8') as f:
             while time.time() - start_time < self.timeout:
                 try:
@@ -147,10 +162,15 @@ class DistributedModelRegistry(SimpleModelRegistry):
                     return json.loads(content)
                 except (IOError, BlockingIOError):
                     time.sleep(0.1)
+                except json.JSONDecodeError:
+                    # ファイルが空の場合や破損している場合
+                    return {}
             raise IOError("レジストリの読み取りロックの取得に失敗しました。")
         return {}
 
+
     def _save(self) -> None:
+        # ... (変更なし)
         start_time = time.time()
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.registry_path, 'w', encoding='utf-8') as f:
@@ -166,7 +186,68 @@ class DistributedModelRegistry(SimpleModelRegistry):
             raise IOError("レジストリの書き込みロックの取得に失敗しました。")
 
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
-        # ロックを含む_loadと_saveを使用するために、処理全体を再実装
         self.models = self._load()
         await super().register_model(model_id, task_description, metrics, model_path, config)
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾◾️◾️◾️◾️◾️
+
+    async def publish_skill(self, model_id: str) -> bool:
+        """学習済みスキル（モデルファイル）を共有ディレクトリに公開する。"""
+        self.models = self._load()
+        model_info_list = self.models.get(model_id)
+        if not model_info_list:
+            print(f"❌ 公開失敗: モデル '{model_id}' は登録されていません。")
+            return False
+        
+        model_info = model_info_list[0]
+        src_path = Path(model_info['model_path'])
+        if not src_path.exists():
+            print(f"❌ 公開失敗: モデルファイルが見つかりません: {src_path}")
+            return False
+
+        dest_path = self.shared_skill_dir / f"{model_id}.pth"
+        shutil.copy(src_path, dest_path)
+        
+        model_info['published'] = True
+        model_info['shared_path'] = str(dest_path)
+        self._save()
+        print(f"🌍 スキル '{model_id}' を共有ディレクトリに公開しました: {dest_path}")
+        return True
+
+    async def download_skill(self, model_id: str, destination_dir: str) -> Dict[str, Any] | None:
+        """共有されているスキルをダウンロードし、ローカルに登録する。"""
+        self.models = self._load()
+        # 他のエージェントが公開したスキルを探す
+        # ここでは簡略化のため、自身のレジストリからpublished=Trueのものを探す
+        all_published = [
+            {'model_id': mid, **info}
+            for mid, info_list in self.models.items()
+            for info in info_list if info.get('published')
+        ]
+        
+        target_skill = next((s for s in all_published if s['model_id'] == model_id), None)
+
+        if not target_skill or not target_skill.get('shared_path'):
+            print(f"❌ ダウンロード失敗: 共有スキル '{model_id}' が見つかりません。")
+            return None
+
+        src_path = Path(target_skill['shared_path'])
+        if not src_path.exists():
+            print(f"❌ ダウンロード失敗: 共有ファイルが見つかりません: {src_path}")
+            return None
+
+        dest_path = Path(destination_dir) / f"{model_id}.pth"
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src_path, dest_path)
+
+        # ダウンロードしたスキルを自身のレジストリに登録
+        new_local_info = target_skill.copy()
+        new_local_info['model_path'] = str(dest_path)
+        
+        await self.register_model(
+            model_id=model_id,
+            task_description=new_local_info['task_description'],
+            metrics=new_local_info['metrics'],
+            model_path=new_local_info['model_path'],
+            config=new_local_info['config']
+        )
+        print(f"✅ スキル '{model_id}' をダウンロードし、ローカルに登録しました: {dest_path}")
+        return new_local_info
