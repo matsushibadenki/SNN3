@@ -1,6 +1,7 @@
-# matsushibadenki/snn3/run_planner.py
+# matsushibadenki/snn3/SNN3-main/run_planner.py
 # Phase 3: 高次認知アーキテクチャの実行インターフェース
 # 改善点: プランナーに必要な依存関係(RAGSystem, ModelRegistry)を初期化するように修正。
+# 修正点: 依存関係の二重初期化をなくし、DIコンテナで生成されたインスタンスを正しく使用するように修正。
 
 import argparse
 import asyncio
@@ -33,34 +34,22 @@ def main():
 
     args = parser.parse_args()
 
-    # DIコンテナを初期化し、依存関係が注入済みのプランナーを取得
+    # DIコンテナを初期化し、依存関係が注入済みのコンポーネントを取得
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    # model_configは直接プランナーに関係ないが、念のため読み込む
     container.config.from_yaml("configs/models/small.yaml") 
     
     planner = container.hierarchical_planner()
+    rag_system = container.rag_system()
     
     # RAGの知識ベースを構築（存在しない場合）
-    rag_system = container.rag_system()
     if not rag_system.vector_store:
         print("知識ベースが存在しないため、初回構築を行います...")
         rag_system.setup_vector_store()
 
-
-    # --- 依存関係の構築 ---
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    # 知識ベースがなければ構築する
-    if not rag_system.vector_store:
-        print("知識ベースが存在しないため、初回構築を行います...")
-        rag_system.setup_vector_store()
-
-    # --- 階層的プランナーを初期化 ---
-    planner = HierarchicalPlanner(
-        model_registry=model_registry,
-        rag_system=rag_system
-    )
+    # --- ◾️◾️◾️◾️◾️↓修正↓◾️◾️◾️◾️◾️ ---
+    # 依存関係の重複した手動初期化を削除。コンテナから取得したものを利用する。
+    # --- ◾️◾️◾️◾️◾️↑修正↑◾️◾️◾️◾️◾️ ---
 
     # --- プランナーにタスク処理を依頼 ---
     final_result = planner.execute_task(
