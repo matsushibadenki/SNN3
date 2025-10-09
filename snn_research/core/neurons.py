@@ -32,6 +32,9 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         base_threshold: float = 1.0,
         adaptation_strength: float = 0.1,
         target_spike_rate: float = 0.02,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        noise_intensity: float = 0.0,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ):
         super().__init__()
         self.features = features
@@ -43,6 +46,9 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.base_threshold = nn.Parameter(torch.full((features,), base_threshold))
         self.adaptation_strength = adaptation_strength
         self.target_spike_rate = target_spike_rate
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.noise_intensity = noise_intensity
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # Surrogate gradient function
         self.surrogate_function = surrogate.ATan(alpha=2.0)
@@ -84,6 +90,12 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         # Update membrane potential (BPTT-friendly)
         self.mem = self.mem * self.mem_decay + x
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 確率的アンサンブルのためのノイズ注入
+        if self.training and self.noise_intensity > 0:
+            self.mem += torch.randn_like(self.mem) * self.noise_intensity
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
         # Calculate current total threshold
         current_threshold = self.base_threshold + self.adaptive_threshold
 
