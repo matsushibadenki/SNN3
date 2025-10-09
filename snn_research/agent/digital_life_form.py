@@ -13,6 +13,9 @@
 #
 # 改善点 (v2):
 # - 依存性注入に対応するため、__init__メソッドで必要なコンポーネントを受け取るように変更。
+#
+# 改善点 (v3):
+# - self.state の型ヒントを明示し、mypyエラーを修正。
 
 import time
 import logging
@@ -63,7 +66,9 @@ class DigitalLifeForm:
         self.app_container = app_container
         
         self.running = False
-        self.state = {"last_action": None}
+        # mypyエラー修正: 型ヒントを明示的に指定
+        self.state: Dict[str, Any] = {"last_action": None, "last_result": None}
+
 
     def start(self):
         self.running = True
@@ -95,12 +100,13 @@ class DigitalLifeForm:
             decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
             self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
             
-            dummy_prediction_error = result.get("prediction_error", 0.1)
-            dummy_success_rate = result.get("success_rate", 0.9)
+            # 以下はダミーのメトリクス更新
+            dummy_prediction_error = result.get("prediction_error", 0.1) if isinstance(result, dict) else 0.1
+            dummy_success_rate = result.get("success_rate", 0.9) if isinstance(result, dict) else 0.9
             dummy_task_similarity = 0.8
-            dummy_loss = result.get("loss", 0.05)
-            dummy_time = result.get("computation_time", 1.0)
-            dummy_accuracy = result.get("accuracy", 0.95)
+            dummy_loss = result.get("loss", 0.05) if isinstance(result, dict) else 0.05
+            dummy_time = result.get("computation_time", 1.0) if isinstance(result, dict) else 1.0
+            dummy_accuracy = result.get("accuracy", 0.95) if isinstance(result, dict) else 0.95
 
             self.motivation_system.update_metrics(dummy_prediction_error, dummy_success_rate, dummy_task_similarity, dummy_loss)
             self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
@@ -112,7 +118,7 @@ class DigitalLifeForm:
             time.sleep(10)
 
     def _decide_next_action(self, internal_state: Dict[str, float], performance_eval: Dict[str, Any], physical_rewards: Dict[str, float]) -> str:
-        action_scores = {
+        action_scores: Dict[str, float] = {
             "acquire_new_knowledge": 0.0,
             "evolve_architecture": 0.0,
             "explore_new_task_with_rl": 0.0,
@@ -120,26 +126,26 @@ class DigitalLifeForm:
             "practice_skill_with_rl": 0.0,
         }
 
-        if performance_eval["status"] == "knowledge_gap":
+        if performance_eval.get("status") == "knowledge_gap":
             action_scores["acquire_new_knowledge"] += 10.0
             logging.info("Decision reason: Knowledge gap detected.")
         
-        if performance_eval["status"] == "capability_gap":
+        if performance_eval.get("status") == "capability_gap":
             action_scores["evolve_architecture"] += 5.0
             logging.info("Decision reason: Capability gap detected.")
         if physical_rewards.get("sparsity_reward", 1.0) < 0.5:
             action_scores["evolve_architecture"] += 8.0
             logging.info("Decision reason: Low energy efficiency (sparsity).")
 
-        action_scores["explore_new_task_with_rl"] += internal_state["curiosity"] * 5.0
-        action_scores["plan_and_execute"] += internal_state["curiosity"] * 3.0
+        action_scores["explore_new_task_with_rl"] += internal_state.get("curiosity", 0.5) * 5.0
+        action_scores["plan_and_execute"] += internal_state.get("curiosity", 0.5) * 3.0
         
-        if internal_state["boredom"] > 0.7:
-            action_scores["explore_new_task_with_rl"] += internal_state["boredom"] * 10.0
+        if internal_state.get("boredom", 0.0) > 0.7:
+            action_scores["explore_new_task_with_rl"] += internal_state.get("boredom", 0.0) * 10.0
             logging.info("Decision reason: High boredom.")
 
-        action_scores["practice_skill_with_rl"] += internal_state["confidence"] * 2.0
-        action_scores["explore_new_task_with_rl"] += internal_state["confidence"] * 1.0
+        action_scores["practice_skill_with_rl"] += internal_state.get("confidence", 0.5) * 2.0
+        action_scores["explore_new_task_with_rl"] += internal_state.get("confidence", 0.5) * 1.0
 
         action_scores["practice_skill_with_rl"] += 1.0
 
@@ -160,7 +166,7 @@ class DigitalLifeForm:
 
         return chosen_action
 
-    def _execute_action(self, action):
+    def _execute_action(self, action: str) -> tuple[Dict[str, Any], float, List[str]]:
         try:
             if action == "acquire_new_knowledge":
                 result_str = self.autonomous_agent.learn_from_web("latest SNN research trends")
@@ -188,26 +194,32 @@ class DigitalLifeForm:
             if not self.running:
                 break
             print(f"\n----- Cycle {i+1}/{cycles} -----")
-            internal_state = self.motivation_system.get_internal_state()
-            performance_eval = self.meta_cognitive_snn.evaluate_performance()
-            dummy_mem_sequence = torch.randn(100)
-            dummy_spikes = (torch.rand(100) > 0.8).float()
-            physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
-            action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
-            result, reward, expert_used = self._execute_action(action)
-            
-            reward_vector = {"external": reward, "physical": physical_rewards}
-            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
-            self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
-            
-            self.motivation_system.update_metrics(0.1, 0.9, 0.8, 0.05)
-            self.meta_cognitive_snn.update_metadata(0.05, 1.0, 0.95)
-            self.state = {"last_action": action, "last_result": result}
-            
-            logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
+            self.life_cycle_step() # 1サイクル分の処理を呼び出し
             time.sleep(2)
         self.stop()
         print("🧬 Awareness loop finished.")
+    
+    def life_cycle_step(self):
+        """life_cycleの1回分の処理"""
+        internal_state = self.motivation_system.get_internal_state()
+        performance_eval = self.meta_cognitive_snn.evaluate_performance()
+        dummy_mem_sequence = torch.randn(100)
+        dummy_spikes = (torch.rand(100) > 0.8).float()
+        physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
+        action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
+        result, reward, expert_used = self._execute_action(action)
+        
+        reward_vector = {"external": reward, "physical": physical_rewards}
+        decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
+        self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
+        
+        # メトリクス更新
+        if isinstance(result, dict):
+            self.motivation_system.update_metrics(result.get("prediction_error", 0.1), result.get("success_rate", 0.9), 0.8, result.get("loss", 0.05))
+            self.meta_cognitive_snn.update_metadata(result.get("loss", 0.05), result.get("computation_time", 1.0), result.get("accuracy", 0.95))
+
+        self.state = {"last_action": action, "last_result": result}
+        logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
 
     def explain_last_action(self) -> Optional[str]:
         """
@@ -215,9 +227,12 @@ class DigitalLifeForm:
         """
         try:
             with open(self.memory.memory_path, "rb") as f:
-                f.seek(-2, 2)
-                while f.read(1) != b'\n':
-                    f.seek(-2, 1)
+                try:
+                    f.seek(-2, 2)
+                    while f.read(1) != b'\n':
+                        f.seek(-2, 1)
+                except OSError:
+                    f.seek(0)
                 last_line = f.readline().decode()
             
             last_experience = json.loads(last_line)
