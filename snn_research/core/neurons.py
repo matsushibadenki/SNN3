@@ -17,13 +17,6 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     """
     Adaptive Leaky Integrate-and-Fire (LIF) neuron with threshold adaptation.
     Designed for vectorized operations and to be BPTT-friendly.
-
-    Args:
-        features (int): Number of neurons in the layer.
-        tau_mem (float): Membrane time constant.
-        base_threshold (float): Initial and base value for the firing threshold.
-        adaptation_strength (float): How much a spike increases the threshold.
-        target_spike_rate (float): Target spike rate for homeostatic regulation.
     """
     def __init__(
         self,
@@ -36,26 +29,18 @@ class AdaptiveLIFNeuron(base.MemoryModule):
     ):
         super().__init__()
         self.features = features
-        
-        # Time constants and decay rates
         self.mem_decay = math.exp(-1.0 / tau_mem)
-
-        # Base threshold can be a learnable parameter
         self.base_threshold = nn.Parameter(torch.full((features,), base_threshold))
         self.adaptation_strength = adaptation_strength
         self.target_spike_rate = target_spike_rate
         self.noise_intensity = noise_intensity
-        
-        # Surrogate gradient function
         self.surrogate_function = surrogate.ATan(alpha=2.0)
 
         self.register_buffer("mem", None)
         self.register_buffer("adaptive_threshold", None)
         self.register_buffer("spikes", torch.zeros(features))
-        
-        # 【追加】総スパイク数を追跡 (指示4)
         self.register_buffer("total_spikes", torch.tensor(0.0))
-        self.stateful = False  # 状態を保持するかどうか (指示3)
+        self.stateful = False
 
     def set_stateful(self, stateful: bool):
         """時系列データの処理モードを設定"""
@@ -72,9 +57,7 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.total_spikes.zero_()
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Processes one timestep of input current.
-        """
+        """Processes one timestep of input current."""
         if not self.stateful:
             self.mem = None
             self.adaptive_threshold = None
@@ -90,7 +73,6 @@ class AdaptiveLIFNeuron(base.MemoryModule):
             self.mem += torch.randn_like(self.mem) * self.noise_intensity
 
         current_threshold = self.base_threshold + self.adaptive_threshold
-
         spike = self.surrogate_function(self.mem - current_threshold)
         
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
@@ -133,7 +115,6 @@ class IzhikevichNeuron(base.MemoryModule):
         self.b = b
         self.c = c
         self.d = d
-        
         self.v_peak = 30.0
         self.surrogate_function = surrogate.ATan(alpha=2.0)
 
