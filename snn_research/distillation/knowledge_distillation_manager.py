@@ -7,7 +7,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from typing import Dict, Any, Optional, List, TYPE_CHECKING, cast
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import asyncio
 import os
 import json
@@ -173,11 +175,10 @@ class KnowledgeDistillationManager:
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config'):
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_config_resolved = OmegaConf.to_container(self.student_model.config, resolve=True)
-                if isinstance(student_config_resolved, Dict):
-                    student_config = student_config_resolved
-                else:
-                     raise ValueError("Could not resolve student_config to a dictionary.")
+                student_config = cast(Dict[str, Any], student_config_resolved)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
@@ -202,7 +203,7 @@ class KnowledgeDistillationManager:
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 学習エポック数を30から50に増やし、学習精度を向上させる
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
@@ -212,7 +213,7 @@ class KnowledgeDistillationManager:
             task_description=f"Expert for {task_description}",
             student_config=student_config
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return new_model_info
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
