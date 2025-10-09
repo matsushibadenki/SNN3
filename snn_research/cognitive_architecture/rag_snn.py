@@ -1,4 +1,4 @@
-# snn_research/cognitive_architecture/rag_snn.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/rag_snn.py
 #
 # Phase 3: RAG-SNN (Retrieval-Augmented Generation) システム
 #
@@ -6,6 +6,11 @@
 # - ROADMAPフェーズ7に基づき、ナレッジグラフとしての機能を追加。
 # - add_relationshipメソッドを実装し、概念間の関係性を
 #   構造化テキストとしてベクトルストアに追加できるようにした。
+#
+# 改善点 (v2):
+# - ROADMAPフェーズ3「因果ナレッジグラフ」に基づき、
+#   `add_causal_relationship`メソッドを追加。
+#   これにより、「A causes B」のような因果関係をより明確に表現できるようになる。
 
 import os
 from typing import List, Optional
@@ -87,7 +92,6 @@ class RAGSystem:
         results = self.vector_store.similarity_search(query, k=k)
         return [doc.page_content for doc in results]
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def add_relationship(self, source_concept: str, relation: str, target_concept: str):
         """
         概念間の関係性をナレッジグラフ（ベクトルストア）に追加する。
@@ -106,4 +110,22 @@ class RAGSystem:
         # 更新をディスクに保存
         self.vector_store.save_local(self.vector_store_path)
         print(f"📈 ナレッジグラフ更新: 「{relationship_text}」")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    def add_causal_relationship(self, cause: str, effect: str, condition: Optional[str] = None):
+        """
+        概念間の因果関係をナレッジグラフに追加する。
+        """
+        if self.vector_store is None:
+            self.setup_vector_store()
+            if self.vector_store is None:
+                self.vector_store = FAISS.from_texts([], self.embedding_model)
+
+        if condition:
+            causal_text = f"Causal Relation: Under condition '{condition}', the event '{cause}' leads to the effect '{effect}'."
+        else:
+            causal_text = f"Causal Relation: The event '{cause}' directly leads to the effect '{effect}'."
+        
+        doc = Document(page_content=causal_text, metadata={"source": "causal_inference"})
+        self.vector_store.add_documents([doc])
+        self.vector_store.save_local(self.vector_store_path)
+        print(f"🔗 因果関係を記録: 「{causal_text}」")
