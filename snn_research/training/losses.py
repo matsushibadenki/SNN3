@@ -185,3 +185,39 @@ class PlannerLoss(nn.Module):
         loss = self.loss_fn(predicted_logits, target)
         
         return {'total': loss, 'planner_loss': loss}
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+class ProbabilisticEnsembleLoss(nn.Module):
+    """
+    確率的アンサンブル学習のための損失関数。
+    出力のばらつきを抑制する正則化項を持つ。
+    """
+    def __init__(self, ce_weight: float, variance_reg_weight: float, tokenizer: PreTrainedTokenizerBase, **kwargs):
+        super().__init__()
+        pad_id = tokenizer.pad_token_id
+        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id if pad_id is not None else -100)
+        self.weights = {'ce': ce_weight, 'variance_reg': variance_reg_weight}
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor, spikes: torch.Tensor, mem: torch.Tensor, model: nn.Module, **kwargs) -> dict:
+        # logitsは (ensemble_size, batch_size, seq_len, vocab_size) の形状を想定
+        
+        # 1. クロスエントロピー損失
+        # アンサンブル全体で平均したロジットでCE損失を計算
+        mean_logits = logits.mean(dim=0)
+        ce_loss = self.ce_loss_fn(mean_logits.view(-1, mean_logits.size(-1)), targets.view(-1))
+        
+        # 2. 分散正則化損失
+        # アンサンブル間の出力のばらつき（分散）をペナルティとする
+        # softmax後の確率分布の分散を計算
+        probs = F.softmax(logits, dim=-1)
+        variance = probs.var(dim=0).mean()
+        variance_reg_loss = variance
+        
+        total_loss = (self.weights['ce'] * ce_loss + 
+                      self.weights['variance_reg'] * variance_reg_loss)
+        
+        return {
+            'total': total_loss, 'ce_loss': ce_loss,
+            'variance_reg_loss': variance_reg_loss
+        }
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
