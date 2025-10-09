@@ -16,13 +16,16 @@
 #
 # 改善点 (v3):
 # - self.state の型ヒントを明示し、mypyエラーを修正。
+#
+# 改善点 (v4):
+# - mypyエラー Name "List" is not defined を修正するため、Listをインポート。
 
 import time
 import logging
 import torch
 import random
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List # Listをインポート
 
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
@@ -81,41 +84,45 @@ class DigitalLifeForm:
 
     def life_cycle(self):
         while self.running:
-            internal_state = self.motivation_system.get_internal_state()
-            performance_eval = self.meta_cognitive_snn.evaluate_performance()
-            dummy_mem_sequence = torch.randn(100)
-            dummy_spikes = (torch.rand(100) > 0.8).float()
-            physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
-            
-            action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
-            
-            result, external_reward, expert_used = self._execute_action(action)
-
-            self.symbol_grounding.process_observation(result, context=f"action '{action}'")
-            
-            reward_vector = {
-                "external": external_reward,
-                "physical": physical_rewards
-            }
-            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
-            self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
-            
-            # 以下はダミーのメトリクス更新
-            dummy_prediction_error = result.get("prediction_error", 0.1) if isinstance(result, dict) else 0.1
-            dummy_success_rate = result.get("success_rate", 0.9) if isinstance(result, dict) else 0.9
-            dummy_task_similarity = 0.8
-            dummy_loss = result.get("loss", 0.05) if isinstance(result, dict) else 0.05
-            dummy_time = result.get("computation_time", 1.0) if isinstance(result, dict) else 1.0
-            dummy_accuracy = result.get("accuracy", 0.95) if isinstance(result, dict) else 0.95
-
-            self.motivation_system.update_metrics(dummy_prediction_error, dummy_success_rate, dummy_task_similarity, dummy_loss)
-            self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
-            self.state = {"last_action": action, "last_result": result}
-            
-            logging.info(f"Action: {action}, Result: {result}, Reward: {external_reward}")
-            logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
-            
+            self.life_cycle_step()
             time.sleep(10)
+    
+    def life_cycle_step(self):
+        """life_cycleの1回分の処理"""
+        internal_state = self.motivation_system.get_internal_state()
+        performance_eval = self.meta_cognitive_snn.evaluate_performance()
+        dummy_mem_sequence = torch.randn(100)
+        dummy_spikes = (torch.rand(100) > 0.8).float()
+        physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
+        
+        action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
+        
+        result, external_reward, expert_used = self._execute_action(action)
+
+        if isinstance(result, dict):
+            self.symbol_grounding.process_observation(result, context=f"action '{action}'")
+        
+        reward_vector = {
+            "external": external_reward,
+            "physical": physical_rewards
+        }
+        decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
+        self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
+        
+        # ダミーのメトリクス更新
+        dummy_prediction_error = result.get("prediction_error", 0.1) if isinstance(result, dict) else 0.1
+        dummy_success_rate = result.get("success_rate", 0.9) if isinstance(result, dict) else 0.9
+        dummy_task_similarity = 0.8
+        dummy_loss = result.get("loss", 0.05) if isinstance(result, dict) else 0.05
+        dummy_time = result.get("computation_time", 1.0) if isinstance(result, dict) else 1.0
+        dummy_accuracy = result.get("accuracy", 0.95) if isinstance(result, dict) else 0.95
+
+        self.motivation_system.update_metrics(dummy_prediction_error, dummy_success_rate, dummy_task_similarity, dummy_loss)
+        self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
+        self.state = {"last_action": action, "last_result": result}
+        
+        logging.info(f"Action: {action}, Result: {str(result)[:200]}, Reward: {external_reward}")
+        logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
 
     def _decide_next_action(self, internal_state: Dict[str, float], performance_eval: Dict[str, Any], physical_rewards: Dict[str, float]) -> str:
         action_scores: Dict[str, float] = {
@@ -194,32 +201,10 @@ class DigitalLifeForm:
             if not self.running:
                 break
             print(f"\n----- Cycle {i+1}/{cycles} -----")
-            self.life_cycle_step() # 1サイクル分の処理を呼び出し
+            self.life_cycle_step()
             time.sleep(2)
         self.stop()
         print("🧬 Awareness loop finished.")
-    
-    def life_cycle_step(self):
-        """life_cycleの1回分の処理"""
-        internal_state = self.motivation_system.get_internal_state()
-        performance_eval = self.meta_cognitive_snn.evaluate_performance()
-        dummy_mem_sequence = torch.randn(100)
-        dummy_spikes = (torch.rand(100) > 0.8).float()
-        physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
-        action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
-        result, reward, expert_used = self._execute_action(action)
-        
-        reward_vector = {"external": reward, "physical": physical_rewards}
-        decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
-        self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
-        
-        # メトリクス更新
-        if isinstance(result, dict):
-            self.motivation_system.update_metrics(result.get("prediction_error", 0.1), result.get("success_rate", 0.9), 0.8, result.get("loss", 0.05))
-            self.meta_cognitive_snn.update_metadata(result.get("loss", 0.05), result.get("computation_time", 1.0), result.get("accuracy", 0.95))
-
-        self.state = {"last_action": action, "last_result": result}
-        logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
 
     def explain_last_action(self) -> Optional[str]:
         """
