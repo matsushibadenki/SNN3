@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn_research/agent/digital_life_form.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn_research/agent/digital_life_form.py
 #
 # DigitalLifeForm オーケストレーター
 #
@@ -10,6 +10,9 @@
 #   「なぜその行動を取ったのか」を自然言語で説明する`explain_last_action`メソッドを追加。
 # - ROADMAPフェーズ7「記号創発」を実装。
 # - SymbolGroundingモジュールを統合し、未知の経験から新しい概念を自律的に生成する機能を追加。
+#
+# 改善点 (v2):
+# - 依存性注入に対応するため、__init__メソッドで必要なコンポーネントを受け取るように変更。
 
 import time
 import logging
@@ -22,19 +25,12 @@ from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMo
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
-from app.containers import AppContainer # LangChainアダプタ取得用
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-# 各エージェントのインポート
+from app.containers import AppContainer
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
-from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
-from snn_research.distillation.model_registry import SimpleModelRegistry
-from snn_research.tools.web_crawler import WebCrawler
-from snn_research.cognitive_architecture.rag_snn import RAGSystem
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -44,43 +40,27 @@ class DigitalLifeForm:
     内発的動機付けシステムとメタ認知SNNを統合し、
     永続的で自己駆動する学習ループを実現するオーケストレーター。
     """
-    def __init__(self):
-        self.motivation_system = IntrinsicMotivationSystem()
-        self.meta_cognitive_snn = MetaCognitiveSNN()
-        self.memory = Memory()
-        self.physics_evaluator = PhysicsEvaluator()
-        
-        # 具象クラスで依存関係を解決
-        model_registry = SimpleModelRegistry()
-        rag_system = RAGSystem()
-        web_crawler = WebCrawler()
-        
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.symbol_grounding = SymbolGrounding(rag_system)
-        
-        # LangChain連携のためのDIコンテナ
-        self.app_container = AppContainer()
-        self.app_container.config.from_yaml("configs/base_config.yaml")
-        self.app_container.config.from_yaml("configs/models/small.yaml")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        
-        # 依存関係を注入してプランナーを作成
-        planner = HierarchicalPlanner(
-            model_registry=model_registry,
-            rag_system=rag_system,
-            planner_model=None
-        )
-        
-        # 各種エージェントのインスタンス化
-        self.autonomous_agent = AutonomousAgent(name="AutonomousAgent", planner=planner, model_registry=model_registry, memory=self.memory, web_crawler=web_crawler)
-        self.rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu")
-        self.self_evolving_agent = SelfEvolvingAgent(
-            name="SelfEvolvingAgent",
-            planner=planner,
-            model_registry=model_registry,
-            memory=self.memory,
-            web_crawler=web_crawler
-        )
+    def __init__(
+        self,
+        autonomous_agent: AutonomousAgent,
+        rl_agent: ReinforcementLearnerAgent,
+        self_evolving_agent: SelfEvolvingAgent,
+        motivation_system: IntrinsicMotivationSystem,
+        meta_cognitive_snn: MetaCognitiveSNN,
+        memory: Memory,
+        physics_evaluator: PhysicsEvaluator,
+        symbol_grounding: SymbolGrounding,
+        app_container: AppContainer
+    ):
+        self.autonomous_agent = autonomous_agent
+        self.rl_agent = rl_agent
+        self.self_evolving_agent = self_evolving_agent
+        self.motivation_system = motivation_system
+        self.meta_cognitive_snn = meta_cognitive_snn
+        self.memory = memory
+        self.physics_evaluator = physics_evaluator
+        self.symbol_grounding = symbol_grounding
+        self.app_container = app_container
         
         self.running = False
         self.state = {"last_action": None}
@@ -106,8 +86,6 @@ class DigitalLifeForm:
             
             result, external_reward, expert_used = self._execute_action(action)
 
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            # 経験から新しいシンボルを創発させる
             self.symbol_grounding.process_observation(result, context=f"action '{action}'")
             
             reward_vector = {
@@ -116,7 +94,6 @@ class DigitalLifeForm:
             }
             decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
             self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             dummy_prediction_error = result.get("prediction_error", 0.1)
             dummy_success_rate = result.get("success_rate", 0.9)
@@ -232,14 +209,13 @@ class DigitalLifeForm:
         self.stop()
         print("🧬 Awareness loop finished.")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def explain_last_action(self) -> Optional[str]:
         """
         直近の行動ログを基に、自身の行動理由を自然言語で説明する。
         """
         try:
             with open(self.memory.memory_path, "rb") as f:
-                f.seek(-2, 2)  # Go to the end of the file
+                f.seek(-2, 2)
                 while f.read(1) != b'\n':
                     f.seek(-2, 1)
                 last_line = f.readline().decode()
@@ -248,7 +224,6 @@ class DigitalLifeForm:
         except (IOError, json.JSONDecodeError, IndexError):
             return "行動履歴が見つかりません。"
 
-        # LLMへのプロンプトを構築
         prompt = f"""
         あなたは、自身の行動を分析し、その理由を分かりやすく説明するAIです。
         以下の内部ログは、あなた自身の直近の行動記録です。この記録を基に、なぜその行動を取ったのかを一人称（「私」）で説明してください。
@@ -268,11 +243,9 @@ class DigitalLifeForm:
         print("--------------------------\n")
 
         try:
-            # LangChainアダプタ経由でLLMに問い合わせ
             snn_llm = self.app_container.langchain_adapter()
             explanation = snn_llm._call(prompt)
             return explanation
         except Exception as e:
             logging.error(f"LLMによる自己言及の生成に失敗しました: {e}")
             return "エラー: 自己言及の生成に失敗しました。"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
