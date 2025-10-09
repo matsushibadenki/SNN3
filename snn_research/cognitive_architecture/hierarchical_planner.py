@@ -2,21 +2,9 @@
 #
 # Title: 階層型プランナー
 #
-# Description: 高レベルの目標を、実行可能なサブタスクのシーケンスに分解するプランナー。
-#              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
-#              mypyエラー修正: 存在しない`registry`属性へのアクセスを削除。
-#              mypyエラー修正: planner_modelをOptionalに変更。
-#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、execute_taskメソッドを追加。
-# 改善点: ハードコードされた計画立案ロジックを、学習済みPlannerSNNを利用する形式に置き換え。
-#         Tokenizerをコンストラクタで受け取るように変更。
-# mypyエラー修正: .item()が返す型の曖昧さを解消するため、int()でキャストする。
-# 改善点: RAGSystemを統合し、ドキュメント検索による文脈生成機能を追加。
-# mypyエラー修正: asyncioをインポート。
-# 改善点: ルールベースのプランニングに日本語キーワードを追加。
-#
 # 改善点:
-# - ROADMAPフェーズ7に基づき、RAGSystemのナレッジグラフ機能を利用した
-#   記号推論による計画立案を行うように修正。
+# - ROADMAPフェーズ8に基づき、協調的タスク解決のための`refine_plan`メソッドを実装。
+# - タスク失敗時に、代替となる専門家（協力者）を提案する機能を追加。
 
 from typing import List, Dict, Any, Optional
 import torch
@@ -70,7 +58,6 @@ class HierarchicalPlanner:
             4: {"task": "general_qa", "description": "Answer a general question.", "expert_id": "general_snn_v3"},
         }
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def create_plan(self, high_level_goal: str, context: Optional[str] = None) -> Plan:
         """
         目標に基づいて計画を作成する。PlannerSNNが利用可能であればそれを使用する。
@@ -118,6 +105,31 @@ class HierarchicalPlanner:
 
         print(f"✅ Plan created with {len(task_list)} step(s).")
         return Plan(goal=high_level_goal, task_list=task_list)
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    async def refine_plan(self, failed_task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        失敗したタスクの代替案（協力者）を提案する。
+        """
+        task_desc = failed_task.get("description", "")
+        print(f"🤔 Refining plan for failed task: {task_desc}")
+
+        # モデルレジストリで、同じタスクを解決できる別の専門家を検索
+        alternative_experts = await self.model_registry.find_models_for_task(task_desc, top_k=5)
+
+        # 元の専門家以外の候補を探す
+        original_expert_id = failed_task.get("expert_id")
+        for expert in alternative_experts:
+            if expert.get("model_id") != original_expert_id:
+                print(f"✅ Found alternative expert: {expert['model_id']}")
+                # 新しいタスク定義を作成して返す
+                new_task = failed_task.copy()
+                new_task["expert_id"] = expert["model_id"]
+                new_task["description"] = expert["task_description"]
+                return new_task
+        
+        print("❌ No alternative expert found.")
+        return None
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def execute_task(self, task_request: str, context: str) -> Optional[str]:
