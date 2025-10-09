@@ -11,9 +11,14 @@
 # - ROADMAPフェーズ8に基づき、エージェント間の協調行動を実装。
 # - タスク失敗時にプランナーに代替案を問い合わせ、別のエージェントに
 #   タスクを再割り当てするロジックを追加。
+#
+# 修正点:
+# - mypyエラー解消のため、`random`モジュールをインポート。
+# - mypyエラー解消のため、`expert_id`がNoneの場合の`in`演算子の使用を修正。
 
 import asyncio
 from typing import List, Dict, Any, TYPE_CHECKING
+import random
 
 from .global_workspace import GlobalWorkspace
 from .hierarchical_planner import HierarchicalPlanner
@@ -42,7 +47,6 @@ class EmergentCognitiveSystem:
         """
         return asyncio.run(self.execute_task_async(high_level_goal))
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def execute_task_async(self, high_level_goal: str) -> str:
         """非同期でタスク実行サイクルを処理する。協調的再計画ロジックを含む。"""
         print(f"--- Emergent System: Executing Goal: {high_level_goal} ---")
@@ -58,10 +62,11 @@ class EmergentCognitiveSystem:
         while task_queue:
             task = task_queue.pop(0)
             
-            # タスクに最適なエージェントを選択（ここでは簡略化し、専門家IDからエージェントを逆引き）
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️
             expert_id = task.get("expert_id")
-            # ダミー: 本来は専門家IDとエージェントのマッピングが必要
-            agent_name = "AutonomousAgent" if "expert" in expert_id else "web_crawler_agent" 
+            # expert_idに基づいてエージェントを割り当てる
+            agent_name = "web_crawler_agent" if expert_id == "web_crawler" else "AutonomousAgent"
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
             agent = self.agents.get(agent_name)
 
             if not agent:
@@ -99,7 +104,6 @@ class EmergentCognitiveSystem:
         self.global_workspace.broadcast("system", f"Goal '{high_level_goal}' completed. Final report generated.")
         print(f"--- Emergent System: Goal Execution Finished ---")
         return final_report
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _synthesize_results(self, results: List[str]) -> str:
         """
