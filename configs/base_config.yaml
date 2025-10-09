@@ -71,6 +71,11 @@ training:
     reward_modulated_stdp:
       tau_eligibility: 100.0
       learning_rate: 0.01
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    causal_trace:
+      tau_eligibility: 150.0
+      learning_rate: 0.01
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   self_supervised:
     learning_rate: 0.0008
@@ -94,6 +99,18 @@ training:
       ce_weight: 1.0
       spike_reg_weight: 0.01
       mem_smoothness_weight: 0.001
+  
+  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+  probabilistic_ensemble:
+    learning_rate: 0.0007
+    use_scheduler: true
+    grad_clip_norm: 1.0
+    warmup_epochs: 1
+    use_amp: true
+    loss:
+      ce_weight: 1.0
+      variance_reg_weight: 0.1
+  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   log_dir: "runs/snn_experiment"
   eval_interval: 1
