@@ -1,6 +1,7 @@
-# snn_research/learning_rules/stdp.py
+# matsushibadenki/snn3/SNN3-dc5882d7979aa870fe1f1a7070fcf860578cea33/snn_research/learning_rules/stdp.py
 # Title: STDP (Spike-Timing-Dependent Plasticity) 学習ルール
 # Description: 古典的なSTDPを実装します。
+# BugFix: ファイル末尾の不正な閉じ括弧を削除し、構文エラーを修正。
 
 import torch
 from typing import Dict, Any, Optional
