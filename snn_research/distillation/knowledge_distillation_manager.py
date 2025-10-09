@@ -2,14 +2,13 @@
 # タイトル: 知識蒸留マネージャー
 # BugFix: データセット側で入力とターゲットのペアを正しく作成するように修正し、
 #         collate_fnを簡素化することで、学習データの不整合問題を解消。
+# BugFix: ファイル内にあった不正な閉じ括弧を削除し、mypyの構文エラーを修正。
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoModelForCausalLM, AutoTokenizer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from typing import Dict, Any, Optional, List, TYPE_CHECKING, cast
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import asyncio
 import os
 import json
@@ -73,7 +72,6 @@ class KnowledgeDistillationManager:
                 )
                 input_ids = tokenized['input_ids'].squeeze(0)
                 
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # データセット側で正しい入力とターゲットのペアを作成する
                 student_input = input_ids[:-1]
                 student_target = input_ids[1:]
@@ -93,11 +91,9 @@ class KnowledgeDistillationManager:
                     'targets': student_target,
                     'teacher_logits': teacher_logits
                 }
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         dataset = _DistillationTextDataset(self.tokenizer, texts, max_length, self.teacher_model, self.device)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # collate_fnを簡素化し、データセットが返したものをスタックするだけにする
         def collate_fn(batch):
             input_ids = torch.stack([item['input_ids'] for item in batch])
@@ -105,7 +101,6 @@ class KnowledgeDistillationManager:
             targets = torch.stack([item['targets'] for item in batch])
             teacher_logits = torch.stack([item['teacher_logits'] for item in batch])
             return input_ids, attention_mask, targets, teacher_logits
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
 
@@ -175,10 +170,8 @@ class KnowledgeDistillationManager:
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config'):
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 student_config_resolved = OmegaConf.to_container(self.student_model.config, resolve=True)
                 student_config = cast(Dict[str, Any], student_config_resolved)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
@@ -203,7 +196,6 @@ class KnowledgeDistillationManager:
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 学習エポック数を30から50に増やし、学習精度を向上させる
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
@@ -213,7 +205,6 @@ class KnowledgeDistillationManager:
             task_description=f"Expert for {task_description}",
             student_config=student_config
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return new_model_info
 
     async def evaluate_model(self, dataloader: DataLoader) -> Dict[str, float]:
