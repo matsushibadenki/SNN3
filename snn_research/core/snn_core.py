@@ -13,7 +13,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from spikingjelly.activation_based import functional
+from spikingjelly.activation_based import functional # type: ignore
 from typing import Tuple, Dict, Any, Optional, List, Type, cast
 import math
 from omegaconf import DictConfig, OmegaConf
@@ -141,7 +141,7 @@ class BreakthroughSNN(BaseModel):
         self.input_encoder = nn.Linear(d_model, d_model)
         
         self.pc_layers = nn.ModuleList(
-            [PredictiveCodingLayer(d_model, d_state, AdaptiveLIFNeuron, {}) for _ in range(num_layers)]
+            [PredictiveCodingLayer(d_model, d_state, AdaptiveLIFNeuron, neuron_config if neuron_config is not None else {}) for _ in range(num_layers)]
         )
         self.output_projection = nn.Linear(d_state * num_layers, vocab_size)
         self._init_weights()
@@ -150,15 +150,14 @@ class BreakthroughSNN(BaseModel):
         batch_size, seq_len = input_ids.shape
         token_emb = self.token_embedding(input_ids)
         
-        states = [torch.zeros(batch_size, self.pc_layers[0].inference_neuron.features, device=input_ids.device) for _ in range(self.num_layers)]
+        inference_neuron = cast(AdaptiveLIFNeuron, self.pc_layers[0].inference_neuron)
+        states = [torch.zeros(batch_size, inference_neuron.features, device=input_ids.device) for _ in range(self.num_layers)]
         
         outputs = []
         for i in range(seq_len):
             embedded_token = self.input_encoder(token_emb[:, i, :])
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # functional.reset_net(self) # 不適切なリセットを削除
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             for t in range(self.time_steps):
                 bottom_up_input = embedded_token
                 for j in range(self.num_layers):
@@ -196,9 +195,7 @@ class SpikingTransformer(BaseModel):
         for i in range(seq_len):
             x_token = x_embed[:, i, :]
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # functional.reset_net(self) # 不適切なリセットを削除
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             for t in range(self.time_steps):
                 for layer in self.layers:
                     x_token = layer(x_token)
@@ -246,6 +243,7 @@ class SNNCore(nn.Module):
         self.model: nn.Module
         params: Dict[str, Any] = cast(Dict[str, Any], OmegaConf.to_container(self.config, resolve=True))
         params.pop('path', None)
+        neuron_config = params.pop('neuron', {})
 
         model_map = {
             "predictive_coding": BreakthroughSNN,
@@ -255,7 +253,7 @@ class SNNCore(nn.Module):
         if model_type not in model_map:
             raise ValueError(f"Unknown model type: {model_type}")
         
-        self.model = model_map[model_type](vocab_size=vocab_size, **params)
+        self.model = model_map[model_type](vocab_size=vocab_size, neuron_config=neuron_config, **params)
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         return self.model(*args, **kwargs)
