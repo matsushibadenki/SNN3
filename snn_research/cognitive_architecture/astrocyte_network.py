@@ -95,6 +95,7 @@ class AstrocyteNetwork:
                     print(f"    - 恒常性調整: 適応強度を変更します: {layer.adaptation_strength:.4f} -> {new_strength:.4f}")
                     layer.adaptation_strength = new_strength
                 
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # --- 動的ニューロン進化 ---
                 # LIFニューロンの活動が著しく低い場合、Izhikevichニューロンに進化させる
                 if long_term_rate < (target_rate * self.evolution_threshold):
@@ -123,3 +124,4 @@ class AstrocyteNetwork:
                         print(f"    - ✅ 成功: '{child_name}' は {target_class.__name__} に進化しました。")
                         return
         print(f"    - ❌ 失敗: モデル内で進化対象のニューロン層を置き換えられませんでした。")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
