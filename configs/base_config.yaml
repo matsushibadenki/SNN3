@@ -37,23 +37,17 @@ training:
     use_amp: true
     loss:
       ce_weight: 1.0
-      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-      # 【SNN能力向上】学習停滞を打破し、探索的な学習を促すためのパラメータ調整
-      spike_reg_weight: 0.001  # スパイク抑制を少し弱める
+      spike_reg_weight: 0.001
       sparsity_reg_weight: 0.0
-      mem_reg_weight: 0.00001 # 膜電位の抑制を少し弱める
-      # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+      mem_reg_weight: 0.00001
     distillation:
       teacher_model: "gpt2"
       loss:
         ce_weight: 0.3
         distill_weight: 0.7
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 【SNN能力向上】学習停滞を打破し、探索的な学習を促すためのパラメータ調整
-        spike_reg_weight: 0.001  # スパイク抑制を少し弱める
+        spike_reg_weight: 0.001
         sparsity_reg_weight: 0.0
-        mem_reg_weight: 0.00001 # 膜電位の抑制を少し弱める
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        mem_reg_weight: 0.00001
         temperature: 2.0
 
   biologically_plausible:
@@ -71,11 +65,9 @@ training:
     reward_modulated_stdp:
       tau_eligibility: 100.0
       learning_rate: 0.01
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     causal_trace:
       tau_eligibility: 150.0
       learning_rate: 0.01
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   self_supervised:
     learning_rate: 0.0008
@@ -100,7 +92,6 @@ training:
       spike_reg_weight: 0.01
       mem_smoothness_weight: 0.001
   
-  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
   probabilistic_ensemble:
     learning_rate: 0.0007
     use_scheduler: true
@@ -110,20 +101,21 @@ training:
     loss:
       ce_weight: 1.0
       variance_reg_weight: 0.1
-  # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   log_dir: "runs/snn_experiment"
   eval_interval: 1
   log_interval: 1
   
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 model_registry:
-  provider: file
+  provider: "file"  # "file" or "distributed"
   file:
     path: "runs/model_registry.json"
   redis:
     host: localhost
     port: 6379
     db: 0
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 app:
   server_name: "127.0.0.1"
