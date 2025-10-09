@@ -19,7 +19,7 @@ import math
 from omegaconf import DictConfig, OmegaConf
 
 # 外部ファイルからニューロンをインポート
-from .neurons import AdaptiveLIFNeuron
+from .neurons import AdaptiveLIFNeuron, IzhikevichNeuron
 
 # --- レイヤーとモジュール ---
 
@@ -45,15 +45,34 @@ class PredictiveCodingLayer(nn.Module):
         self.norm_error = SNNLayerNorm(d_model)
         self.error_scale = nn.Parameter(torch.ones(1))
 
+        # 【追加1】誤差の統計を追跡（Exponential Moving Average）(指示2)
+        self.register_buffer('error_mean', torch.zeros(1))
+        self.register_buffer('error_std', torch.ones(1))
+        self.error_momentum = 0.9
+
     def forward(self, bottom_up_input: torch.Tensor, top_down_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # 予測生成: 状態を正規化してから実行
+        # 予測生成
         prediction, _ = self.generative_neuron(self.generative_fc(self.norm_state(top_down_state)))
-        # 誤差計算: ReLUを削除し、学習可能なスケールを適用
-        prediction_error = (bottom_up_input - prediction) * self.error_scale
         
-        # 状態更新: 誤差を正規化してから実行
+        # 【追加2】生の誤差を計算 (指示2)
+        raw_error = bottom_up_input - prediction
+        
+        # 【追加3】学習時のみ統計を更新（推論時は固定値を使用）(指示2)
+        if self.training:
+            with torch.no_grad():
+                batch_mean = raw_error.mean()
+                batch_std = raw_error.std() + 1e-5
+                self.error_mean = self.error_momentum * self.error_mean + (1 - self.error_momentum) * batch_mean
+                self.error_std = self.error_momentum * self.error_std + (1 - self.error_momentum) * batch_std
+        
+        # 【追加4】正規化された誤差（勾配は保持）(指示2)
+        normalized_error = (raw_error - self.error_mean) / self.error_std
+        prediction_error = normalized_error * self.error_scale
+        
+        # 状態更新
         state_update, _ = self.inference_neuron(self.inference_fc(self.norm_error(prediction_error)))
         updated_state = top_down_state + state_update
+        
         return updated_state, prediction_error, prediction
 
 class SpikeDrivenSelfAttention(nn.Module):
@@ -88,7 +107,6 @@ class SpikeDrivenSelfAttention(nn.Module):
         
         return self.out_proj(attn_output)
 
-# 修正5: STAttenBlockのバッチ処理
 class STAttenBlock(nn.Module):
     def __init__(self, d_model: int, n_head: int):
         super().__init__()
@@ -103,7 +121,7 @@ class STAttenBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Process input with self-attention and feedforward layers.
+        Process input with vectorized spike operations.
         
         Args:
             x (torch.Tensor): Input of shape (batch_size, seq_len, d_model).
@@ -113,35 +131,30 @@ class STAttenBlock(nn.Module):
         """
         B, T, D = x.shape
         
-        # Self-attention branch (operates on full sequence)
+        # Self-attention branch (並列処理可能)
         attn_out = self.attn(self.norm1(x))  # (B, T, D)
         x_attn = x + attn_out  # (B, T, D)
         
-        # Apply LIF neuron token-by-token
-        x_attn_spikes = []
-        for t_idx in range(T):
-            spike, _ = self.lif1(x_attn[:, t_idx, :])  # (B, D)
-            x_attn_spikes.append(spike)
-        x_res = torch.stack(x_attn_spikes, dim=1)  # (B, T, D)
+        # 【修正1】ベクトル化されたLIF処理 (指示3)
+        # (B, T, D) -> (B*T, D) に変形して一括処理
+        x_flat = x_attn.reshape(B * T, D)
+        spike_flat, _ = self.lif1(x_flat)
+        x_res = spike_flat.reshape(B, T, D)
         
         # Feedforward branch
         ffn_in = self.norm2(x_res)  # (B, T, D)
         
-        # Process token-by-token through FFN
-        ffn_outputs = []
-        for t_idx in range(T):
-            ffn_hidden, _ = self.lif2(self.fc1(ffn_in[:, t_idx, :]))  # (B, 4D)
-            ffn_out = self.fc2(ffn_hidden)  # (B, D)
-            ffn_outputs.append(ffn_out)
-        ffn_out = torch.stack(ffn_outputs, dim=1)  # (B, T, D)
+        # 【修正2】FFNもベクトル化 (指示3)
+        ffn_flat = ffn_in.reshape(B * T, D)
+        ffn_hidden, _ = self.lif2(self.fc1(ffn_flat))  # (B*T, 4D)
+        ffn_out_flat = self.fc2(ffn_hidden)  # (B*T, D)
+        ffn_out = ffn_out_flat.reshape(B, T, D)
         
         # Final residual connection
         x_ffn = x_res + ffn_out  # (B, T, D)
-        out_spikes = []
-        for t_idx in range(T):
-            spike, _ = self.lif3(x_ffn[:, t_idx, :])  # (B, D)
-            out_spikes.append(spike)
-        out = torch.stack(out_spikes, dim=1)  # (B, T, D)
+        x_ffn_flat = x_ffn.reshape(B * T, D)
+        out_flat, _ = self.lif3(x_ffn_flat)
+        out = out_flat.reshape(B, T, D)
         
         return out
 
@@ -158,11 +171,17 @@ class BaseModel(nn.Module):
 
     def get_total_spikes(self):
         """モデル全体の総スパイク数を収集する。"""
-        total_spikes = 0
+        total = 0.0
         for module in self.modules():
-            if isinstance(module, AdaptiveLIFNeuron):
-                total_spikes += module.spikes.sum()
-        return total_spikes
+            if isinstance(module, (AdaptiveLIFNeuron, IzhikevichNeuron)):
+                total += module.total_spikes.item()
+        return total
+    
+    def reset_spike_stats(self):
+        """スパイク統計をリセットする（エポック開始時に呼び出す）"""
+        for module in self.modules():
+            if isinstance(module, (AdaptiveLIFNeuron, IzhikevichNeuron)):
+                module.total_spikes.zero_()
 
 # --- モデル定義 ---
 class BreakthroughSNN(BaseModel):
@@ -180,7 +199,6 @@ class BreakthroughSNN(BaseModel):
         self.output_projection = nn.Linear(d_state * num_layers, vocab_size)
         self._init_weights()
 
-    # 修正2: BreakthroughSNNの時間軸処理
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with corrected temporal processing.
@@ -253,7 +271,6 @@ class SpikingTransformer(BaseModel):
         print(f"🚀 Spiking Transformer (STAtten) initialized with {num_layers} layers.")
         self._init_weights()
 
-    # 修正3: SpikingTransformerの構造改善
     def forward(self, input_ids: torch.Tensor, return_spikes: bool = False, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with corrected self-attention over the entire sequence.
