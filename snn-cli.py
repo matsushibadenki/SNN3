@@ -6,10 +6,10 @@
 # argparseとtyperの混在によって発生していた引数解析エラーを解消するため、
 # typerに完全に移行。gradient-trainが追加の引数を正しく
 # train.pyに渡せるように修正。
-# 
+#
 # 修正点:
-# - evolve runコマンドに --training-config オプションを追加し、
-#   SelfEvolvingAgentが学習パラメータを進化させられるようにした。
+# - uiサブコマンドを追加し、標準UIとLangChain連携UIを
+#   選択して起動できるようにした。
 
 import sys
 from pathlib import Path
@@ -34,13 +34,15 @@ from snn_research.distillation.model_registry import SimpleModelRegistry
 from snn_research.agent.memory import Memory
 from snn_research.tools.web_crawler import WebCrawler
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+import app.main as gradio_app
+import app.langchain_main as langchain_gradio_app
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- CLIアプリケーションの定義 ---
 app = typer.Typer(
     help="Project SNN: 統合CLIツール",
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     rich_markup_mode="markdown",
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     add_completion=False
 )
 
@@ -60,14 +62,17 @@ app.add_typer(evolve_app, name="evolve")
 rl_app = typer.Typer(help="生物学的強化学習を実行")
 app.add_typer(rl_app, name="rl")
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+ui_app = typer.Typer(help="Gradioベースの対話UIを起動")
+app.add_typer(ui_app, name="ui")
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 # --- agent サブコマンドの実装 ---
 @agent_app.command("solve", help="指定されたタスクを解決します。専門家モデルの検索、オンデマンド学習、推論を実行します。")
 def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
     prompt: Optional[str] = typer.Option(None, help="推論を実行する場合の入力プロンプト"),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     unlabeled_data: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     force_retrain: bool = typer.Option(False, "--force-retrain", help="モデル登録簿を無視して強制的に再学習"),
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
@@ -88,13 +93,11 @@ def agent_solve(
         energy_budget=max_spikes
     )
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     selected_model_info = asyncio.run(agent.handle_task(
         task_description=task,
         unlabeled_data_path=str(unlabeled_data) if unlabeled_data else None,
         force_retrain=force_retrain
     ))
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     if selected_model_info and prompt:
         print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
@@ -131,9 +134,7 @@ def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイ
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
 def evolve_run(
     task_description: str = typer.Option(..., help="自己評価の起点となるタスク説明"),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     training_config: Path = typer.Option("configs/base_config.yaml", help="進化対象の基本設定ファイル", exists=True),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_config: Path = typer.Option("configs/models/small.yaml", help="進化対象のモデル設定ファイル", exists=True),
     initial_accuracy: float = typer.Option(0.75, help="自己評価のための初期精度"),
     initial_spikes: float = typer.Option(1500.0, help="自己評価のための初期スパイク数")
@@ -152,9 +153,7 @@ def evolve_run(
         web_crawler=web_crawler,
         project_root=".",
         model_config_path=str(model_config),
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         training_config_path=str(training_config)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     )
     initial_metrics = {
         "accuracy": initial_accuracy,
@@ -190,6 +189,53 @@ def rl_run(
         progress_bar.set_postfix({"Avg Reward": f"{avg_reward:.3f}"})
     
     print(f"\n✅ 学習完了。最終的な平均報酬: {total_reward / episodes:.4f}")
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# --- ui サブコマンドの実装 ---
+@ui_app.command("start", help="標準のGradio UIを起動します。")
+def ui_start(
+    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
+    model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
+):
+    """
+    app/main.py を呼び出して、標準のGradio UIを起動する。
+    """
+    original_argv = sys.argv
+    sys.argv = [
+        "app/main.py",
+        "--model_config", str(model_config),
+    ]
+    if model_path:
+        sys.argv.extend(["--model_path", model_path])
+    
+    try:
+        print("🚀 標準のGradio UIを起動します...")
+        gradio_app.main()
+    finally:
+        sys.argv = original_argv
+
+@ui_app.command("start-langchain", help="LangChain連携版のGradio UIを起動します。")
+def ui_start_langchain(
+    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
+    model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
+):
+    """
+    app/langchain_main.py を呼び出して、LangChain連携UIを起動する。
+    """
+    original_argv = sys.argv
+    sys.argv = [
+        "app/langchain_main.py",
+        "--model_config", str(model_config),
+    ]
+    if model_path:
+        sys.argv.extend(["--model_path", model_path])
+
+    try:
+        print("🚀 LangChain連携版のGradio UIを起動します...")
+        langchain_gradio_app.main()
+    finally:
+        sys.argv = original_argv
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- gradient-train サブコマンドの実装 ---
 @app.command(
