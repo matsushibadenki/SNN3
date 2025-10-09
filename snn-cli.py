@@ -1,10 +1,15 @@
-# matsushibadenki/snn3/SNN3-5b728d05237b1a32304ee6af1a9240f1ebfe55ff/snn-cli.py
-# ファイルパス: matsushibadenki/snn3/snn-cli.py
-# タイトル: 統合CLIツール (typer版)
-# 機能説明: プロジェクトの全機能をサブコマンド形式で実行するための統一インターフェース。
-#           argparseとtyperの混在によって発生していた引数解析エラーを解消するため、
-#           typerに完全に移行。gradient-trainが追加の引数を正しく
-#           train.pyに渡せるように修正。
+# matsushibadenki/snn3/snn-cli.py
+#
+# 統合CLIツール (typer版)
+#
+# プロジェクトの全機能をサブコマンド形式で実行するための統一インターフェース。
+# argparseとtyperの混在によって発生していた引数解析エラーを解消するため、
+# typerに完全に移行。gradient-trainが追加の引数を正しく
+# train.pyに渡せるように修正。
+# 
+# 修正点:
+# - evolve runコマンドに --training-config オプションを追加し、
+#   SelfEvolvingAgentが学習パラメータを進化させられるようにした。
 
 import sys
 from pathlib import Path
@@ -126,6 +131,9 @@ def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイ
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
 def evolve_run(
     task_description: str = typer.Option(..., help="自己評価の起点となるタスク説明"),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    training_config: Path = typer.Option("configs/base_config.yaml", help="進化対象の基本設定ファイル", exists=True),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_config: Path = typer.Option("configs/models/small.yaml", help="進化対象のモデル設定ファイル", exists=True),
     initial_accuracy: float = typer.Option(0.75, help="自己評価のための初期精度"),
     initial_spikes: float = typer.Option(1500.0, help="自己評価のための初期スパイク数")
@@ -143,7 +151,10 @@ def evolve_run(
         memory=memory,
         web_crawler=web_crawler,
         project_root=".",
-        model_config_path=str(model_config)
+        model_config_path=str(model_config),
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        training_config_path=str(training_config)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     )
     initial_metrics = {
         "accuracy": initial_accuracy,
