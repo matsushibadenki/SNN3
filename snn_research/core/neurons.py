@@ -53,6 +53,16 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.register_buffer("mem", None)
         self.register_buffer("adaptive_threshold", None)
         self.register_buffer("spikes", torch.zeros(features))
+        
+        # 【追加】総スパイク数を追跡 (指示4)
+        self.register_buffer("total_spikes", torch.tensor(0.0))
+        self.stateful = False  # 状態を保持するかどうか (指示3)
+
+    def set_stateful(self, stateful: bool):
+        """時系列データの処理モードを設定"""
+        self.stateful = stateful
+        if not stateful:
+            self.reset()
 
     def reset(self):
         """Resets the neuron's state variables."""
@@ -60,6 +70,7 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         self.mem = None
         self.adaptive_threshold = None
         self.spikes.zero_()
+        self.total_spikes.zero_() # 追加 (指示4)
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
@@ -94,13 +105,17 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         
         # Store spikes for statistics (shape is unified)
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
+        
+        # 【追加】統計を累積（勾配不要） (指示4)
+        with torch.no_grad():
+            self.total_spikes += spike.detach().sum()
 
         # Reset membrane potential for spiking neurons (non-differentiable part)
         # We use detach() here because reset is a non-gradient event.
         reset_mask = spike.detach() 
         self.mem = self.mem * (1.0 - reset_mask)
 
-        # 修正4: 適応閾値の勾配フロー
+        # Update adaptive threshold (no grad needed for this homeostatic process)
         if self.training:
             # スパイクのみdetachして、閾値の勾配は保持
             self.adaptive_threshold = (
@@ -150,17 +165,19 @@ class IzhikevichNeuron(base.MemoryModule):
         self.register_buffer("v", None) # Membrane potential
         self.register_buffer("u", None) # Recovery variable
         self.register_buffer("spikes", torch.zeros(features))
+        # 【追加】総スパイク数を追跡 (指示4)
+        self.register_buffer("total_spikes", torch.tensor(0.0))
 
     def reset(self):
         super().reset()
         self.v = None
         self.u = None
         self.spikes.zero_()
+        self.total_spikes.zero_() # 追加 (指示4)
 
-    # 修正1: Izhikevichモデルの数値安定化
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         """
-        Processes one timestep of input current.
+        Processes one timestep of input current with corrected Izhikevich dynamics.
 
         Args:
             x (Tensor): Input current of shape (batch_size, features).
@@ -176,22 +193,28 @@ class IzhikevichNeuron(base.MemoryModule):
         if self.u is None or self.u.shape != x.shape:
             self.u = torch.full_like(x, self.b * self.c)
 
-        # スパイク判定（リセット前）
+        # 【修正1】動力学を先に計算（リセット前の状態で）
+        dt = 0.5  # 安定性のため小さめのステップ
+        dv = 0.04 * self.v**2 + 5 * self.v + 140 - self.u + x
+        du = self.a * (self.b * self.v - self.u)
+        
+        # 【修正2】状態を更新
+        self.v = self.v + dv * dt
+        self.u = self.u + du * dt
+        
+        # 【修正3】スパイク判定とリセット（更新後の状態で）
         spike = self.surrogate_function(self.v - self.v_peak)
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
-
-        # リセット処理（勾配を切断）
-        reset_mask = (self.v >= self.v_peak).detach()
-        v_reset = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
-        u_reset = torch.where(reset_mask, self.u + self.d, self.u)
-
-        # Izhikevich dynamics（リセット後の値で計算）
-        dt = 1.0  # タイムステップを明示
-        dv = 0.04 * v_reset**2 + 5 * v_reset + 140 - u_reset + x
-        du = self.a * (self.b * v_reset - u_reset)
         
-        # 数値安定性のための範囲制限
-        self.v = torch.clamp(v_reset + dv * dt, min=-100.0, max=50.0)
-        self.u = u_reset + du * dt
+        # 【追加】統計を累積（勾配不要） (指示4)
+        with torch.no_grad():
+            self.total_spikes += spike.detach().sum()
+        
+        reset_mask = (self.v >= self.v_peak).detach()
+        self.v = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
+        self.u = torch.where(reset_mask, self.u + self.d, self.u)
+        
+        # 【修正4】クランプは最後に適用（リセット後の値に対して）
+        self.v = torch.clamp(self.v, min=-100.0, max=50.0)
 
         return spike, self.v
