@@ -1,12 +1,11 @@
 # matsushibadenki/snn3/snn_research/models/attention.py
 # スパイク駆動自己注意メカニズム
 # 概要: スパイクベースの計算に最適化された自己注意モジュールを定義する。
+# BugFix: ファイル末尾の不正な閉じ括弧を削除し、mypyの構文エラーを修正。
 
 import torch
 import torch.nn as nn
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.bio_models.lif_neuron import BioLIFNeuron as LIFNeuron
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class SpikeDrivenSelfAttention(nn.Module):
     """
