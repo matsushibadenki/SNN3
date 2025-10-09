@@ -41,14 +41,6 @@ def plot_neuron_dynamics(
 ) -> plt.Figure:
     """
     膜電位とスパイクの時系列をプロット。
-    
-    Args:
-        history: 記録された状態の辞書
-        neuron_indices: プロットするニューロンのインデックス（Noneの場合は最初の10個）
-        save_path: 保存先パス（Noneの場合は表示のみ）
-        
-    Returns:
-        matplotlib.figure.Figure: 生成された図
     """
     if not history['membrane']:
         raise ValueError("No data to plot")
@@ -96,6 +88,7 @@ def plot_neuron_dynamics(
     plt.tight_layout()
     
     if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Figure saved to {save_path}")
     
