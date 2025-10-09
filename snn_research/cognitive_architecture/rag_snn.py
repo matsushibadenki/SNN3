@@ -1,20 +1,26 @@
 # snn_research/cognitive_architecture/rag_snn.py
+#
 # Phase 3: RAG-SNN (Retrieval-Augmented Generation) システム
+#
+# 改善点:
+# - ROADMAPフェーズ7に基づき、ナレッジグラフとしての機能を追加。
+# - add_relationshipメソッドを実装し、概念間の関係性を
+#   構造化テキストとしてベクトルストアに追加できるようにした。
 
 import os
 from typing import List, Optional
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 # HuggingFaceEmbeddings のインポート元を変更
 from langchain_huggingface import HuggingFaceEmbeddings
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 class RAGSystem:
     """
     外部知識（ドキュメント）と内部記憶（エージェントログ）を検索し、
     思考のための文脈を提供するRAGシステム。
+    ナレッジグラフとしての機能も併せ持つ。
     """
     def __init__(self, vector_store_path: str = "runs/vector_store"):
         self.vector_store_path = vector_store_path
@@ -80,3 +86,24 @@ class RAGSystem:
 
         results = self.vector_store.similarity_search(query, k=k)
         return [doc.page_content for doc in results]
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def add_relationship(self, source_concept: str, relation: str, target_concept: str):
+        """
+        概念間の関係性をナレッジグラフ（ベクトルストア）に追加する。
+        """
+        if self.vector_store is None:
+            print("⚠️ ベクトルストアが初期化されていません。新規作成します。")
+            self.vector_store = FAISS.from_texts([], self.embedding_model)
+
+        # 関係性を構造化されたテキストとして表現
+        relationship_text = f"Concept Relation: {source_concept} {relation} {target_concept}."
+        
+        # LangChainのDocumentオブジェクトとして追加
+        doc = Document(page_content=relationship_text, metadata={"source": "internal_knowledge"})
+        self.vector_store.add_documents([doc])
+        
+        # 更新をディスクに保存
+        self.vector_store.save_local(self.vector_store_path)
+        print(f"📈 ナレッジグラフ更新: 「{relationship_text}」")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
