@@ -1,4 +1,5 @@
-# matsushibadenki/snn3/run_agent.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/run_agent.py
+#
 # 自律エージェントを起動し、タスクを実行させるためのインターフェース
 #
 # 変更点:
@@ -8,12 +9,7 @@
 
 import argparse
 import asyncio
-from snn_research.agent.autonomous_agent import AutonomousAgent
-from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
-from snn_research.distillation.model_registry import SimpleModelRegistry
-from snn_research.agent.memory import Memory
-from snn_research.tools.web_crawler import WebCrawler
-from snn_research.cognitive_architecture.rag_snn import RAGSystem
+from app.containers import AgentContainer # DIコンテナをインポート
 
 def main():
     """
@@ -47,14 +43,21 @@ def main():
 
     args = parser.parse_args()
 
-    # --- 依存関係の構築 ---
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    memory = Memory()
-    web_crawler = WebCrawler()
-    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
+    # --- 改善: DIコンテナを使用して依存関係を構築 ---
+    container = AgentContainer()
+    container.config.from_yaml("configs/base_config.yaml")
+    
+    # AgentContainerから直接AutonomousAgentをインスタンス化
+    # (AgentContainerにAutonomousAgentのプロバイダを追加する必要がある)
+    # ここでは、必要なコンポーネントを個別に取得して注入する
+    planner = container.hierarchical_planner()
+    model_registry = container.model_registry()
+    memory = container.memory()
+    web_crawler = container.web_crawler()
 
     # --- 自律エージェントの初期化 ---
+    # AutonomousAgentクラスをインポート
+    from snn_research.agent.autonomous_agent import AutonomousAgent
     agent = AutonomousAgent(
         name="run_agent_instance",
         planner=planner,
@@ -63,8 +66,8 @@ def main():
         web_crawler=web_crawler
     )
 
+
     # --- エージェントにタスク処理を依頼 ---
-    # handle_taskは内部で非同期メソッドを呼び出すため、asyncio.runで実行
     selected_model_info = asyncio.run(agent.handle_task(
         task_description=args.task_description,
         unlabeled_data_path=args.unlabeled_data_path,
@@ -79,11 +82,9 @@ def main():
         if 'metrics' in selected_model_info:
              print(f"  - 性能: {selected_model_info['metrics']}")
 
-        # プロンプトが指定されていれば、推論を実行
         if args.prompt:
             print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
             print(f"入力プロンプト: {args.prompt}")
-            # run_inferenceも内部で非同期メソッドを呼び出す可能性があるため、asyncio.runで実行
             asyncio.run(agent.run_inference(selected_model_info, args.prompt))
     else:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
