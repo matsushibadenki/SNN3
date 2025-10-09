@@ -31,34 +31,41 @@ class EnergyMetrics:
         total_ops = 0
         total_synapses = 0
         
-        # スパイク統計をリセット
-        if hasattr(model, 'reset_spike_stats'):
-            model.reset_spike_stats()
-
+        def hook(module, input, output):
+            nonlocal total_ops, total_synapses
+            
+            if isinstance(output, tuple):
+                spikes = output[0]
+            else:
+                spikes = output
+            
+            # スパイクが発生した場所でのみ演算
+            active_neurons = spikes.sum().item()
+            if hasattr(module, 'features'):
+                total_ops += active_neurons * module.features
+            total_synapses += spikes.numel()
+        
+        # フックを登録
+        handles = []
+        for module in model.modules():
+            if isinstance(module, (AdaptiveLIFNeuron, IzhikevichNeuron)):
+                handles.append(module.register_forward_hook(hook))
+        
         # 推論実行
         with torch.no_grad():
             model(input_batch)
         
-        # 総スパイク数を取得
-        if hasattr(model, 'get_total_spikes'):
-            total_spikes = model.get_total_spikes()
-        else:
-            total_spikes = 0
-            
-        # 総シナプス数を計算
-        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-        # 簡略化モデル: SynOp ≒ Total Spikes
-        # より正確には、各スパイクが後続層で引き起こす加算演算の数
-        total_ops = total_spikes 
-
-        sparsity = 1.0 - (total_ops / max(total_params, 1))
+        # フックを削除
+        for h in handles:
+            h.remove()
+        
+        sparsity = 1.0 - (total_ops / max(total_synapses, 1))
         
         return {
             'total_ops': total_ops,
-            'active_synapses': total_ops, # 簡略化のため同値
+            'active_synapses': total_ops,
             'sparsity': sparsity,
-            'total_synapses': total_params
+            'total_synapses': total_synapses
         }
     
     @staticmethod
@@ -78,11 +85,8 @@ class EnergyMetrics:
                 'efficiency_gain': 効率向上率（%）
             }
         """
-        # ANNは全パラメータで乗算・加算（MAC: Multiply-Accumulate）
         ann_ops = ann_params * batch_size
         
-        # エネルギー比（目安: ACC演算 ≈ 1pJ, スパイク演算 ≈ 0.1pJ）
-        # MACはADDより高コストなため、ここでは仮に10倍のコストとする
         energy_ratio = (snn_ops * 0.1) / (ann_ops * 1.0)
         efficiency_gain = (1.0 - energy_ratio) * 100
         
