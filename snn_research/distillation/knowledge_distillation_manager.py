@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 
 from snn_research.distillation.model_registry import ModelRegistry
 from snn_research.benchmark.metrics import calculate_perplexity, calculate_energy_consumption
+from snn_research.core.snn_core import SNNCore
 
 # --- 循環インポート解消のための修正 ---
 # 型チェック時のみインポートを実行し、実行時の循環参照を回避する
@@ -102,7 +103,7 @@ class KnowledgeDistillationManager:
             targets = torch.stack([item['targets'] for item in batch])
             teacher_logits = torch.stack([item['teacher_logits'] for item in batch])
             return input_ids, attention_mask, targets, teacher_logits
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
 
@@ -172,11 +173,18 @@ class KnowledgeDistillationManager:
         if student_config is None:
             print("student_config not provided, attempting to retrieve from student model...")
             if hasattr(self.student_model, 'config'):
-                student_config = OmegaConf.to_container(self.student_model.config, resolve=True)
+                student_config_resolved = OmegaConf.to_container(self.student_model.config, resolve=True)
+                if isinstance(student_config_resolved, Dict):
+                    student_config = student_config_resolved
+                else:
+                     raise ValueError("Could not resolve student_config to a dictionary.")
                 print("✅ Successfully retrieved config from SNNCore model.")
             else:
                 raise ValueError("student_config was not provided and could not be retrieved from the model.")
         
+        if student_config is None:
+            raise ValueError("student_config is None, cannot proceed.")
+
         texts = []
         with open(unlabeled_data_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -194,7 +202,7 @@ class KnowledgeDistillationManager:
         batch_size = 4
         train_loader = self.prepare_dataset(texts, max_length=max_len, batch_size=batch_size)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # 学習エポック数を30から50に増やし、学習精度を向上させる
         new_model_info = await self.run_distillation(
             train_loader=train_loader,
@@ -215,6 +223,12 @@ class KnowledgeDistillationManager:
         model_to_eval.eval()
         total_spikes = 0.0
         total_valid_tokens = 0
+        num_neurons = 0
+        if isinstance(model_to_eval, SNNCore):
+            num_neurons = sum(p.numel() for p in model_to_eval.model.parameters())
+        else:
+            num_neurons = sum(p.numel() for p in model_to_eval.parameters())
+
 
         progress_bar = tqdm(dataloader, desc="Evaluating Distilled Model")
         for batch in progress_bar:
@@ -236,7 +250,7 @@ class KnowledgeDistillationManager:
         avg_spikes_per_sample = total_spikes / total_valid_tokens if total_valid_tokens > 0 else 0.0
 
         perplexity = calculate_perplexity(model_to_eval, dataloader, self.device)
-        energy = calculate_energy_consumption(avg_spikes_per_sample)
+        energy = calculate_energy_consumption(avg_spikes_per_sample, num_neurons=num_neurons)
 
         return {
             "perplexity": perplexity,
