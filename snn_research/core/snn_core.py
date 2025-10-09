@@ -44,20 +44,22 @@ class PredictiveCodingLayer(nn.Module):
         self.norm_state = SNNLayerNorm(d_state)
         self.norm_error = SNNLayerNorm(d_model)
         self.error_scale = nn.Parameter(torch.ones(1))
-
-        # 【追加1】誤差の統計を追跡（Exponential Moving Average）(指示2)
+        
+        # 【追加1】誤差の統計を追跡（Exponential Moving Average）
         self.register_buffer('error_mean', torch.zeros(1))
         self.register_buffer('error_std', torch.ones(1))
+        self.error_mean: torch.Tensor
+        self.error_std: torch.Tensor
         self.error_momentum = 0.9
 
     def forward(self, bottom_up_input: torch.Tensor, top_down_state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # 予測生成
         prediction, _ = self.generative_neuron(self.generative_fc(self.norm_state(top_down_state)))
         
-        # 【追加2】生の誤差を計算 (指示2)
+        # 【追加2】生の誤差を計算
         raw_error = bottom_up_input - prediction
         
-        # 【追加3】学習時のみ統計を更新（推論時は固定値を使用）(指示2)
+        # 【追加3】学習時のみ統計を更新（推論時は固定値を使用）
         if self.training:
             with torch.no_grad():
                 batch_mean = raw_error.mean()
@@ -65,7 +67,7 @@ class PredictiveCodingLayer(nn.Module):
                 self.error_mean = self.error_momentum * self.error_mean + (1 - self.error_momentum) * batch_mean
                 self.error_std = self.error_momentum * self.error_std + (1 - self.error_momentum) * batch_std
         
-        # 【追加4】正規化された誤差（勾配は保持）(指示2)
+        # 【追加4】正規化された誤差（勾配は保持）
         normalized_error = (raw_error - self.error_mean) / self.error_std
         prediction_error = normalized_error * self.error_scale
         
@@ -135,7 +137,7 @@ class STAttenBlock(nn.Module):
         attn_out = self.attn(self.norm1(x))  # (B, T, D)
         x_attn = x + attn_out  # (B, T, D)
         
-        # 【修正1】ベクトル化されたLIF処理 (指示3)
+        # 【修正1】ベクトル化されたLIF処理
         # (B, T, D) -> (B*T, D) に変形して一括処理
         x_flat = x_attn.reshape(B * T, D)
         spike_flat, _ = self.lif1(x_flat)
@@ -144,7 +146,7 @@ class STAttenBlock(nn.Module):
         # Feedforward branch
         ffn_in = self.norm2(x_res)  # (B, T, D)
         
-        # 【修正2】FFNもベクトル化 (指示3)
+        # 【修正2】FFNもベクトル化
         ffn_flat = ffn_in.reshape(B * T, D)
         ffn_hidden, _ = self.lif2(self.fc1(ffn_flat))  # (B*T, 4D)
         ffn_out_flat = self.fc2(ffn_hidden)  # (B*T, D)
