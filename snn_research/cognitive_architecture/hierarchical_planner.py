@@ -1,5 +1,7 @@
-# matsushibadenki/snn3/snn_research/cognitive_architecture/hierarchical_planner.py
+# snn_research/cognitive_architecture/hierarchical_planner.py
+#
 # Title: 階層型プランナー
+#
 # Description: 高レベルの目標を、実行可能なサブタスクのシーケンスに分解するプランナー。
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: 存在しない`registry`属性へのアクセスを削除。
@@ -11,6 +13,10 @@
 # 改善点: RAGSystemを統合し、ドキュメント検索による文脈生成機能を追加。
 # mypyエラー修正: asyncioをインポート。
 # 改善点: ルールベースのプランニングに日本語キーワードを追加。
+#
+# 改善点:
+# - ROADMAPフェーズ7に基づき、RAGSystemのナレッジグラフ機能を利用した
+#   記号推論による計画立案を行うように修正。
 
 from typing import List, Dict, Any, Optional
 import torch
@@ -64,20 +70,23 @@ class HierarchicalPlanner:
             4: {"task": "general_qa", "description": "Answer a general question.", "expert_id": "general_snn_v3"},
         }
 
-
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def create_plan(self, high_level_goal: str, context: Optional[str] = None) -> Plan:
         """
         目標に基づいて計画を作成する。PlannerSNNが利用可能であればそれを使用する。
-        必要に応じてRAGシステムで文脈を補強する。
+        RAGシステムのナレッジグラフを活用して、記号推論に基づいた計画を試みる。
         """
         print(f"🌍 Creating plan for goal: {high_level_goal}")
 
-        # RAGシステムで関連情報を検索
-        retrieved_context = self.rag_system.search(high_level_goal)
-        full_prompt = f"Goal: {high_level_goal}\n\nRetrieved Context:\n{' '.join(retrieved_context)}"
+        # ステップ1: RAGのナレッジグラフ機能で関連概念を検索
+        knowledge_query = f"Find concepts and relations for: {high_level_goal}"
+        retrieved_knowledge = self.rag_system.search(knowledge_query, k=5)
         
+        full_prompt = f"Goal: {high_level_goal}\n\nRetrieved Knowledge:\n{' '.join(retrieved_knowledge)}"
         if context:
             full_prompt += f"\n\nUser Provided Context:\n{context}"
+        
+        print(f"🧠 Planner is reasoning with prompt: {full_prompt[:200]}...")
 
         if self.planner_model:
             # --- PlannerSNNによる動的な計画生成 ---
@@ -85,38 +94,31 @@ class HierarchicalPlanner:
             with torch.no_grad():
                 inputs = self.tokenizer(full_prompt, return_tensors="pt")
                 input_ids = inputs['input_ids'].to(self.device)
-
-                # PlannerSNNがスキルIDのシーケンスを予測
                 skill_logits, _, _ = self.planner_model(input_ids)
-                
-                # 最も可能性の高いスキルを一つ選択（シーケンス予測は将来の拡張）
-                predicted_skill_id_val = torch.argmax(skill_logits, dim=-1).item()
-                predicted_skill_id = int(predicted_skill_id_val)
-                
-                # 予測されたIDからタスクを構築
-                task = self.SKILL_MAP.get(predicted_skill_id, self.SKILL_MAP[4]) # 不明な場合は汎用QA
+                predicted_skill_id = int(torch.argmax(skill_logits, dim=-1).item())
+                task = self.SKILL_MAP.get(predicted_skill_id, self.SKILL_MAP[4])
                 task_list = [task]
-                
                 print(f"🧠 PlannerSNN predicted skill ID: {predicted_skill_id} -> Task: {task['task']}")
-
         else:
             # --- フォールバック: ルールベースの簡易的な計画生成 ---
             print("⚠️ PlannerSNN model not found. Falling back to rule-based planning.")
             task_list = []
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            if "summarize" in high_level_goal or "要約" in high_level_goal:
+            
+            # 検索された知識やゴールに基づいてタスクを決定
+            prompt_lower = full_prompt.lower()
+            if "summarize" in prompt_lower or "要約" in prompt_lower:
                 task_list.append(self.SKILL_MAP[0])
-            if "analyze" in high_level_goal or "sentiment" in high_level_goal or "感情" in high_level_goal or "分析" in high_level_goal:
+            if "sentiment" in prompt_lower or "感情" in prompt_lower or "分析" in prompt_lower:
                 task_list.append(self.SKILL_MAP[1])
-            if "translate" in high_level_goal or "翻訳" in high_level_goal:
+            if "translate" in prompt_lower or "翻訳" in prompt_lower:
                 task_list.append(self.SKILL_MAP[2])
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             if not task_list:
                 task_list.append(self.SKILL_MAP[4]) # デフォルトは汎用QA
 
         print(f"✅ Plan created with {len(task_list)} step(s).")
         return Plan(goal=high_level_goal, task_list=task_list)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def execute_task(self, task_request: str, context: str) -> Optional[str]:
         """
