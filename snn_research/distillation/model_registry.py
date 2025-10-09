@@ -1,12 +1,21 @@
 # matsushibadenki/snn3/snn_research/distillation/model_registry.py
+#
 # ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c_0021f222858011/snn_research/distillation/model_registry.py
 # タイトル: モデルレジストリ
 # 機能説明: find_models_for_taskメソッドの末尾にあった余分なコロンを削除し、SyntaxErrorを修正。
+#
+# 改善点:
+# - ROADMAPフェーズ8に基づき、マルチエージェント間の知識共有を可能にする
+#   分散型モデルレジストリ(DistributedModelRegistry)を実装。
+# - ファイルロック機構を導入し、複数プロセスからの同時書き込みによる
+#   レジストリファイルの破損を防止する。
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 import json
 from pathlib import Path
+import fcntl
+import time
 
 class ModelRegistry(ABC):
     """
@@ -43,17 +52,14 @@ class SimpleModelRegistry(ModelRegistry):
         self.models: Dict[str, List[Dict[str, Any]]] = self._load()
 
     def _load(self) -> Dict[str, List[Dict[str, Any]]]:
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if self.registry_path.exists():
             try:
                 with open(self.registry_path, 'r', encoding='utf-8') as f:
-                    # ファイルが空の場合にエラーにならないようにする
                     content = f.read()
                     if not content:
                         return {}
                     return json.loads(content)
             except (json.JSONDecodeError, FileNotFoundError):
-                # ファイルが破損している、または見つからない場合は空のレジストリを返す
                 return {}
         return {}
 
@@ -84,13 +90,11 @@ class SimpleModelRegistry(ModelRegistry):
                 reverse=True
             )
 
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             resolved_models = []
             for model_info in models_for_task[:top_k]:
                 relative_path_str = model_info.get('model_path') or model_info.get('path')
                 
                 if relative_path_str:
-                    # スクリプト実行ディレクトリからの相対パスを解決して絶対パスに変換
                     absolute_path = Path(relative_path_str).resolve()
                     model_info['model_path'] = str(absolute_path)
 
@@ -98,19 +102,16 @@ class SimpleModelRegistry(ModelRegistry):
                 resolved_models.append(model_info)
             
             return resolved_models
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return []
 
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
         models = self.models.get(model_id)
         if models:
             model_info = models[0] 
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             relative_path_str = model_info.get('model_path') or model_info.get('path')
             if relative_path_str:
                 absolute_path = Path(relative_path_str).resolve()
                 model_info['model_path'] = str(absolute_path)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             return model_info
         return None
 
@@ -121,3 +122,51 @@ class SimpleModelRegistry(ModelRegistry):
                 model_info_with_id = {'model_id': model_id, **model_info}
                 all_models.append(model_info_with_id)
         return all_models
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+class DistributedModelRegistry(SimpleModelRegistry):
+    """
+    ファイルロックを使用して、複数のプロセスからの安全なアクセスを保証する
+    分散環境向けのモデルレジストリ。
+    """
+    def __init__(self, registry_path: str = "runs/model_registry.json", timeout: int = 10):
+        super().__init__(registry_path)
+        self.timeout = timeout
+
+    def _load(self) -> Dict[str, List[Dict[str, Any]]]:
+        start_time = time.time()
+        with open(self.registry_path, 'a+', encoding='utf-8') as f:
+            while time.time() - start_time < self.timeout:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_SH)
+                    f.seek(0)
+                    content = f.read()
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    if not content:
+                        return {}
+                    return json.loads(content)
+                except (IOError, BlockingIOError):
+                    time.sleep(0.1)
+            raise IOError("レジストリの読み取りロックの取得に失敗しました。")
+        return {}
+
+    def _save(self) -> None:
+        start_time = time.time()
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.registry_path, 'w', encoding='utf-8') as f:
+            while time.time() - start_time < self.timeout:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    json.dump(self.models, f, indent=4, ensure_ascii=False)
+                    f.flush()
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    return
+                except (IOError, BlockingIOError):
+                    time.sleep(0.1)
+            raise IOError("レジストリの書き込みロックの取得に失敗しました。")
+
+    async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
+        # ロックを含む_loadと_saveを使用するために、処理全体を再実装
+        self.models = self._load()
+        await super().register_model(model_id, task_description, metrics, model_path, config)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾◾️◾️◾️◾️◾️
