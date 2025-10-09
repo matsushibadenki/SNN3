@@ -24,15 +24,14 @@ class PlannerSNN(BreakthroughSNN):
         super().__init__(vocab_size, d_model, d_state, num_layers, time_steps, n_head, neuron_config=neuron_config)
         
         # BreakthroughSNNの出力層を、スキルを予測するための分類層に置き換える
-        self.output_projection = nn.Linear(d_model, num_skills)
+        self.output_projection = nn.Linear(d_state * num_layers, num_skills)
         print(f"🧠 学習可能プランナーSNNが {num_skills} 個のスキルを認識して初期化されました。")
 
     def forward(
         self, 
         input_ids: torch.Tensor, 
         return_spikes: bool = False, 
-        return_full_mems: bool = False,
-        output_hidden_states: bool = False  # 親クラスとの互換性のために追加
+        **kwargs: Any
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         フォワードパスを実行し、スキル予測ロジット、スパイク、膜電位を返す。
@@ -42,12 +41,10 @@ class PlannerSNN(BreakthroughSNN):
         skill_logits_over_time, spikes, mem = super().forward(
             input_ids, 
             return_spikes=return_spikes, 
-            return_full_mems=return_full_mems,
-            output_hidden_states=output_hidden_states
+            **kwargs
         )
         
         # 最終タイムステップのロジットをプーリングして、最終的な計画予測とする
         final_skill_logits = skill_logits_over_time[:, -1, :]
         
         return final_skill_logits, spikes, mem
-
