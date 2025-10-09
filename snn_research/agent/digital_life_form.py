@@ -1,15 +1,26 @@
 # matsushibadenki/snn3/snn_research/agent/digital_life_form.py
+#
 # DigitalLifeForm オーケストレーター
+#
 # 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
 # mypyエラー修正: RLAgentをReinforcementLearnerAgentに修正。
 # mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、awareness_loopメソッドを追加し、__init__を修正。
 # 改善点: 依存関係を具象クラスで解決するように修正。
+#
+# 改善点:
+# - ROADMAP.mdのフェーズ5に基づき、PhysicsEvaluatorを導入。
+# - 意思決定ロジックに物理法則（エネルギー効率、処理の滑らかさ）の評価を組み込み、
+#   より高度な自律的判断を可能にした。
 
 import time
 import logging
+import torch
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # 各エージェントのインポート
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
@@ -32,6 +43,9 @@ class DigitalLifeForm:
         self.motivation_system = IntrinsicMotivationSystem()
         self.meta_cognitive_snn = MetaCognitiveSNN()
         self.memory = Memory()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.physics_evaluator = PhysicsEvaluator()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 具象クラスで依存関係を解決
         model_registry = SimpleModelRegistry()
@@ -80,9 +94,15 @@ class DigitalLifeForm:
             # 1. 内部状態とパフォーマンス評価を取得
             internal_state = self.motivation_system.get_internal_state()
             performance_eval = self.meta_cognitive_snn.evaluate_performance()
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 物理法則の一貫性を評価
+            dummy_mem_sequence = torch.randn(100) # ダミーの膜電位系列
+            dummy_spikes = (torch.rand(100) > 0.8).float() # ダミーのスパイク
+            physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
             
             # 2. 状態に基づき次の行動を決定
-            action = self._decide_next_action(internal_state, performance_eval)
+            action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             # 3. 決定した行動を実行
             result, reward, expert_used = self._execute_action(action)
@@ -109,16 +129,22 @@ class DigitalLifeForm:
             
             time.sleep(10) # 実行間隔
 
-    def _decide_next_action(self, internal_state, performance_eval):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def _decide_next_action(self, internal_state, performance_eval, physical_rewards):
         """
         状態遷移ロジック。内部状態とパフォーマンス評価から次の行動を決定する。
         """
-        logging.info(f"Decision-making based on: \n- Internal State: {internal_state} \n- Performance Eval: {performance_eval}")
+        logging.info(f"Decision-making based on: \n- Internal State: {internal_state} \n- Performance Eval: {performance_eval} \n- Physical Rewards: {physical_rewards}")
         
         if performance_eval["status"] == "knowledge_gap":
             logging.info("Reason: Knowledge gap detected. Acquiring new information.")
             return "acquire_new_knowledge"
         
+        # エネルギー効率（スパース性）が低い場合、自己進化を試みる
+        if physical_rewards["sparsity_reward"] < 0.5:
+            logging.info("Reason: Low energy efficiency (sparsity). Evolving model architecture.")
+            return "evolve_architecture"
+            
         if performance_eval["status"] == "capability_gap":
             logging.info("Reason: Capability gap detected. Evolving model architecture.")
             return "evolve_architecture"
@@ -133,6 +159,7 @@ class DigitalLifeForm:
 
         logging.info("Reason: Default behavior. Practicing existing skills.")
         return "practice_skill_with_rl"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _execute_action(self, action):
         """
@@ -168,10 +195,28 @@ class DigitalLifeForm:
         print(f"🧬 Digital Life Form awareness loop starting for {cycles} cycles.")
         self.running = True
         for i in range(cycles):
-            print(f"\n----- Cycle {i+1}/{cycles} -----")
-            self.life_cycle()
             if not self.running:
                 break
+            print(f"\n----- Cycle {i+1}/{cycles} -----")
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # life_cycleは内部でループするため、ここでは1ステップ分の処理を直接呼び出す
+            internal_state = self.motivation_system.get_internal_state()
+            performance_eval = self.meta_cognitive_snn.evaluate_performance()
+            dummy_mem_sequence = torch.randn(100)
+            dummy_spikes = (torch.rand(100) > 0.8).float()
+            physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
+            action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
+            result, reward, expert_used = self._execute_action(action)
+            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
+            self.memory.record_experience(self.state, action, result, reward, expert_used, decision_context)
+            
+            # 状態更新のダミー処理
+            self.motivation_system.update_metrics(0.1, 0.9, 0.8, 0.05)
+            self.meta_cognitive_snn.update_metadata(0.05, 1.0, 0.95)
+            self.state = {"last_action": action, "last_result": result}
+            
+            logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             time.sleep(2) # サイクル間の待機
         self.stop()
         print("🧬 Awareness loop finished.")
