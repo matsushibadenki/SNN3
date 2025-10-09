@@ -1,15 +1,22 @@
 # matsushibadenki/snn3/snn_research/agent/self_evolving_agent.py
+#
 # Title: 自己進化エージェント
+#
 # Description: 自身のアーキテクチャや学習ルールを自律的に修正・改善できるエージェント。
 #              mypyエラー修正: super().__init__に引数を追加。
 #              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を修正。
-# 改善点: ダミーだったevolveメソッドに、設定ファイルを読み込んでパラメータを強化し、
-#         新しい設定ファイルとして保存する具体的な自己進化ロジックを実装。
+# 
+# 改善点: 
+# - ダミーだったevolveメソッドに、設定ファイルを読み込んでパラメータを強化し、
+#   新しい設定ファイルとして保存する具体的な自己進化ロジックを実装。
+# - ROADMAP.mdの「メタ可塑性」に基づき、アーキテクチャだけでなく
+#   学習ハイパーパラメータも進化させる機能を追加。
 
 from typing import Dict, Any, Optional
 import os
 import yaml
 from omegaconf import OmegaConf
+import random
 
 from .autonomous_agent import AutonomousAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
@@ -32,11 +39,17 @@ class SelfEvolvingAgent(AutonomousAgent):
         evolution_threshold: float = 0.5,
         project_root: str = ".",
         model_config_path: Optional[str] = None,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        training_config_path: Optional[str] = None,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ):
         super().__init__(name, planner, model_registry, memory, web_crawler)
         self.evolution_threshold = evolution_threshold
         self.project_root = project_root
         self.model_config_path = model_config_path
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.training_config_path = training_config_path
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
     def execute(self, task_description: str) -> str:
@@ -65,38 +78,42 @@ class SelfEvolvingAgent(AutonomousAgent):
             return 0.4
         return 0.1
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def evolve(self) -> str:
         """
         自己進化のプロセスを実行する。
-        モデル設定ファイルを読み込み、アーキテクチャを強化して新しい設定ファイルを生成する。
+        アーキテクチャを進化させるか、学習パラメータを進化させるかをランダムに決定する。
         """
+        if random.random() < 0.6:  # 60%の確率でアーキテクチャを進化
+            return self._evolve_architecture()
+        else:  # 40%の確率で学習パラメータを進化
+            return self._evolve_learning_parameters()
+
+    def _evolve_architecture(self) -> str:
+        """モデルアーキテクチャを進化させる。"""
         if not self.model_config_path or not os.path.exists(self.model_config_path):
-            return "Evolution failed: model_config_path is not set or file not found."
+            return "Architecture evolution failed: model_config_path is not set or file not found."
 
         try:
-            print(f"🧬 Starting evolution process for {self.model_config_path}...")
+            print(f"🧬 Starting architecture evolution for {self.model_config_path}...")
             
-            # 1. 現在のアーキテクチャ設定を読み込む
             cfg = OmegaConf.load(self.model_config_path)
 
-            # 2. パラメータを強化する (例: d_modelを1.5倍、num_layersを+2)
-            original_d_model = cfg.model.d_model
-            original_num_layers = cfg.model.num_layers
+            original_d_model = cfg.model.get("d_model", 128)
+            original_num_layers = cfg.model.get("num_layers", 4)
 
-            # パラメータを増加させる (より大きく、より深く)
-            cfg.model.d_model = int(original_d_model * 1.5)
-            cfg.model.num_layers = original_num_layers + 2
+            # パラメータをランダムに少し増加させる
+            cfg.model.d_model = int(original_d_model * random.uniform(1.1, 1.5))
+            cfg.model.num_layers = original_num_layers + random.randint(1, 2)
             
-            # 関連パラメータも調整 (例: d_state, branch_features)
             if 'd_state' in cfg.model:
                 cfg.model.d_state = int(cfg.model.d_state * 1.5)
             if 'neuron' in cfg.model and 'branch_features' in cfg.model.neuron:
-                cfg.model.neuron.branch_features = cfg.model.d_model // cfg.model.neuron.num_branches
+                cfg.model.neuron.branch_features = cfg.model.d_model // cfg.model.neuron.get("num_branches", 4)
 
             print(f"   - d_model evolved: {original_d_model} -> {cfg.model.d_model}")
             print(f"   - num_layers evolved: {original_num_layers} -> {cfg.model.num_layers}")
 
-            # 3. 新しい設定ファイルを生成
             base_name, ext = os.path.splitext(self.model_config_path)
             new_config_path = f"{base_name}_evolved_v{self.get_next_version()}{ext}"
             
@@ -105,7 +122,48 @@ class SelfEvolvingAgent(AutonomousAgent):
             return f"Successfully evolved architecture. New configuration saved to '{new_config_path}'."
 
         except Exception as e:
-            return f"Evolution failed with an error: {e}"
+            return f"Architecture evolution failed with an error: {e}"
+
+    def _evolve_learning_parameters(self) -> str:
+        """学習ハイパーパラメータを進化させる。"""
+        if not self.training_config_path or not os.path.exists(self.training_config_path):
+            return "Learning parameter evolution failed: training_config_path is not set or file not found."
+
+        try:
+            print(f"🧠 Starting learning parameter evolution for {self.training_config_path}...")
+            cfg = OmegaConf.load(self.training_config_path)
+
+            params_to_evolve = [
+                "training.gradient_based.learning_rate",
+                "training.gradient_based.loss.spike_reg_weight",
+                "training.gradient_based.loss.mem_reg_weight",
+                "training.biologically_plausible.stdp.learning_rate",
+                "training.biologically_plausible.stdp.tau_trace",
+            ]
+            
+            param_key = random.choice(params_to_evolve)
+            
+            selected_param = OmegaConf.select(cfg, param_key)
+            if selected_param is None:
+                return f"Parameter '{param_key}' not found in the config. Skipping evolution."
+
+            original_value = selected_param
+            # 値をランダムに摂動させる (80% ~ 120%の範囲)
+            new_value = original_value * random.uniform(0.8, 1.2)
+            
+            OmegaConf.update(cfg, param_key, new_value, merge=True)
+
+            print(f"   - Evolved parameter '{param_key}': {original_value:.6f} -> {new_value:.6f}")
+
+            base_name, ext = os.path.splitext(self.training_config_path)
+            new_config_path = f"{base_name}_evolved_v{self.get_next_version()}{ext}"
+            OmegaConf.save(config=cfg, f=new_config_path)
+
+            return f"Successfully evolved learning parameters. New configuration saved to '{new_config_path}'."
+
+        except Exception as e:
+            return f"Learning parameter evolution failed with an error: {e}"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def get_next_version(self) -> int:
         # 簡易的なバージョン管理
