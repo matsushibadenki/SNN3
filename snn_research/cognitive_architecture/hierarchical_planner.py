@@ -1,4 +1,4 @@
-# snn_research/cognitive_architecture/hierarchical_planner.py
+# matsushibadenki/snn3/snn_research/cognitive_architecture/hierarchical_planner.py
 #
 # Title: 階層型プランナー
 #
