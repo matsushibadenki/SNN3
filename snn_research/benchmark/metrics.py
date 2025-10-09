@@ -35,9 +35,18 @@ def calculate_perplexity(model: nn.Module, loader: DataLoader, device: str) -> f
             if isinstance(batch, dict):
                 input_ids = batch['input_ids'].to(device)
                 # ラベルが 'labels' または 'targets' のキーで渡されることを想定
-                labels = batch.get('labels', batch.get('targets')).to(device)
+                labels = batch.get('labels', batch.get('targets'))
+                if labels is not None:
+                    labels = labels.to(device)
             else:
-                input_ids, labels = [t.to(device) for t in batch[:2]]
+                input_ids, labels = batch[0], batch[1]
+                if input_ids is not None:
+                    input_ids = input_ids.to(device)
+                if labels is not None:
+                    labels = labels.to(device)
+
+            if input_ids is None or labels is None:
+                continue
 
             # モデルの forward パス
             # SNNモデルは (logits, spikes, mem) のタプルを返す可能性がある
