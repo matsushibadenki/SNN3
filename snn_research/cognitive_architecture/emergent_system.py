@@ -1,9 +1,16 @@
-# matsushibadenki/snn3/snn_research/cognitive_architecture/emergent_system.py
+# snn_research/cognitive_architecture/emergent_system.py
+#
 # Title: 創発システム
+#
 # Description: 異なる認知コンポーネント間の相互作用を管理し、創発的な振る舞いを引き出すシステム。
 #              mypyエラー修正: ModelRegistryの具象クラスをDIで受け取るように変更。
 #              mypyエラー修正: 非同期メソッド呼び出しにawaitを追加。
 #              循環インポートエラー修正: TYPE_CHECKINGを使用して型ヒントのみインポートする。
+#
+# 改善点:
+# - ROADMAPフェーズ8に基づき、エージェント間の協調行動を実装。
+# - タスク失敗時にプランナーに代替案を問い合わせ、別のエージェントに
+#   タスクを再割り当てするロジックを追加。
 
 import asyncio
 from typing import List, Dict, Any, TYPE_CHECKING
@@ -35,40 +42,64 @@ class EmergentCognitiveSystem:
         """
         return asyncio.run(self.execute_task_async(high_level_goal))
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     async def execute_task_async(self, high_level_goal: str) -> str:
-        """非同期でタスク実行サイクルを処理する。"""
+        """非同期でタスク実行サイクルを処理する。協調的再計画ロジックを含む。"""
         print(f"--- Emergent System: Executing Goal: {high_level_goal} ---")
 
-        # 1. 計画
+        # 1. 初期計画の作成
         plan = await self.planner.create_plan(high_level_goal)
         self.global_workspace.broadcast("plan", f"New plan created: {plan.task_list}")
 
-        # 2. 実行
+        # 2. 計画の実行
         results = []
-        for task in plan.task_list:
-            # タスクに最適なエージェントを選択（ここでは簡略化）
-            agent_name = task.get("agent", "default_agent")
+        task_queue = plan.task_list.copy()
+
+        while task_queue:
+            task = task_queue.pop(0)
+            
+            # タスクに最適なエージェントを選択（ここでは簡略化し、専門家IDからエージェントを逆引き）
+            expert_id = task.get("expert_id")
+            # ダミー: 本来は専門家IDとエージェントのマッピングが必要
+            agent_name = "AutonomousAgent" if "expert" in expert_id else "web_crawler_agent" 
             agent = self.agents.get(agent_name)
 
             if not agent:
-                error_msg = f"Agent '{agent_name}' not found."
-                print(error_msg)
+                error_msg = f"Agent '{agent_name}' for expert '{expert_id}' not found."
                 results.append(error_msg)
                 continue
 
-            # エージェントがタスクを実行
+            # エージェントがタスクを実行 (ダミー実行)
             task_description = task.get("description", "")
-            result = agent.execute(task_description)
-            results.append(result)
-
-            # 結果をグローバルワークスペースにブロードキャスト
-            self.global_workspace.broadcast(agent.name, result)
+            print(f"-> Assigning task '{task_description}' to agent '{agent.name}'")
+            # ダミー: 実行結果を模擬
+            is_success = random.random() > 0.5 
+            
+            if is_success:
+                result = f"SUCCESS: Task '{task_description}' completed by '{agent.name}'."
+                results.append(result)
+                self.global_workspace.broadcast(agent.name, result)
+            else:
+                # --- 協調行動: タスク失敗と再計画 ---
+                result = f"FAILURE: Task '{task_description}' failed by '{agent.name}'."
+                results.append(result)
+                self.global_workspace.broadcast(agent.name, result)
+                
+                print(f"!! Task failed. Attempting to find a collaborator...")
+                new_task = await self.planner.refine_plan(task)
+                
+                if new_task:
+                    print(f"++ Collaboration proposed! Re-assigning task with new expert '{new_task['expert_id']}'.")
+                    task_queue.insert(0, new_task) # 新しいタスクをキューの先頭に追加
+                else:
+                    print("-- No collaborator found. Aborting this task branch.")
 
         # 3. 統合と要約
         final_report = self._synthesize_results(results)
         self.global_workspace.broadcast("system", f"Goal '{high_level_goal}' completed. Final report generated.")
         print(f"--- Emergent System: Goal Execution Finished ---")
         return final_report
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _synthesize_results(self, results: List[str]) -> str:
         """
