@@ -1,4 +1,4 @@
-# matsushibadenki/snn3/snn-cli.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn-cli.py
 #
 # 統合CLIツール (typer版)
 #
@@ -16,6 +16,9 @@
 #   AIが自身の行動理由を説明する機能（自己言及）を呼び出せるようにした。
 # - ROADMAPフェーズ8に基づき、`emergent-system`サブコマンドを追加。
 # - マルチエージェントによる協調的なタスク解決プロセスを起動できるようにした。
+#
+# 改善点 (v2):
+# - DigitalLifeFormのインスタンス化をDIコンテナ経由で行うように修正。
 
 import sys
 from pathlib import Path
@@ -23,16 +26,15 @@ import asyncio
 import torch
 import typer
 from typing import List, Optional
-import random
 
 # --- プロジェクトルートをPythonパスに追加 ---
-# これにより、プロジェクト内のモジュールを正しくインポートできる
 sys.path.append(str(Path(__file__).resolve().parent))
 
 # --- 各機能のコアロジックをインポート ---
+from app.containers import AgentContainer, AppContainer
+from snn_research.agent.digital_life_form import DigitalLifeForm
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
-from snn_research.agent.digital_life_form import DigitalLifeForm
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.rl_env.simple_env import SimpleEnvironment
@@ -45,6 +47,10 @@ from snn_research.cognitive_architecture.emergent_system import EmergentCognitiv
 from snn_research.cognitive_architecture.global_workspace import GlobalWorkspace
 import app.main as gradio_app
 import app.langchain_main as langchain_gradio_app
+from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
+from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
 
 # --- CLIアプリケーションの定義 ---
 app = typer.Typer(
@@ -72,10 +78,8 @@ app.add_typer(rl_app, name="rl")
 ui_app = typer.Typer(help="Gradioベースの対話UIを起動")
 app.add_typer(ui_app, name="ui")
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 emergent_app = typer.Typer(help="創発的なマルチエージェントシステムを操作")
 app.add_typer(emergent_app, name="emergent-system")
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 # --- agent サブコマンドの実装 ---
@@ -88,18 +92,15 @@ def agent_solve(
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
 ):
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    memory = Memory()
-    web_crawler = WebCrawler()
-    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
-
+    container = AgentContainer()
+    container.config.from_yaml("configs/base_config.yaml")
+    
     agent = AutonomousAgent(
         name="cli-agent",
-        planner=planner,
-        model_registry=model_registry,
-        memory=memory,
-        web_crawler=web_crawler,
+        planner=container.hierarchical_planner(),
+        model_registry=container.model_registry(),
+        memory=container.memory(),
+        web_crawler=container.web_crawler(),
         accuracy_threshold=min_accuracy,
         energy_budget=max_spikes
     )
@@ -124,9 +125,9 @@ def planner_execute(
     request: str = typer.Option(..., help="タスク要求 (例: '記事を要約して感情を分析')"),
     context: str = typer.Option(..., help="処理対象のデータ")
 ):
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
+    container = AgentContainer()
+    container.config.from_yaml("configs/base_config.yaml")
+    planner = container.hierarchical_planner()
     
     final_result = planner.execute_task(task_request=request, context=context)
     if final_result:
@@ -136,19 +137,50 @@ def planner_execute(
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
 
 # --- life-form サブコマンドの実装 ---
+def get_life_form_instance() -> DigitalLifeForm:
+    """DIコンテナを使用してDigitalLifeFormのインスタンスを生成するヘルパー関数"""
+    agent_container = AgentContainer()
+    agent_container.config.from_yaml("configs/base_config.yaml")
+    app_container = AppContainer()
+    app_container.config.from_yaml("configs/base_config.yaml")
+
+    planner = agent_container.hierarchical_planner()
+    model_registry = agent_container.model_registry()
+    memory = agent_container.memory()
+    web_crawler = agent_container.web_crawler()
+    rag_system = agent_container.rag_system()
+
+    autonomous_agent = AutonomousAgent(
+        name="AutonomousAgent", planner=planner, model_registry=model_registry, 
+        memory=memory, web_crawler=web_crawler
+    )
+    rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu")
+    self_evolving_agent = SelfEvolvingAgent(
+        name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
+        memory=memory, web_crawler=web_crawler
+    )
+    
+    return DigitalLifeForm(
+        autonomous_agent=autonomous_agent,
+        rl_agent=rl_agent,
+        self_evolving_agent=self_evolving_agent,
+        motivation_system=IntrinsicMotivationSystem(),
+        meta_cognitive_snn=MetaCognitiveSNN(),
+        memory=memory,
+        physics_evaluator=PhysicsEvaluator(),
+        symbol_grounding=SymbolGrounding(rag_system),
+        app_container=app_container
+    )
+
 @life_form_app.command("start", help="意識ループを開始します。AIが自律的に思考・学習します。")
 def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイクルの回数")):
-    life_form = DigitalLifeForm()
+    life_form = get_life_form_instance()
     life_form.awareness_loop(cycles=cycles)
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 @life_form_app.command("explain-last-action", help="AI自身に、直近の行動理由を自然言語で説明させます。")
 def life_form_explain():
-    """
-    DigitalLifeFormに自己言及を実行させる。
-    """
     print("🤔 AIに自身の行動理由を説明させます...")
-    life_form = DigitalLifeForm()
+    life_form = get_life_form_instance()
     explanation = life_form.explain_last_action()
     print("\n" + "="*20 + " 🤖 AIによる自己解説 " + "="*20)
     if explanation:
@@ -156,7 +188,6 @@ def life_form_explain():
     else:
         print("説明の生成に失敗しました。")
     print("="*64)
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- evolve サブコマンドの実装 ---
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
@@ -167,18 +198,16 @@ def evolve_run(
     initial_accuracy: float = typer.Option(0.75, help="自己評価のための初期精度"),
     initial_spikes: float = typer.Option(1500.0, help="自己評価のための初期スパイク数")
 ):
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    memory = Memory()
-    web_crawler = WebCrawler()
-    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
+    container = AgentContainer()
+    container.config.from_yaml(str(training_config))
+    container.config.from_yaml(str(model_config))
 
     agent = SelfEvolvingAgent(
         name="evolving-agent",
-        planner=planner,
-        model_registry=model_registry,
-        memory=memory,
-        web_crawler=web_crawler,
+        planner=container.hierarchical_planner(),
+        model_registry=container.model_registry(),
+        memory=container.memory(),
+        web_crawler=container.web_crawler(),
         project_root=".",
         model_config_path=str(model_config),
         training_config_path=str(training_config)
@@ -225,9 +254,6 @@ def ui_start(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
-    """
-    app/main.py を呼び出して、標準のGradio UIを起動する。
-    """
     original_argv = sys.argv
     sys.argv = [
         "app/main.py",
@@ -247,9 +273,6 @@ def ui_start_langchain(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
-    """
-    app/langchain_main.py を呼び出して、LangChain連携UIを起動する。
-    """
     original_argv = sys.argv
     sys.argv = [
         "app/langchain_main.py",
@@ -264,32 +287,26 @@ def ui_start_langchain(
     finally:
         sys.argv = original_argv
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- emergent-system サブコマンドの実装 ---
 @emergent_app.command("execute", help="高レベルの目標を与え、マルチエージェントシステムに協調的に解決させます。")
 def emergent_execute(
     goal: str = typer.Option(..., help="システムに達成させたい高レベルの目標")
 ):
-    """
-    EmergentCognitiveSystemを初期化し、協調的タスク解決を実行する。
-    """
     print(f"🚀 Emergent System Activated. Goal: {goal}")
 
-    # --- 依存関係の構築 (ダミー) ---
-    model_registry = SimpleModelRegistry()
-    rag_system = RAGSystem()
-    memory = Memory()
-    web_crawler = WebCrawler()
-    
-    # グローバルワークスペースとプランナー
-    global_workspace = GlobalWorkspace(model_registry=model_registry)
-    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
+    container = AgentContainer()
+    container.config.from_yaml("configs/base_config.yaml")
 
-    # 複数のエージェントをインスタンス化
+    planner = container.hierarchical_planner()
+    model_registry = container.model_registry()
+    memory = container.memory()
+    web_crawler = container.web_crawler()
+    
+    global_workspace = GlobalWorkspace(model_registry=model_registry)
+
     agent1 = AutonomousAgent(name="AutonomousAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
     agent2 = AutonomousAgent(name="SpecialistAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
     
-    # 創発システムを構築
     emergent_system = EmergentCognitiveSystem(
         planner=planner,
         agents=[agent1, agent2],
@@ -297,13 +314,11 @@ def emergent_execute(
         model_registry=model_registry
     )
 
-    # タスク実行
     final_report = emergent_system.execute_task(goal)
 
     print("\n" + "="*20 + " ✅ FINAL REPORT " + "="*20)
     print(final_report)
     print("="*60)
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- gradient-train サブコマンドの実装 ---
 @app.command(
@@ -318,18 +333,14 @@ def emergent_execute(
 )
 def gradient_train(ctx: typer.Context):
     print("🔧 勾配ベースの学習プロセスを開始します...")
-    # このコマンド以降のすべての引数を取得
     train_args = ctx.args
     
-    # train.py を実行するために sys.argv を一時的に書き換える
     original_argv = sys.argv
-    # 最初の引数はスクリプト名である必要があるため、'train.py' を設定
     sys.argv = ["train.py"] + train_args
     
     try:
         gradient_based_trainer.main()
     finally:
-        # 実行が終わったら sys.argv を元に戻す
         sys.argv = original_argv
 
 
