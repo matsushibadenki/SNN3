@@ -1,4 +1,5 @@
 # matsushibadenki/snn3/app/containers.py
+#
 # DIコンテナの定義ファイル (完全版)
 #
 # 機能:
@@ -9,6 +10,10 @@
 # - 変更点: 生物学的強化学習(BioRLTrainer)関連のプロバイダを再統合し、完全な状態に復元。
 # - mypyエラー修正: BioSNNのインポートパスを修正。
 # - BugFix: SNNCoreに設定ファイルの`model`セクションを正しく渡すように修正。
+#
+# 改善点:
+# - ROADMAPフェーズ8に基づき、設定ファイルに応じて
+#   SimpleModelRegistryとDistributedModelRegistryを切り替えられるように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -20,25 +25,23 @@ import os
 # --- プロジェクト内モジュールのインポート ---
 from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
 from snn_research.deployment import SNNInferenceEngine
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
 from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-from snn_research.distillation.model_registry import SimpleModelRegistry
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.distillation.model_registry import SimpleModelRegistry, DistributedModelRegistry
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import redis
 from snn_research.tools.web_crawler import WebCrawler
 
 # --- 生物学的学習のためのインポート ---
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.learning_rules.stdp import STDP
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
 from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.rl_env.simple_env import SimpleEnvironment
@@ -77,15 +80,12 @@ class TrainingContainer(containers.DeclarativeContainer):
     # --- 共通コンポーネント ---
     tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # --- アーキテクチャ選択 ---
-    # SNNCoreに設定ファイルの`model`セクションを正しく渡すように修正。
     snn_model = providers.Factory(
         SNNCore,
         config=config.model,
         vocab_size=tokenizer.provided.vocab_size,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
     meta_cognitive_snn = providers.Factory(
@@ -169,7 +169,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # === 確率的アンサンブル学習 (probabilistic_ensemble) のためのプロバイダ ===
     pe_optimizer = providers.Factory(AdamW, lr=config.training.probabilistic_ensemble.learning_rate)
     pe_scheduler = providers.Factory(_create_scheduler, optimizer=pe_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.probabilistic_ensemble.warmup_epochs)
@@ -202,7 +201,6 @@ class TrainingContainer(containers.DeclarativeContainer):
             RewardModulatedSTDP,
             learning_rate=config.training.biologically_plausible.reward_modulated_stdp.learning_rate,
             tau_eligibility=config.training.biologically_plausible.reward_modulated_stdp.tau_eligibility,
-            # STDPの設定を継承して利用
             a_plus=config.training.biologically_plausible.stdp.a_plus,
             a_minus=config.training.biologically_plausible.stdp.a_minus,
             tau_trace=config.training.biologically_plausible.stdp.tau_trace,
@@ -216,11 +214,9 @@ class TrainingContainer(containers.DeclarativeContainer):
             tau_trace=config.training.biologically_plausible.stdp.tau_trace,
         ),
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     bio_snn_model = providers.Factory(
         BioSNN,
-        # 仮の値を設定。実際の利用シーンに応じて設定を見直す必要があります。
         n_input=10,
         n_hidden=50,
         n_output=2,
@@ -248,7 +244,7 @@ class TrainingContainer(containers.DeclarativeContainer):
         PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
         d_state=config.model.d_state, num_layers=config.model.num_layers,
         time_steps=config.model.time_steps, n_head=config.model.n_head,
-        num_skills=10 # 仮のスキル数
+        num_skills=10
     )
     planner_optimizer = providers.Factory(AdamW, lr=config.training.planner.learning_rate)
     planner_loss = providers.Factory(PlannerLoss)
@@ -262,12 +258,20 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    # ModelRegistryのプロバイダ
-    # Selectorでエラーが発生するため、現状の実装に合わせてFileベースのものを直接指定する
-    model_registry = providers.Singleton(
-        SimpleModelRegistry,
-        registry_path=config.model_registry.file.path
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # ModelRegistryのプロバイダをセレクタに変更
+    model_registry = providers.Selector(
+        config.model_registry.provider,
+        file=providers.Singleton(
+            SimpleModelRegistry,
+            registry_path=config.model_registry.file.path
+        ),
+        distributed=providers.Singleton(
+            DistributedModelRegistry,
+            registry_path=config.model_registry.file.path
+        ),
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -283,7 +287,6 @@ class AgentContainer(containers.DeclarativeContainer):
     memory = providers.Singleton(Memory, memory_path=config.training.log_dir.concat("/agent_memory.jsonl"))
 
     # --- 学習済みプランナーモデルのプロバイダ ---
-    # train_planner.pyで学習させたモデルをロードする
     trained_planner_snn = providers.Factory(
         training_container.planner_snn
     )
@@ -294,7 +297,6 @@ class AgentContainer(containers.DeclarativeContainer):
         model = trained_planner_snn
         if os.path.exists(model_path):
             try:
-                # state_dictの 'model_state_dict' キーをチェック
                 checkpoint = torch.load(model_path, map_location=device)
                 state_dict = checkpoint.get('model_state_dict', checkpoint)
                 model.load_state_dict(state_dict)
