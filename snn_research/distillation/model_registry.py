@@ -1,6 +1,5 @@
-# matsushibadenki/snn3/snn_research/distillation/model_registry.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn_research/distillation/model_registry.py
 #
-# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c_0021f222858011/snn_research/distillation/model_registry.py
 # タイトル: モデルレジストリ
 # 機能説明: find_models_for_taskメソッドの末尾にあった余分なコロンを削除し、SyntaxErrorを修正。
 #
@@ -13,6 +12,10 @@
 # 改善点 (v2):
 # - ROADMAPフェーズ4「社会学習」に基づき、エージェントがスキル（モデル）を
 #   共有するための`publish_skill`および`download_skill`メソッドを実装。
+#
+# 改善点 (v3):
+# - 複数プロセスからの同時書き込みの堅牢性を向上させるため、
+#   一時ファイルへの書き込みとアトミックなリネーム処理を導入。
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
@@ -21,6 +24,7 @@ from pathlib import Path
 import fcntl
 import time
 import shutil
+import os # osモジュールをインポート
 
 class ModelRegistry(ABC):
     """
@@ -70,8 +74,13 @@ class SimpleModelRegistry(ModelRegistry):
 
     def _save(self) -> None:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.registry_path, 'w', encoding='utf-8') as f:
+        # 改善: アトミックな書き込み処理
+        temp_path = self.registry_path.with_suffix(f"{self.registry_path.suffix}.tmp")
+        with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(self.models, f, indent=4, ensure_ascii=False)
+        # ファイルをアトミックにリネームして上書き
+        os.rename(temp_path, self.registry_path)
+
 
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         new_model_info = {
@@ -89,7 +98,6 @@ class SimpleModelRegistry(ModelRegistry):
         print(f"Model for task '{model_id}' registered at '{model_path}'.")
 
     async def find_models_for_task(self, task_description: str, top_k: int = 1) -> List[Dict[str, Any]]:
-        # ... (変更なし)
         if task_description in self.models:
             models_for_task = self.models[task_description]
             
@@ -114,7 +122,6 @@ class SimpleModelRegistry(ModelRegistry):
 
 
     async def get_model_info(self, model_id: str) -> Dict[str, Any] | None:
-        # ... (変更なし)
         models = self.models.get(model_id)
         if models:
             model_info = models[0] 
@@ -126,7 +133,6 @@ class SimpleModelRegistry(ModelRegistry):
         return None
 
     async def list_models(self) -> List[Dict[str, Any]]:
-        # ... (変更なし)
         all_models = []
         for model_id, model_list in self.models.items():
             for model_info in model_list:
@@ -146,44 +152,45 @@ class DistributedModelRegistry(SimpleModelRegistry):
         self.shared_skill_dir = Path(shared_skill_dir)
         self.shared_skill_dir.mkdir(parents=True, exist_ok=True)
 
-    def _load(self) -> Dict[str, List[Dict[str, Any]]]:
-        # ... (変更なし)
+    def _execute_with_lock(self, mode: str, operation, *args, **kwargs):
+        """ファイルロックを取得して操作を実行するユーティリティメソッド"""
         start_time = time.time()
         # ファイルが存在しない場合でもエラーにならないように 'a+' を使用
         with open(self.registry_path, 'a+', encoding='utf-8') as f:
             while time.time() - start_time < self.timeout:
                 try:
-                    fcntl.flock(f, fcntl.LOCK_SH)
+                    lock_type = fcntl.LOCK_EX if mode == 'w' else fcntl.LOCK_SH
+                    fcntl.flock(f, lock_type)
                     f.seek(0)
-                    content = f.read()
+                    result = operation(f, *args, **kwargs)
                     fcntl.flock(f, fcntl.LOCK_UN)
-                    if not content:
-                        return {}
-                    return json.loads(content)
+                    return result
                 except (IOError, BlockingIOError):
                     time.sleep(0.1)
-                except json.JSONDecodeError:
-                    # ファイルが空の場合や破損している場合
-                    return {}
-            raise IOError("レジストリの読み取りロックの取得に失敗しました。")
-        return {}
+            raise IOError(f"レジストリの{'書き込み' if mode == 'w' else '読み取り'}ロックの取得に失敗しました。")
 
+    def _load(self) -> Dict[str, List[Dict[str, Any]]]:
+        def read_operation(f):
+            content = f.read()
+            if not content:
+                return {}
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return {}
+        return self._execute_with_lock('r', read_operation)
 
     def _save(self) -> None:
-        # ... (変更なし)
-        start_time = time.time()
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.registry_path, 'w', encoding='utf-8') as f:
-            while time.time() - start_time < self.timeout:
-                try:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-                    json.dump(self.models, f, indent=4, ensure_ascii=False)
-                    f.flush()
-                    fcntl.flock(f, fcntl.LOCK_UN)
-                    return
-                except (IOError, BlockingIOError):
-                    time.sleep(0.1)
-            raise IOError("レジストリの書き込みロックの取得に失敗しました。")
+        def write_operation(f):
+            temp_path = self.registry_path.with_suffix(f"{self.registry_path.suffix}.tmp.{os.getpid()}")
+            with open(temp_path, 'w', encoding='utf-8') as temp_f:
+                json.dump(self.models, temp_f, indent=4, ensure_ascii=False)
+            
+            # os.renameはアトミック操作
+            os.rename(temp_path, self.registry_path)
+
+        # ここではロックは不要、アトミック操作で保護される
+        write_operation(None) # ダミーの引数
 
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         self.models = self._load()
