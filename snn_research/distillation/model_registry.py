@@ -181,16 +181,16 @@ class DistributedModelRegistry(SimpleModelRegistry):
         return self._execute_with_lock('r', read_operation)
 
     def _save(self) -> None:
-        def write_operation(f):
-            temp_path = self.registry_path.with_suffix(f"{self.registry_path.suffix}.tmp.{os.getpid()}")
-            with open(temp_path, 'w', encoding='utf-8') as temp_f:
-                json.dump(self.models, temp_f, indent=4, ensure_ascii=False)
-            
-            # os.renameはアトミック操作
-            os.rename(temp_path, self.registry_path)
+        # 親クラスのアトミックな保存処理を利用
+        # 分散環境ではロックと組み合わせることがより堅牢
+        def write_operation(f, models_to_save):
+            # ファイル全体をロックしているので、直接書き込む
+            f.seek(0)
+            f.truncate()
+            json.dump(models_to_save, f, indent=4, ensure_ascii=False)
 
-        # ここではロックは不要、アトミック操作で保護される
-        write_operation(None) # ダミーの引数
+        self._execute_with_lock('w', write_operation, self.models)
+
 
     async def register_model(self, model_id: str, task_description: str, metrics: Dict[str, float], model_path: str, config: Dict[str, Any]) -> None:
         self.models = self._load()
