@@ -11,16 +11,21 @@
 # - ROADMAP.mdのフェーズ5に基づき、PhysicsEvaluatorを導入。
 # - 意思決定ロジックに物理法則（エネルギー効率、処理の滑らかさ）の評価を組み込み、
 #   より高度な自律的判断を可能にした。
+#
+# 改善点:
+# - ROADMAP.mdのフェーズ6に基づき、意思決定ロジックを確率的選択モデルに変更。
+# - 複数の内部状態から各行動のスコアを算出し、重み付けされた確率で次の行動を決定する。
+# - 記憶システムに多目的報酬ベクトルを記録するように修正。
 
 import time
 import logging
 import torch
+import random
+from typing import Dict, Any
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # 各エージェントのインポート
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
@@ -43,9 +48,7 @@ class DigitalLifeForm:
         self.motivation_system = IntrinsicMotivationSystem()
         self.meta_cognitive_snn = MetaCognitiveSNN()
         self.memory = Memory()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.physics_evaluator = PhysicsEvaluator()
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 具象クラスで依存関係を解決
         model_registry = SimpleModelRegistry()
@@ -94,7 +97,6 @@ class DigitalLifeForm:
             # 1. 内部状態とパフォーマンス評価を取得
             internal_state = self.motivation_system.get_internal_state()
             performance_eval = self.meta_cognitive_snn.evaluate_performance()
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 物理法則の一貫性を評価
             dummy_mem_sequence = torch.randn(100) # ダミーの膜電位系列
             dummy_spikes = (torch.rand(100) > 0.8).float() # ダミーのスパイク
@@ -102,14 +104,19 @@ class DigitalLifeForm:
             
             # 2. 状態に基づき次の行動を決定
             action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             # 3. 決定した行動を実行
-            result, reward, expert_used = self._execute_action(action)
+            result, external_reward, expert_used = self._execute_action(action)
 
-            # 4. 経験を記録
-            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval}
-            self.memory.record_experience(self.state, action, result, reward, expert_used, decision_context)
+            # 4. 経験を記録 (多目的報酬ベクトルを記録)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            reward_vector = {
+                "external": external_reward,
+                "physical": physical_rewards
+            }
+            decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
+            self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             # 5. システムの状態とメトリクスを更新
             # ToDo: 実行結果から実際の値を取得するように修正
@@ -124,42 +131,71 @@ class DigitalLifeForm:
             self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
             self.state = {"last_action": action, "last_result": result}
             
-            logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
+            logging.info(f"Action: {action}, Result: {result}, Reward: {external_reward}")
             logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
             
             time.sleep(10) # 実行間隔
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    def _decide_next_action(self, internal_state, performance_eval, physical_rewards):
+    def _decide_next_action(self, internal_state: Dict[str, float], performance_eval: Dict[str, Any], physical_rewards: Dict[str, float]) -> str:
         """
-        状態遷移ロジック。内部状態とパフォーマンス評価から次の行動を決定する。
+        状態遷移ロジック。内部状態に基づき、各行動のスコアを計算し、確率的に次の行動を選択する。
         """
-        logging.info(f"Decision-making based on: \n- Internal State: {internal_state} \n- Performance Eval: {performance_eval} \n- Physical Rewards: {physical_rewards}")
-        
+        action_scores = {
+            "acquire_new_knowledge": 0.0,
+            "evolve_architecture": 0.0,
+            "explore_new_task_with_rl": 0.0,
+            "plan_and_execute": 0.0,
+            "practice_skill_with_rl": 0.0,
+        }
+
+        # --- スコア計算ロジック ---
+        # 知識不足の場合、知識獲得の優先度を大幅に上げる
         if performance_eval["status"] == "knowledge_gap":
-            logging.info("Reason: Knowledge gap detected. Acquiring new information.")
-            return "acquire_new_knowledge"
+            action_scores["acquire_new_knowledge"] += 10.0
+            logging.info("Decision reason: Knowledge gap detected.")
         
-        # エネルギー効率（スパース性）が低い場合、自己進化を試みる
-        if physical_rewards["sparsity_reward"] < 0.5:
-            logging.info("Reason: Low energy efficiency (sparsity). Evolving model architecture.")
-            return "evolve_architecture"
-            
+        # 能力不足、またはエネルギー効率が悪い場合、自己進化の優先度を上げる
         if performance_eval["status"] == "capability_gap":
-            logging.info("Reason: Capability gap detected. Evolving model architecture.")
-            return "evolve_architecture"
+            action_scores["evolve_architecture"] += 5.0
+            logging.info("Decision reason: Capability gap detected.")
+        if physical_rewards.get("sparsity_reward", 1.0) < 0.5:
+            action_scores["evolve_architecture"] += 8.0
+            logging.info("Decision reason: Low energy efficiency (sparsity).")
 
-        if internal_state["boredom"] > 0.7 and internal_state["confidence"] > 0.8:
-            logging.info("Reason: High boredom and confidence. Exploring new tasks.")
-            return "explore_new_task_with_rl"
-            
-        if internal_state["curiosity"] > 0.6:
-            logging.info("Reason: High curiosity. Planning complex task.")
-            return "plan_and_execute"
+        # 好奇心は新しいタスクの探求や複雑な計画を促進
+        action_scores["explore_new_task_with_rl"] += internal_state["curiosity"] * 5.0
+        action_scores["plan_and_execute"] += internal_state["curiosity"] * 3.0
+        
+        # 退屈している場合、新しいタスクの探求を強く推奨
+        if internal_state["boredom"] > 0.7:
+            action_scores["explore_new_task_with_rl"] += internal_state["boredom"] * 10.0
+            logging.info("Decision reason: High boredom.")
 
-        logging.info("Reason: Default behavior. Practicing existing skills.")
-        return "practice_skill_with_rl"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 自信がある場合、既存スキルの練習（活用）よりは新しい挑戦を優先
+        action_scores["practice_skill_with_rl"] += internal_state["confidence"] * 2.0
+        action_scores["explore_new_task_with_rl"] += internal_state["confidence"] * 1.0
+
+        # デフォルト行動として、常に練習には小さなスコアを与える
+        action_scores["practice_skill_with_rl"] += 1.0
+
+        # --- 確率的選択 ---
+        actions = list(action_scores.keys())
+        scores = [max(0, s) for s in action_scores.values()] # スコアは非負
+        total_score = sum(scores)
+
+        if total_score == 0:
+            chosen_action = "practice_skill_with_rl" # スコアが全て0ならデフォルト
+        else:
+            probabilities = [s / total_score for s in scores]
+            chosen_action = random.choices(actions, weights=probabilities, k=1)[0]
+        
+        logging.info(f"Action scores: {action_scores}")
+        logging.info(f"Probabilities: { {a: f'{p:.2%}' for a, p in zip(actions, probabilities) if total_score > 0} }")
+        logging.info(f"Chosen action: {chosen_action}")
+
+        return chosen_action
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _execute_action(self, action):
         """
@@ -198,7 +234,6 @@ class DigitalLifeForm:
             if not self.running:
                 break
             print(f"\n----- Cycle {i+1}/{cycles} -----")
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # life_cycleは内部でループするため、ここでは1ステップ分の処理を直接呼び出す
             internal_state = self.motivation_system.get_internal_state()
             performance_eval = self.meta_cognitive_snn.evaluate_performance()
@@ -207,8 +242,10 @@ class DigitalLifeForm:
             physical_rewards = self.physics_evaluator.evaluate_physical_consistency(dummy_mem_sequence, dummy_spikes)
             action = self._decide_next_action(internal_state, performance_eval, physical_rewards)
             result, reward, expert_used = self._execute_action(action)
+            
+            reward_vector = {"external": reward, "physical": physical_rewards}
             decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
-            self.memory.record_experience(self.state, action, result, reward, expert_used, decision_context)
+            self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
             
             # 状態更新のダミー処理
             self.motivation_system.update_metrics(0.1, 0.9, 0.8, 0.05)
@@ -216,7 +253,6 @@ class DigitalLifeForm:
             self.state = {"last_action": action, "last_result": result}
             
             logging.info(f"Action: {action}, Result: {result}, Reward: {reward}")
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             time.sleep(2) # サイクル間の待機
         self.stop()
         print("🧬 Awareness loop finished.")
