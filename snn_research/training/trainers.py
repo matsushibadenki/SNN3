@@ -13,11 +13,9 @@ from typing import Tuple, Dict, Any, Optional, cast
 import shutil
 import time
 from torch.optim import Adam
-from spikingjelly.activation_based import functional
+from spikingjelly.activation_based import functional # type: ignore
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
@@ -162,7 +160,7 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            actual_model = model_to_save_container.model if hasattr(model_to_save_container, 'model') else model_to_save_container
+            actual_model: nn.Module = model_to_save_container.model if hasattr(model_to_save_container, 'model') else model_to_save_container
             
             buffers_to_exclude = {
                 name for name, buf in actual_model.named_buffers() 
@@ -197,7 +195,7 @@ class BreakthroughTrainer:
             
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-        actual_model = model_to_load_container.model if hasattr(model_to_load_container, 'model') else model_to_load_container
+        actual_model: nn.Module = model_to_load_container.model if hasattr(model_to_load_container, 'model') else model_to_load_container
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -305,7 +303,6 @@ class PhysicsInformedTrainer(BreakthroughTrainer):
 
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 class ProbabilisticEnsembleTrainer(BreakthroughTrainer):
     def __init__(self, ensemble_size: int = 5, **kwargs):
         super().__init__(**kwargs)
@@ -331,7 +328,7 @@ class ProbabilisticEnsembleTrainer(BreakthroughTrainer):
         ensemble_logits_tensor = torch.stack(ensemble_logits)
         
         # 損失計算 (アンサンブル全体で)
-        loss_dict = self.criterion(ensemble_logits_tensor, target_ids, None, None, self.model)
+        loss_dict = self.criterion(ensemble_logits_tensor, target_ids, torch.tensor(0.0), torch.tensor(0.0), self.model)
 
         if is_train:
             self.optimizer.zero_grad()
@@ -361,7 +358,6 @@ class ProbabilisticEnsembleTrainer(BreakthroughTrainer):
         return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
 
 class PlannerTrainer:
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: str):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -387,7 +383,6 @@ class PlannerTrainer:
             self.optimizer.step()
             
             progress_bar.set_postfix({"loss": loss.item()})
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
 class BPTTTrainer:
     def __init__(self, model: nn.Module, config: DictConfig):
