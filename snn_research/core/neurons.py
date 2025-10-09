@@ -10,6 +10,7 @@ AdaptiveLIFNeuron and IzhikevichNeuron implementations based on expert feedback 
 from typing import Optional, Tuple
 import torch
 from torch import Tensor, nn
+import torch.nn.functional as F
 import math
 from spikingjelly.activation_based import surrogate, base # type: ignore
 
@@ -97,6 +98,13 @@ class AdaptiveLIFNeuron(base.MemoryModule):
         
         return spike, self.mem
 
+    def get_spike_rate_loss(self) -> torch.Tensor:
+        """スパイク率の目標値からの乖離を損失として返す"""
+        current_rate = self.spikes.mean()
+        # target_spike_rateがスカラー値であることを想定
+        target = torch.tensor(self.target_spike_rate, device=current_rate.device)
+        return F.mse_loss(current_rate, target)
+
 class IzhikevichNeuron(base.MemoryModule):
     """
     Izhikevich neuron model, capable of producing a wide variety of firing patterns.
@@ -108,13 +116,20 @@ class IzhikevichNeuron(base.MemoryModule):
         b: float = 0.2,
         c: float = -65.0,
         d: float = 8.0,
+        dt: float = 0.5,
     ):
         super().__init__()
         self.features = features
+        # a: 回復変数uの時定数。小さいほど回復が遅い (e.g., 0.02 for regular spiking)
         self.a = a
+        # b: 膜電位vに対する回復変数uの感受性。大きいほどvとuの結合が強い (e.g., 0.2 for regular spiking)
         self.b = b
+        # c: スパイク後の膜電位vのリセット値 (e.g., -65 mV)
         self.c = c
+        # d: スパイク後の回復変数uの増加量 (e.g., 2 for regular spiking, 8 for chattering)
         self.d = d
+        # dt: シミュレーションの時間刻み幅
+        self.dt = dt
         self.v_peak = 30.0
         self.surrogate_function = surrogate.ATan(alpha=2.0)
 
@@ -139,12 +154,11 @@ class IzhikevichNeuron(base.MemoryModule):
         if self.u is None or self.u.shape != x.shape:
             self.u = torch.full_like(x, self.b * self.c)
 
-        dt = 0.5
         dv = 0.04 * self.v**2 + 5 * self.v + 140 - self.u + x
         du = self.a * (self.b * self.v - self.u)
         
-        self.v = self.v + dv * dt
-        self.u = self.u + du * dt
+        self.v = self.v + dv * self.dt
+        self.u = self.u + du * self.dt
         
         spike = self.surrogate_function(self.v - self.v_peak)
         self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
@@ -156,6 +170,7 @@ class IzhikevichNeuron(base.MemoryModule):
         self.v = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
         self.u = torch.where(reset_mask, self.u + self.d, self.u)
         
+        # クランプ範囲は、発散を防ぎ、数値的安定性を保つためのものです。
         self.v = torch.clamp(self.v, min=-100.0, max=50.0)
 
         return spike, self.v
