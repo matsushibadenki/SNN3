@@ -62,11 +62,9 @@ class EmergentCognitiveSystem:
         while task_queue:
             task = task_queue.pop(0)
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️
             expert_id = task.get("expert_id")
             # expert_idに基づいてエージェントを割り当てる
             agent_name = "web_crawler_agent" if expert_id == "web_crawler" else "AutonomousAgent"
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
             agent = self.agents.get(agent_name)
 
             if not agent:
@@ -85,6 +83,7 @@ class EmergentCognitiveSystem:
                 results.append(result)
                 self.global_workspace.broadcast(agent.name, result)
             else:
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # --- 協調行動: タスク失敗と再計画 ---
                 result = f"FAILURE: Task '{task_description}' failed by '{agent.name}'."
                 results.append(result)
@@ -98,6 +97,7 @@ class EmergentCognitiveSystem:
                     task_queue.insert(0, new_task) # 新しいタスクをキューの先頭に追加
                 else:
                     print("-- No collaborator found. Aborting this task branch.")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         # 3. 統合と要約
         final_report = self._synthesize_results(results)
