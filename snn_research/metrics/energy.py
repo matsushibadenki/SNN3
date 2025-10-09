@@ -5,6 +5,7 @@ Energy efficiency metrics for Spiking Neural Networks.
 import torch
 import torch.nn as nn
 from typing import Dict, Any
+from torch import Tensor
 from snn_research.core.neurons import AdaptiveLIFNeuron, IzhikevichNeuron
 
 
@@ -12,7 +13,7 @@ class EnergyMetrics:
     """SNNのエネルギー効率を測定するメトリクス"""
     
     @staticmethod
-    def compute_synaptic_operations(model: nn.Module, input_batch: torch.Tensor) -> Dict[str, float]:
+    def compute_synaptic_operations(model: nn.Module, input_batch: Tensor) -> Dict[str, float]:
         """
         シナプス演算回数（SNN特有の効率指標）を計算。
         
