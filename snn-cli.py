@@ -72,8 +72,10 @@ app.add_typer(rl_app, name="rl")
 ui_app = typer.Typer(help="Gradioベースの対話UIを起動")
 app.add_typer(ui_app, name="ui")
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 emergent_app = typer.Typer(help="創発的なマルチエージェントシステムを操作")
 app.add_typer(emergent_app, name="emergent-system")
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 # --- agent サブコマンドの実装 ---
@@ -139,6 +141,7 @@ def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイ
     life_form = DigitalLifeForm()
     life_form.awareness_loop(cycles=cycles)
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 @life_form_app.command("explain-last-action", help="AI自身に、直近の行動理由を自然言語で説明させます。")
 def life_form_explain():
     """
@@ -153,6 +156,7 @@ def life_form_explain():
     else:
         print("説明の生成に失敗しました。")
     print("="*64)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- evolve サブコマンドの実装 ---
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
@@ -260,6 +264,7 @@ def ui_start_langchain(
     finally:
         sys.argv = original_argv
 
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # --- emergent-system サブコマンドの実装 ---
 @emergent_app.command("execute", help="高レベルの目標を与え、マルチエージェントシステムに協調的に解決させます。")
 def emergent_execute(
@@ -298,6 +303,7 @@ def emergent_execute(
     print("\n" + "="*20 + " ✅ FINAL REPORT " + "="*20)
     print(final_report)
     print("="*60)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 # --- gradient-train サブコマンドの実装 ---
 @app.command(
