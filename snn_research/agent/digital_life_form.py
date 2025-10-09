@@ -62,7 +62,7 @@ class DigitalLifeForm:
         self.app_container = AppContainer()
         self.app_container.config.from_yaml("configs/base_config.yaml")
         self.app_container.config.from_yaml("configs/models/small.yaml")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 依存関係を注入してプランナーを作成
         planner = HierarchicalPlanner(
