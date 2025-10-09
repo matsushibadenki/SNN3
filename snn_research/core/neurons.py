@@ -1,6 +1,6 @@
 # matsushibadenki/snn3/snn_research/core/neurons.py
 """
-AdaptiveLIFNeuron implementation based on expert feedback.
+AdaptiveLIFNeuron and IzhikevichNeuron implementations based on expert feedback and documentation.
 - BPTT-enabled state updates
 - Correct surrogate gradient usage
 - Docstrings and type hints
@@ -74,9 +74,9 @@ class AdaptiveLIFNeuron(base.MemoryModule):
                 - Membrane potential (Tensor): Membrane potential of shape (batch_size, features).
         """
         # 【根本修正】状態変数がNoneの場合、入力テンソルの形状に合わせて初回のみ初期化
-        if self.mem is None:
+        if self.mem is None or self.mem.shape != x.shape:
             self.mem = torch.zeros_like(x)
-        if self.adaptive_threshold is None:
+        if self.adaptive_threshold is None or self.adaptive_threshold.shape != x.shape:
             self.adaptive_threshold = torch.zeros_like(x)
 
         # Update membrane potential (BPTT-friendly)
@@ -106,3 +106,83 @@ class AdaptiveLIFNeuron(base.MemoryModule):
                 self.adaptive_threshold = self.adaptive_threshold * self.mem_decay + self.adaptation_strength * spike
         
         return spike, self.mem
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+class IzhikevichNeuron(base.MemoryModule):
+    """
+    Izhikevich neuron model, capable of producing a wide variety of firing patterns.
+    Designed for vectorized operations and to be BPTT-friendly.
+
+    Args:
+        features (int): Number of neurons in the layer.
+        a (float): Time scale of the recovery variable `u`.
+        b (float): Sensitivity of `u` to the subthreshold fluctuations of `v`.
+        c (float): After-spike reset value of the membrane potential `v`.
+        d (float): After-spike reset of the recovery variable `u`.
+    """
+    def __init__(
+        self,
+        features: int,
+        a: float = 0.02,
+        b: float = 0.2,
+        c: float = -65.0,
+        d: float = 8.0,
+    ):
+        super().__init__()
+        self.features = features
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        
+        self.v_peak = 30.0
+        self.surrogate_function = surrogate.ATan(alpha=2.0)
+
+        self.register_buffer("v", None) # Membrane potential
+        self.register_buffer("u", None) # Recovery variable
+        self.register_buffer("spikes", torch.zeros(features))
+
+    def reset(self):
+        super().reset()
+        self.v = None
+        self.u = None
+        self.spikes.zero_()
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Processes one timestep of input current.
+
+        Args:
+            x (Tensor): Input current of shape (batch_size, features).
+
+        Returns:
+            Tuple[Tensor, Tensor]: A tuple containing:
+                - Spikes (Tensor): Output spikes of shape (batch_size, features).
+                - Membrane potential (Tensor): Membrane potential `v`.
+        """
+        if self.v is None or self.v.shape != x.shape:
+            self.v = torch.full_like(x, self.c)
+        if self.u is None or self.u.shape != x.shape:
+            self.u = torch.full_like(x, self.b * self.c)
+
+        # Generate spikes
+        spike = self.surrogate_function(self.v - self.v_peak)
+        self.spikes = spike.mean(dim=0) if spike.ndim > 1 else spike
+
+        # Reset mechanism (non-differentiable)
+        reset_mask = (self.v >= self.v_peak).detach()
+        self.v = torch.where(reset_mask, torch.full_like(self.v, self.c), self.v)
+        self.u = torch.where(reset_mask, self.u + self.d, self.u)
+
+        # Update dynamics (BPTT-friendly)
+        # Using two steps for numerical stability (dv/dt then du/dt)
+        dv = (0.04 * self.v**2 + 5 * self.v + 140 - self.u + x)
+        self.v = self.v + dv * 0.5  # Step 1
+        dv = (0.04 * self.v**2 + 5 * self.v + 140 - self.u + x)
+        self.v = self.v + dv * 0.5  # Step 2
+        
+        du = self.a * (self.b * self.v - self.u)
+        self.u = self.u + du
+
+        return spike, self.v
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
