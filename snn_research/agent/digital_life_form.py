@@ -24,15 +24,19 @@
 # - ROADMAPフェーズ4, 旧8「社会学習」に基づき、スキルの公開とダウンロードを行う
 #   `publish_successful_skill`と`download_skill_from_community`アクションを追加。
 # - 意思決定ロジックを更新し、内部状態に応じてこれらの社会的な行動が選択されるようにした。
+#
+# 修正点 (v6):
+# - mypyエラーを解消するため、asyncioモジュールのインポートと、クラス名のタイポを修正。
 
 import time
 import logging
 import torch
 import random
 import json
+import asyncio
 from typing import Dict, Any, Optional, List # Listをインポート
 
-from snn_research.cognitive_architecture.intrinsic_motivation import IntrinisicMotivationSystem
+from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
@@ -57,7 +61,7 @@ class DigitalLifeForm:
         autonomous_agent: AutonomousAgent,
         rl_agent: ReinforcementLearnerAgent,
         self_evolving_agent: SelfEvolvingAgent,
-        motivation_system: IntrinisicMotivationSystem,
+        motivation_system: IntrinsicMotivationSystem,
         meta_cognitive_snn: MetaCognitiveSNN,
         memory: Memory,
         physics_evaluator: PhysicsEvaluator,
