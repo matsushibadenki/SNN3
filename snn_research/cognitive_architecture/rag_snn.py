@@ -11,6 +11,9 @@
 # - ROADMAPフェーズ3「因果ナレッジグラフ」に基づき、
 #   `add_causal_relationship`メソッドを追加。
 #   これにより、「A causes B」のような因果関係をより明確に表現できるようになる。
+#
+# 修正点 (v3):
+# - TypeErrorを解消するため、vector_store_pathがNoneの場合のフォールバック処理を追加。
 
 import os
 from typing import List, Optional
@@ -28,7 +31,13 @@ class RAGSystem:
     ナレッジグラフとしての機能も併せ持つ。
     """
     def __init__(self, vector_store_path: str = "runs/vector_store"):
-        self.vector_store_path = vector_store_path
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if vector_store_path is None:
+            print("⚠️ RAGSystemにNoneのパスが渡されたため、デフォルト値 'runs/vector_store' を使用します。")
+            self.vector_store_path = "runs/vector_store"
+        else:
+            self.vector_store_path = vector_store_path
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
