@@ -3,6 +3,7 @@
 # デジタル生命体 起動スクリプト
 # 概要：DigitalLifeFormインスタンスを生成し、その活動を開始・停止する。
 # 修正点: DIコンテナを利用して依存関係を構築するように修正。
+# 修正点 (v2): 循環インポートエラー解消のため、DigitalLifeFormへの依存関係の渡し方を修正。
 
 import time
 import argparse
@@ -38,13 +39,14 @@ def main():
     memory = agent_container.memory()
     web_crawler = agent_container.web_crawler()
     rag_system = agent_container.rag_system()
+    langchain_adapter = app_container.langchain_adapter()
 
     autonomous_agent = AutonomousAgent(
         name="AutonomousAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
     )
     # rl_agent と self_evolving_agent も同様にコンテナから取得または生成
-    rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu")
+    rl_agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device="cpu")
     self_evolving_agent = SelfEvolvingAgent(
         name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
@@ -66,7 +68,7 @@ def main():
         memory=memory,
         physics_evaluator=physics_evaluator,
         symbol_grounding=symbol_grounding,
-        app_container=app_container
+        langchain_adapter=langchain_adapter
     )
     
     try:
