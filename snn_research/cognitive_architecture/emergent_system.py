@@ -25,6 +25,10 @@
 # - ダミーのタスク実行を、実際の`agent.handle_task`呼び出しに置き換え。
 # - これにより、エージェントの実際の能力に基づいてタスクの成否が決定され、
 #   協調行動がより現実的なシナリオでトリガーされるようになった。
+#
+# 修正点 (v4):
+# - mypyエラー `Item "None" of "dict[str, Any] | None" has no attribute "get"` を修正。
+#   `execution_result` がNoneでないことを明示的にチェックする処理を追加。
 
 import asyncio
 from typing import List, Dict, Any, TYPE_CHECKING, Optional, Tuple
@@ -142,7 +146,10 @@ class EmergentCognitiveSystem:
             is_success = execution_result is not None
             
             if is_success:
-                result = f"SUCCESS: Task '{task_description}' completed by '{agent.name}' using expert '{execution_result.get('model_id')}'."
+                # Mypyエラー修正: is_successチェック後でもexecution_resultがNoneの可能性があると判断されるため、
+                # 明示的なチェックを追加してエラーを回避する。
+                expert_id = execution_result.get('model_id', 'unknown') if execution_result else 'unknown'
+                result = f"SUCCESS: Task '{task_description}' completed by '{agent.name}' using expert '{expert_id}'."
                 results.append(result)
                 self.global_workspace.broadcast(agent.name, result)
             else:
