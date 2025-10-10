@@ -6,9 +6,9 @@
 # - mypyエラー `Incompatible types in assignment` を解消するため、
 #   `rl run` コマンド内の `episode_reward` をfloatで初期化するように修正。
 #
-# 修正点 (v6):
-# - DigitalLifeFormのコンストラクタ変更に伴い、get_life_form_instance内での
-#   依存関係の注入方法を修正。
+# 修正点 (v7):
+# - DIコンテナの初期化方法を修正し、`DynamicContainer`ではなく`AgentContainer`を
+#   直接使用することで、設定値の解決エラーを解消。
 
 import sys
 from pathlib import Path
@@ -80,9 +80,10 @@ def agent_solve(
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
-
+    
     agent = AutonomousAgent(
         name="cli-agent",
         planner=container.hierarchical_planner(),
@@ -92,13 +93,14 @@ def agent_solve(
         accuracy_threshold=min_accuracy,
         energy_budget=max_spikes
     )
-
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
     selected_model_info = asyncio.run(agent.handle_task(
         task_description=task,
         unlabeled_data_path=str(unlabeled_data) if unlabeled_data else None,
         force_retrain=force_retrain
     ))
-
+    
     if selected_model_info and prompt:
         print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
         print(f"入力プロンプト: {prompt}")
@@ -115,7 +117,7 @@ def planner_execute(
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
     planner = container.hierarchical_planner()
-
+    
     final_result = planner.execute_task(task_request=request, context=context)
     if final_result:
         print("\n" + "="*20 + " ✅ FINAL RESULT " + "="*20)
@@ -134,21 +136,18 @@ def get_life_form_instance() -> DigitalLifeForm:
     memory = agent_container.memory()
     web_crawler = agent_container.web_crawler()
     rag_system = agent_container.rag_system()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     langchain_adapter = app_container.langchain_adapter()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     autonomous_agent = AutonomousAgent(
-        name="AutonomousAgent", planner=planner, model_registry=model_registry,
+        name="AutonomousAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
     )
     rl_agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device="cpu")
     self_evolving_agent = SelfEvolvingAgent(
-        name="SelfEvolvingAgent", planner=planner, model_registry=model_registry,
+        name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
     )
-
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
     return DigitalLifeForm(
         autonomous_agent=autonomous_agent,
         rl_agent=rl_agent,
@@ -160,7 +159,6 @@ def get_life_form_instance() -> DigitalLifeForm:
         symbol_grounding=SymbolGrounding(rag_system),
         langchain_adapter=langchain_adapter
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 @life_form_app.command("start", help="意識ループを開始します。AIが自律的に思考・学習します。")
 def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイクルの回数")):
@@ -218,11 +216,11 @@ def rl_run(
     max_steps: int = typer.Option(50, help="1エピソードあたりの最大ステップ数")
 ):
     from tqdm import tqdm
-
+    
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     env = GridWorldEnv(size=grid_size, max_steps=max_steps, device=device)
     agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device=device)
-
+    
     progress_bar = tqdm(range(episodes))
     total_rewards = []
 
@@ -236,11 +234,11 @@ def rl_run(
             agent.learn(reward)
             episode_reward += reward
             state = next_state
-
+        
         total_rewards.append(episode_reward)
         avg_reward = sum(total_rewards[-10:]) / len(total_rewards[-10:])
         progress_bar.set_postfix({"Avg Reward (last 10)": f"{avg_reward:.3f}"})
-
+    
     final_avg_reward = sum(total_rewards) / episodes if episodes > 0 else 0.0
     print(f"\n✅ 学習完了。最終的な平均報酬: {final_avg_reward:.4f}")
 
@@ -256,7 +254,7 @@ def ui_start(
     ]
     if model_path:
         sys.argv.extend(["--model_path", model_path])
-
+    
     try:
         print("🚀 標準のGradio UIを起動します...")
         gradio_app.main()
@@ -295,12 +293,12 @@ def emergent_execute(
     model_registry = container.model_registry()
     memory = container.memory()
     web_crawler = container.web_crawler()
-
+    
     global_workspace = GlobalWorkspace(model_registry=model_registry)
 
     agent1 = AutonomousAgent(name="AutonomousAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
     agent2 = AutonomousAgent(name="SpecialistAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
-
+    
     emergent_system = EmergentCognitiveSystem(
         planner=planner,
         agents=[agent1, agent2],
@@ -319,7 +317,7 @@ def emergent_execute(
     help="""
     勾配ベースでSNNモデルを手動学習します (train.pyを呼び出します)。
     このコマンドの後に、train.pyに渡したい引数をそのまま続けてください。
-
+    
     例: `python snn-cli.py gradient-train --model_config configs/models/large.yaml --data_path data/sample_data.jsonl`
     """,
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
@@ -327,10 +325,10 @@ def emergent_execute(
 def gradient_train(ctx: typer.Context):
     print("🔧 勾配ベースの学習プロセスを開始します...")
     train_args = ctx.args
-
+    
     original_argv = sys.argv
     sys.argv = ["train.py"] + train_args
-
+    
     try:
         gradient_based_trainer.main()
     finally:
