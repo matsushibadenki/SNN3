@@ -16,6 +16,10 @@
 # 修正点 (v13):
 # - TypeError: expected str, bytes or os.PathLike object, not NoneType を解決するため、
 #   memoryとrag_systemのプロバイダをファクトリ関数形式に変更。
+#
+# 修正点 (v14):
+# - AttributeError: 'NoneType' object has no attribute 'get' を解決するため、
+#   rag_systemとmemoryのプロバイダをより直接的な依存性注入の形式に修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -308,21 +312,15 @@ class AgentContainer(containers.DeclarativeContainer):
     web_crawler = providers.Singleton(WebCrawler)
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    @providers.Singleton
-    def rag_system(config=config):
-        log_dir = config.get('training', {}).get('log_dir')
-        if log_dir:
-            vector_store_path = os.path.join(log_dir, "vector_store")
-            return RAGSystem(vector_store_path=vector_store_path)
-        return RAGSystem()
+    rag_system = providers.Singleton(
+        RAGSystem,
+        vector_store_path=config.training.log_dir.concat("/vector_store")
+    )
 
-    @providers.Singleton
-    def memory(config=config):
-        log_dir = config.get('training', {}).get('log_dir')
-        if log_dir:
-            memory_path = os.path.join(log_dir, "agent_memory.jsonl")
-            return Memory(memory_path=memory_path)
-        return Memory()
+    memory = providers.Singleton(
+        Memory,
+        memory_path=config.training.log_dir.concat("/agent_memory.jsonl")
+    )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- 学習済みプランナーモデルのプロバイダ ---
