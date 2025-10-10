@@ -6,9 +6,9 @@
 # - mypyエラー `Incompatible types in assignment` を解消するため、
 #   `rl run` コマンド内の `episode_reward` をfloatで初期化するように修正。
 #
-# 修正点 (v7):
-# - DIコンテナの初期化方法を修正し、`DynamicContainer`ではなく`AgentContainer`を
-#   直接使用することで、設定値の解決エラーを解消。
+# 修正点 (v8):
+# - TypeErrorの根本原因であるモデル設定ファイルの読み込み漏れを修正。
+#   `agent solve`コマンドに`--model-config`引数を追加した。
 
 import sys
 from pathlib import Path
@@ -76,13 +76,18 @@ def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
     prompt: Optional[str] = typer.Option(None, help="推論を実行する場合の入力プロンプト"),
     unlabeled_data: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     force_retrain: bool = typer.Option(False, "--force-retrain", help="モデル登録簿を無視して強制的に再学習"),
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
 ):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    container.config.from_yaml(str(model_config))
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     agent = AutonomousAgent(
         name="cli-agent",
@@ -93,7 +98,6 @@ def agent_solve(
         accuracy_threshold=min_accuracy,
         energy_budget=max_spikes
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     selected_model_info = asyncio.run(agent.handle_task(
         task_description=task,
