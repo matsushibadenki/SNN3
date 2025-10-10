@@ -9,10 +9,9 @@
 #   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
 #   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
 #
-# 修正点 (v9):
-# - DIコンテナが設定値を解決できない根本問題を修正するため、
-#   _model_registry_factory が設定プロバイダ全体を受け取り、
-#   内部で値を解決するようにロジックを修正。
+# 修正点 (v10):
+# - AttributeErrorの根本原因を解決するため、_model_registry_factoryが
+#   辞書として渡されるconfigを正しくキーアクセスするように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -69,15 +68,17 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-def _model_registry_factory(config):
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+def _model_registry_factory(config: dict):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
-    provider_name = config.model_registry.provider()
+    provider_name = config['model_registry']['provider']
     if provider_name == "file":
-        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+        return SimpleModelRegistry(registry_path=config['model_registry']['file']['path'])
     elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+        return DistributedModelRegistry(registry_path=config['model_registry']['file']['path'])
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class TrainingContainer(containers.DeclarativeContainer):
