@@ -7,6 +7,11 @@
 # 改善点:
 # - ROADMAPフェーズ2に基づき、因果的記憶アクセスを実装。
 # - 報酬が高かった成功体験を優先的に検索する`retrieve_successful_experiences`メソッドを追加。
+#
+# 改善点 (v2):
+# - 旧ロードマップ フェーズ5「多目的報酬ランドスケープ」を完全に実装。
+# - `get_total_reward`を更新し、外的報酬、物理法則、好奇心を
+#   総合的に評価して経験の「価値」を判断するようにした。
 
 import json
 from datetime import datetime
@@ -58,7 +63,7 @@ class Memory:
 
     def retrieve_successful_experiences(self, top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        過去の経験の中から、特に報酬が高かったものを検索する。
+        過去の経験の中から、総合的な報酬が高かったものを検索する。
         """
         experiences = []
         try:
@@ -72,10 +77,26 @@ class Memory:
         def get_total_reward(exp: Dict[str, Any]) -> float:
             reward_info = exp.get("reward", {})
             if isinstance(reward_info, dict):
-                # 新しい形式: {"external": 0.8, "physical": {...}}
-                return float(reward_info.get("external", 0.0))
+                # 多目的報酬ベクトルの加重合計を計算
+                w_external = 1.0
+                w_physical = 0.2
+                w_curiosity = 0.5
+                
+                external_reward = float(reward_info.get("external", 0.0))
+                
+                physical_rewards = reward_info.get("physical", {})
+                sparsity_reward = physical_rewards.get("sparsity_reward", 0.0)
+                smoothness_reward = physical_rewards.get("smoothness_reward", 0.0)
+                
+                curiosity_reward = float(reward_info.get("curiosity", 0.0))
+
+                total = (w_external * external_reward +
+                         w_physical * (sparsity_reward + smoothness_reward) +
+                         w_curiosity * curiosity_reward)
+                return total
+                
             elif isinstance(reward_info, (int, float)):
-                # 古い形式: 0.8
+                # 古い形式の報酬データとの後方互換性
                 return float(reward_info)
             return 0.0
 
