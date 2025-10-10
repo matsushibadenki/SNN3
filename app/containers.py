@@ -4,14 +4,13 @@
 #
 # (省略)
 #
-# 修正点:
-# - ReinforcementLearnerAgent の直接インポートをやめ、文字列パスによる
-#   遅延読み込み（Lazy Loading）に変更。これにより循環インポートエラーを解消。
-#
 # 修正点 (v2):
 # - `Selector`が設定値を正しく読み込めないエラーを解消するため、
 #   `config.model_registry.provider`に`.required()`を追加し、
 #   設定値の解決を強制するようにした。
+#
+# 修正点 (v3):
+# - `AttributeError`を解消するため、Selectorの定義から`.required()`を削除。
 
 import torch
 from dependency_injector import containers, providers
@@ -254,7 +253,7 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     model_registry = providers.Selector(
-        config.model_registry.provider.required(),
+        config.model_registry.provider,
         file=providers.Singleton(
             SimpleModelRegistry,
             registry_path=config.model_registry.file.path
