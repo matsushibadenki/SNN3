@@ -1,15 +1,14 @@
 # ファイルパス: snn_research/agent/reinforcement_learner_agent.py
 # Title: 強化学習エージェント
-# Description: 生物学的学習則（報酬変調型STDP）を用いて、環境との相互作用から
-#              自律的に学習するエージェント。
-# 修正点:
-# - 階層的因果学習に対応したBioSNNの新しいインターフェースに合わせて、
-#   モデルの初期化と重み更新の呼び出し方を修正し、mypyエラーを解消。
+# (省略)
 # 改善点:
 # - ROADMAPフェーズ2検証のため、GridWorldのような複数ステップ環境に対応。
 # - get_actionでスパイク出力から単一の行動を選択するように変更。
 # - learnメソッドを更新し、毎ステップの経験を蓄積し、報酬に基づいて
 #   時間的信用割り当てを行うようにした。
+# 修正点:
+# - mypyエラー `Incompatible return value type` を解消するため、
+#   get_actionの戻り値を明示的にintにキャストした。
 
 import torch
 from typing import Dict, Any, List
@@ -69,7 +68,7 @@ class ReinforcementLearnerAgent:
 
             # 最も発火したニューロンのインデックスを行動として選択
             action = torch.argmax(output_spikes).item()
-            return action
+            return int(action)
 
     def learn(self, reward: float):
         """
