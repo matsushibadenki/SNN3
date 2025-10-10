@@ -1,27 +1,14 @@
 # ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn-cli.py
 #
-# 統合CLIツール (typer版)
-#
-# プロジェクトの全機能をサブコマンド形式で実行するための統一インターフェース。
-# argparseとtyperの混在によって発生していた引数解析エラーを解消するため、
-# typerに完全に移行。gradient-trainが追加の引数を正しく
-# train.pyに渡せるように修正。
-#
-# 修正点:
-# - evolve runコマンドに --training-config オプションを追加し、
-#   SelfEvolvingAgentが学習パラメータを進化させられるようにした。
-# - uiサブコマンドを追加し、標準UIとLangChain連携UIを
-#   選択して起動できるようにした。
-# - life-formサブコマンドに `explain-last-action` を追加し、
-#   AIが自身の行動理由を説明する機能（自己言及）を呼び出せるようにした。
-# - ROADMAPフェーズ8に基づき、`emergent-system`サブコマンドを追加。
-# - マルチエージェントによる協調的なタスク解決プロセスを起動できるようにした。
-#
-# 改善点 (v2):
-# - DigitalLifeFormのインスタンス化をDIコンテナ経由で行うように修正。
+# (省略)
 #
 # 改善点 (v3):
 # - DigitalLifeFormのコンストラクタに必要な引数をすべて渡すように修正し、mypyエラーを解消。
+#
+# 修正点 (v4):
+# - rl run コマンドを、GridWorldEnvに対応するように更新し、
+#   ReinforcementLearnerAgentの新しいインターフェースとの互換性を確保。
+#   これによりmypyエラーを解消。
 
 import sys
 from pathlib import Path
@@ -40,7 +27,7 @@ from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
-from snn_research.rl_env.simple_env import SimpleEnvironment
+from snn_research.rl_env.grid_world import GridWorldEnv
 import train as gradient_based_trainer
 from snn_research.distillation.model_registry import SimpleModelRegistry
 from snn_research.agent.memory import Memory
@@ -85,7 +72,7 @@ emergent_app = typer.Typer(help="創発的なマルチエージェントシス�
 app.add_typer(emergent_app, name="emergent-system")
 
 
-# --- agent サブコマンドの実装 ---
+# (省略: agent, planner, life-form, evolve サブコマンド)
 @agent_app.command("solve", help="指定されたタスクを解決します。専門家モデルの検索、オンデマンド学習、推論を実行します。")
 def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
@@ -122,7 +109,6 @@ def agent_solve(
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
         print("タスクを完了できませんでした。")
 
-# --- planner サブコマンドの実装 ---
 @planner_app.command("execute", help="複雑なタスク要求を実行します。内部で計画を立案し、複数の専門家を連携させます。")
 def planner_execute(
     request: str = typer.Option(..., help="タスク要求 (例: '記事を要約して感情を分析')"),
@@ -139,7 +125,6 @@ def planner_execute(
     else:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
 
-# --- life-form サブコマンドの実装 ---
 def get_life_form_instance() -> DigitalLifeForm:
     """DIコンテナを使用してDigitalLifeFormのインスタンスを生成するヘルパー関数"""
     agent_container = AgentContainer()
@@ -157,7 +142,7 @@ def get_life_form_instance() -> DigitalLifeForm:
         name="AutonomousAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
     )
-    rl_agent = ReinforcementLearnerAgent(input_size=10, output_size=4, device="cpu")
+    rl_agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device="cpu")
     self_evolving_agent = SelfEvolvingAgent(
         name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
         memory=memory, web_crawler=web_crawler
@@ -192,7 +177,6 @@ def life_form_explain():
         print("説明の生成に失敗しました。")
     print("="*64)
 
-# --- evolve サブコマンドの実装 ---
 @evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
 def evolve_run(
     task_description: str = typer.Option(..., help="自己評価の起点となるタスク説明"),
@@ -224,34 +208,43 @@ def evolve_run(
         initial_metrics=initial_metrics
     )
 
+
 # --- rl サブコマンドの実装 ---
-@rl_app.command("run", help="強化学習ループを開始します。エージェントが試行錯誤から学習します。")
+@rl_app.command("run", help="強化学習ループを開始します。エージェントがGridWorld環境を探索します。")
 def rl_run(
-    episodes: int = typer.Option(100, help="学習エピソード数"),
-    pattern_size: int = typer.Option(10, help="環境のパターンサイズ")
+    episodes: int = typer.Option(500, help="学習エピソード数"),
+    grid_size: int = typer.Option(5, help="グリッドワールドのサイズ"),
+    max_steps: int = typer.Option(50, help="1エピソードあたりの最大ステップ数")
 ):
     from tqdm import tqdm
     
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-    env = SimpleEnvironment(pattern_size=pattern_size, device=device)
-    agent = ReinforcementLearnerAgent(input_size=pattern_size, output_size=pattern_size, device=device)
+    env = GridWorldEnv(size=grid_size, max_steps=max_steps, device=device)
+    # GridWorldの仕様に合わせる: state=4, action=4
+    agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device=device)
     
     progress_bar = tqdm(range(episodes))
-    total_reward = 0.0
+    total_rewards = []
 
     for episode in progress_bar:
         state = env.reset()
-        action = agent.get_action(state)
-        _, reward, _ = env.step(action)
-        agent.learn(reward)
-        total_reward += reward
-        avg_reward = total_reward / (episode + 1)
-        progress_bar.set_postfix({"Avg Reward": f"{avg_reward:.3f}"})
+        done = False
+        episode_reward = 0
+        while not done:
+            action = agent.get_action(state)
+            next_state, reward, done = env.step(action)
+            agent.learn(reward)
+            episode_reward += reward
+            state = next_state
+        
+        total_rewards.append(episode_reward)
+        avg_reward = sum(total_rewards[-10:]) / len(total_rewards[-10:])
+        progress_bar.set_postfix({"Avg Reward (last 10)": f"{avg_reward:.3f}"})
     
-    print(f"\n✅ 学習完了。最終的な平均報酬: {total_reward / episodes:.4f}")
+    final_avg_reward = sum(total_rewards) / episodes if episodes > 0 else 0.0
+    print(f"\n✅ 学習完了。最終的な平均報酬: {final_avg_reward:.4f}")
 
-
-# --- ui サブコマンドの実装 ---
+# (省略: ui, emergent-system, gradient-train サブコマンド)
 @ui_app.command("start", help="標準のGradio UIを起動します。")
 def ui_start(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
@@ -290,7 +283,6 @@ def ui_start_langchain(
     finally:
         sys.argv = original_argv
 
-# --- emergent-system サブコマンドの実装 ---
 @emergent_app.command("execute", help="高レベルの目標を与え、マルチエージェントシステムに協調的に解決させます。")
 def emergent_execute(
     goal: str = typer.Option(..., help="システムに達成させたい高レベルの目標")
@@ -323,7 +315,6 @@ def emergent_execute(
     print(final_report)
     print("="*60)
 
-# --- gradient-train サブコマンドの実装 ---
 @app.command(
     "gradient-train",
     help="""
