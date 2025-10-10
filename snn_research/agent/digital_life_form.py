@@ -2,12 +2,13 @@
 #
 # DigitalLifeForm オーケストレーター
 #
+# 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
+#
 # (省略)
-# 
-# 改善点 (v6):
-# - 旧ロードマップ フェーズ5「多目的報酬ランドスケープ」を完全に実装。
-# - 経験を記録する際、報酬ベクトルに「好奇心」を追加し、
-#   エージェントの行動原理をより高度化した。
+#
+# 修正点 (v7):
+# - mypyエラーと循環インポートエラーを解消するため、TYPE_CHECKINGブロックを
+#   利用してAppContainerの型ヒントを解決するように修正。
 
 import time
 import logging
@@ -15,19 +16,22 @@ import torch
 import random
 import json
 import asyncio
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
 from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
-from app.containers import AppContainer
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import DistributedModelRegistry
+
+# --- 循環インポート解消のための修正 ---
+if TYPE_CHECKING:
+    from app.containers import AppContainer
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,7 +51,7 @@ class DigitalLifeForm:
         memory: Memory,
         physics_evaluator: PhysicsEvaluator,
         symbol_grounding: SymbolGrounding,
-        app_container: AppContainer
+        app_container: "AppContainer"
     ):
         self.autonomous_agent = autonomous_agent
         self.rl_agent = rl_agent
