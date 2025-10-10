@@ -1,10 +1,12 @@
-# snn_research/training/bio_trainer.py
+# ファイルパス: snn_research/training/bio_trainer.py
 # Title: 生物学的強化学習用トレーナー
 # Description: 強化学習のパラダイムに合わせ、エージェントと環境を引数に取るように変更。
 #              エピソードベースの学習ループ（行動選択 -> 環境作用 -> 学習）を実装。
 # 修正点:
 # - mypyエラーを解消するため、GridWorldEnvに対応。
 # - 複数ステップからなるエピソードベースの学習ループに修正。
+# - mypyエラー `Incompatible types in assignment` を解消するため、
+#   `episode_reward` をfloatで初期化するように修正。
 
 import torch
 from tqdm import tqdm  # type: ignore
@@ -27,7 +29,7 @@ class BioRLTrainer:
         for episode in progress_bar:
             state = self.env.reset()
             done = False
-            episode_reward = 0
+            episode_reward = 0.0
             
             while not done:
                 # 1. 行動選択
