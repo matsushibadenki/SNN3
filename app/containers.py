@@ -4,13 +4,14 @@
 #
 # (省略)
 #
-# 改善点:
-# - ROADMAPフェーズ8に基づき、設定ファイルに応じて
-#   SimpleModelRegistryとDistributedModelRegistryを切り替えられるように修正。
-#
 # 修正点:
 # - ReinforcementLearnerAgent の直接インポートをやめ、文字列パスによる
 #   遅延読み込み（Lazy Loading）に変更。これにより循環インポートエラーを解消。
+#
+# 修正点 (v2):
+# - `Selector`が設定値を正しく読み込めないエラーを解消するため、
+#   `config.model_registry.provider`に`.required()`を追加し、
+#   設定値の解決を強制するようにした。
 
 import torch
 from dependency_injector import containers, providers
@@ -253,7 +254,7 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     model_registry = providers.Selector(
-        config.model_registry.provider,
+        config.model_registry.provider.required(),
         file=providers.Singleton(
             SimpleModelRegistry,
             registry_path=config.model_registry.file.path
@@ -317,3 +318,4 @@ class AppContainer(containers.DeclarativeContainer):
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, config=config)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
     langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
+
