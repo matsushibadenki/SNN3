@@ -20,6 +20,11 @@
 # - ROADMAPフェーズ8「協調的タスク解決」をさらに強化。
 # - タスク失敗時に、他のエージェントがより高性能なモデルを所有しているか検索し、
 #   最適な協力者にタスクを再割り当てする`_find_collaborator_for_task`を実装。
+#
+# 改善点 (v3):
+# - ダミーのタスク実行を、実際の`agent.handle_task`呼び出しに置き換え。
+# - これにより、エージェントの実際の能力に基づいてタスクの成否が決定され、
+#   協調行動がより現実的なシナリオでトリガーされるようになった。
 
 import asyncio
 from typing import List, Dict, Any, TYPE_CHECKING, Optional, Tuple
@@ -122,19 +127,27 @@ class EmergentCognitiveSystem:
                 results.append(error_msg)
                 continue
 
-            # エージェントがタスクを実行 (ダミー実行)
             task_description = task.get("description", "")
             print(f"-> Assigning task '{task_description}' to agent '{agent.name}'")
-            # ダミー: 実行結果を模擬
-            is_success = random.random() > 0.5 
+            
+            # 実際のタスク実行を試みる
+            # 成功すればモデル情報が、失敗すればNoneが返る
+            execution_result = await agent.handle_task(
+                task_description=task_description,
+                # 協力時に学習データがない場合もあるため、ここではNoneを渡す
+                unlabeled_data_path=None, 
+                force_retrain=False
+            )
+            
+            is_success = execution_result is not None
             
             if is_success:
-                result = f"SUCCESS: Task '{task_description}' completed by '{agent.name}'."
+                result = f"SUCCESS: Task '{task_description}' completed by '{agent.name}' using expert '{execution_result.get('model_id')}'."
                 results.append(result)
                 self.global_workspace.broadcast(agent.name, result)
             else:
                 # --- 協調行動: タスク失敗と協力者の探索 ---
-                result = f"FAILURE: Task '{task_description}' failed by '{agent.name}'."
+                result = f"FAILURE: Task '{task_description}' failed by '{agent.name}' (no suitable expert found)."
                 results.append(result)
                 self.global_workspace.broadcast(agent.name, result)
                 
