@@ -9,9 +9,10 @@
 #   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
 #   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
 #
-# 修正点 (v10):
-# - AttributeErrorの根本原因を解決するため、_model_registry_factoryが
-#   辞書として渡されるconfigを正しくキーアクセスするように修正。
+# 修正点 (v11):
+# - TypeError: missing required positional argumentsを解消するため、
+#   @providers.Singletonデコレータを使ったメソッド定義から、より堅牢な
+#   ファクトリ関数パターンにリファクタリング。
 
 import torch
 from dependency_injector import containers, providers
@@ -68,8 +69,7 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-def _model_registry_factory(config: dict):
+def _model_registry_factory(config):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
     provider_name = config['model_registry']['provider']
     if provider_name == "file":
@@ -78,6 +78,23 @@ def _model_registry_factory(config: dict):
         return DistributedModelRegistry(registry_path=config['model_registry']['file']['path'])
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+def _load_planner_snn_factory(trained_planner_snn, config, device):
+    """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
+    model_path = config.training.planner.model_path()
+    model = trained_planner_snn
+    if os.path.exists(model_path):
+        try:
+            checkpoint = torch.load(model_path, map_location=device)
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            model.load_state_dict(state_dict)
+            print(f"✅ 学習済みPlannerSNNモデルを '{model_path}' から正常にロードしました。")
+        except Exception as e:
+            print(f"⚠️ PlannerSNNモデルのロードに失敗しました: {e}。未学習のモデルを使用します。")
+    else:
+        print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
+    return model.to(device)
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
@@ -269,12 +286,10 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = providers.Singleton(
         _model_registry_factory,
         config=config,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -294,21 +309,14 @@ class AgentContainer(containers.DeclarativeContainer):
         training_container.planner_snn
     )
 
-    @providers.Singleton
-    def loaded_planner_snn(trained_planner_snn, config, device):
-        model_path = config.training.planner.model_path
-        model = trained_planner_snn
-        if os.path.exists(model_path):
-            try:
-                checkpoint = torch.load(model_path, map_location=device)
-                state_dict = checkpoint.get('model_state_dict', checkpoint)
-                model.load_state_dict(state_dict)
-                print(f"✅ 学習済みPlannerSNNモデルを '{model_path}' から正常にロードしました。")
-            except Exception as e:
-                print(f"⚠️ PlannerSNNモデルのロードに失敗しました: {e}。未学習のモデルを使用します。")
-        else:
-            print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
-        return model.to(device)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    loaded_planner_snn = providers.Singleton(
+        _load_planner_snn_factory,
+        trained_planner_snn=trained_planner_snn,
+        config=config,
+        device=device,
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- プランナー ---
     hierarchical_planner = providers.Singleton(
