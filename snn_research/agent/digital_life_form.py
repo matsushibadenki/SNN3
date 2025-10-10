@@ -6,9 +6,10 @@
 #
 # (省略)
 #
-# 修正点 (v7):
-# - mypyエラーと循環インポートエラーを解消するため、TYPE_CHECKINGブロックを
-#   利用してAppContainerの型ヒントを解決するように修正。
+# 修正点 (v8):
+# - 根本的な循環インポートエラーを解消するため、上位層であるAppContainerへの依存を削除。
+# - 必要なSNNLangChainAdapterを直接コンストラクタで受け取るように変更し、
+#   モジュール間の依存関係を正常化した。
 
 import time
 import logging
@@ -28,10 +29,7 @@ from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerA
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import DistributedModelRegistry
-
-# --- 循環インポート解消のための修正 ---
-if TYPE_CHECKING:
-    from app.containers import AppContainer
+from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -51,7 +49,7 @@ class DigitalLifeForm:
         memory: Memory,
         physics_evaluator: PhysicsEvaluator,
         symbol_grounding: SymbolGrounding,
-        app_container: "AppContainer"
+        langchain_adapter: SNNLangChainAdapter
     ):
         self.autonomous_agent = autonomous_agent
         self.rl_agent = rl_agent
@@ -61,7 +59,7 @@ class DigitalLifeForm:
         self.memory = memory
         self.physics_evaluator = physics_evaluator
         self.symbol_grounding = symbol_grounding
-        self.app_container = app_container
+        self.langchain_adapter = langchain_adapter
         
         self.running = False
         self.state: Dict[str, Any] = {"last_action": None, "last_result": None, "last_task": "unknown"}
@@ -266,9 +264,10 @@ class DigitalLifeForm:
         print("--------------------------\n")
 
         try:
-            snn_llm = self.app_container.langchain_adapter()
+            snn_llm = self.langchain_adapter
             explanation = snn_llm._call(prompt)
             return explanation
         except Exception as e:
             logging.error(f"LLMによる自己言及の生成に失敗しました: {e}")
             return "エラー: 自己言及の生成に失敗しました。"
+
