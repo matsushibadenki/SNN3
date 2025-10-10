@@ -1,11 +1,14 @@
-# snn_research/communication/spike_encoder_decoder.py
+# ファイルパス: snn_research/communication/spike_encoder_decoder.py
 # (新規作成)
 # Title: スパイク エンコーダー/デコーダー
 # Description: ROADMAPフェーズ4「スパイクベース通信プロトコル」に基づき、
 #              抽象データ（テキスト、辞書）とスパイクパターンを相互に変換する。
+# 修正点:
+# - mypyエラー `Name "random" is not defined` を解消するため、randomモジュールをインポート。
 
 import torch
 import json
+import random
 from typing import Dict, Any
 
 class SpikeEncoderDecoder:
