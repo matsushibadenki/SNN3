@@ -4,13 +4,10 @@
 #
 # (省略)
 #
-# 修正点 (v2):
-# - `Selector`が設定値を正しく読み込めないエラーを解消するため、
-#   `config.model_registry.provider`に`.required()`を追加し、
-#   設定値の解決を強制するようにした。
-#
-# 修正点 (v3):
-# - `AttributeError`を解消するため、Selectorの定義から`.required()`を削除。
+# 修正点 (v4):
+# - `Selector has no provider` エラーを根本的に解決するため、
+#   宣言的なSelectorの使用をやめ、設定値を明示的に読み込んで分岐する
+#   堅牢なファクトリメソッド方式に`model_registry`プロバイダを再実装した。
 
 import torch
 from dependency_injector import containers, providers
@@ -18,6 +15,7 @@ from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, LRScheduler
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import os
+from typing import TYPE_CHECKING
 
 # --- プロジェクト内モジュールのインポート ---
 from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
@@ -44,6 +42,9 @@ from snn_research.training.bio_trainer import BioRLTrainer
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
 from snn_research.agent.memory import Memory
+
+if TYPE_CHECKING:
+    from .adapters.snn_langchain_adapter import SNNLangChainAdapter
 
 
 def get_auto_device() -> str:
@@ -252,17 +253,15 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    model_registry = providers.Selector(
-        config.model_registry.provider,
-        file=providers.Singleton(
-            SimpleModelRegistry,
-            registry_path=config.model_registry.file.path
-        ),
-        distributed=providers.Singleton(
-            DistributedModelRegistry,
-            registry_path=config.model_registry.file.path
-        ),
-    )
+    @providers.Singleton
+    def model_registry(config):
+        provider_name = config.model_registry.provider()
+        if provider_name == "file":
+            return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+        elif provider_name == "distributed":
+            return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+        else:
+            raise ValueError(f"Unknown model registry provider: {provider_name}")
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -311,6 +310,7 @@ class AgentContainer(containers.DeclarativeContainer):
 class AppContainer(containers.DeclarativeContainer):
     """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
     config = providers.Configuration()
+    training_container = providers.Container(TrainingContainer, config=config)
     # Tools
     web_crawler = providers.Singleton(WebCrawler)
     device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
