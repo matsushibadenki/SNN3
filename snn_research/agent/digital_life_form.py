@@ -1,4 +1,4 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn_research/agent/digital_life_form.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c90968675a68ccf65069201c/snn_research/agent/digital_life_form.py
 #
 # DigitalLifeForm オーケストレーター
 #
@@ -19,6 +19,11 @@
 #
 # 改善点 (v4):
 # - mypyエラー Name "List" is not defined を修正するため、Listをインポート。
+#
+# 改善点 (v5):
+# - ROADMAPフェーズ4, 旧8「社会学習」に基づき、スキルの公開とダウンロードを行う
+#   `publish_successful_skill`と`download_skill_from_community`アクションを追加。
+# - 意思決定ロジックを更新し、内部状態に応じてこれらの社会的な行動が選択されるようにした。
 
 import time
 import logging
@@ -27,7 +32,7 @@ import random
 import json
 from typing import Dict, Any, Optional, List # Listをインポート
 
-from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+from snn_research.cognitive_architecture.intrinsic_motivation import IntrinisicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.agent.memory import Memory
 from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
@@ -37,6 +42,7 @@ from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.distillation.model_registry import DistributedModelRegistry
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -51,7 +57,7 @@ class DigitalLifeForm:
         autonomous_agent: AutonomousAgent,
         rl_agent: ReinforcementLearnerAgent,
         self_evolving_agent: SelfEvolvingAgent,
-        motivation_system: IntrinsicMotivationSystem,
+        motivation_system: IntrinisicMotivationSystem,
         meta_cognitive_snn: MetaCognitiveSNN,
         memory: Memory,
         physics_evaluator: PhysicsEvaluator,
@@ -70,7 +76,7 @@ class DigitalLifeForm:
         
         self.running = False
         # mypyエラー修正: 型ヒントを明示的に指定
-        self.state: Dict[str, Any] = {"last_action": None, "last_result": None}
+        self.state: Dict[str, Any] = {"last_action": None, "last_result": None, "last_task": "unknown"}
 
 
     def start(self):
@@ -119,7 +125,8 @@ class DigitalLifeForm:
 
         self.motivation_system.update_metrics(dummy_prediction_error, dummy_success_rate, dummy_task_similarity, dummy_loss)
         self.meta_cognitive_snn.update_metadata(dummy_loss, dummy_time, dummy_accuracy)
-        self.state = {"last_action": action, "last_result": result}
+        self.state["last_action"] = action
+        self.state["last_result"] = result
         
         logging.info(f"Action: {action}, Result: {str(result)[:200]}, Reward: {external_reward}")
         logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
@@ -131,12 +138,22 @@ class DigitalLifeForm:
             "explore_new_task_with_rl": 0.0,
             "plan_and_execute": 0.0,
             "practice_skill_with_rl": 0.0,
+            "publish_successful_skill": 0.0,
+            "download_skill_from_community": 0.0,
         }
 
+        # --- 社会学習の意思決定 ---
         if performance_eval.get("status") == "knowledge_gap":
-            action_scores["acquire_new_knowledge"] += 10.0
-            logging.info("Decision reason: Knowledge gap detected.")
-        
+            action_scores["download_skill_from_community"] += 20.0 # 最優先
+            logging.info("Decision reason: Knowledge gap detected. Prioritizing skill download.")
+        else:
+            action_scores["acquire_new_knowledge"] += 5.0
+
+        if internal_state.get("confidence", 0.5) > 0.9:
+            action_scores["publish_successful_skill"] += 10.0
+            logging.info("Decision reason: High confidence. Considering publishing skill.")
+
+        # --- その他の意思決定 ---
         if performance_eval.get("status") == "capability_gap":
             action_scores["evolve_architecture"] += 5.0
             logging.info("Decision reason: Capability gap detected.")
@@ -175,18 +192,44 @@ class DigitalLifeForm:
 
     def _execute_action(self, action: str) -> tuple[Dict[str, Any], float, List[str]]:
         try:
-            if action == "acquire_new_knowledge":
+            # --- 社会学習アクションの実行 ---
+            if action == "publish_successful_skill":
+                if isinstance(self.autonomous_agent.model_registry, DistributedModelRegistry):
+                    # 成功体験から公開するスキルを選択（ここではダミーとして最後の成功体験）
+                    successful_experiences = self.memory.retrieve_successful_experiences(top_k=1)
+                    if successful_experiences and successful_experiences[0].get("expert_used"):
+                        skill_to_publish = successful_experiences[0]["expert_used"][0]
+                        success = asyncio.run(self.autonomous_agent.model_registry.publish_skill(skill_to_publish))
+                        return {"status": "success" if success else "failure", "info": f"Published skill {skill_to_publish}"}, 1.0, ["model_registry"]
+                return {"status": "skipped", "info": "Not using DistributedModelRegistry"}, 0.0, []
+
+            elif action == "download_skill_from_community":
+                if isinstance(self.autonomous_agent.model_registry, DistributedModelRegistry):
+                    # 知識不足のタスクを特定（ここではダミー）
+                    task_needed = self.state.get("last_task", "text_summarization")
+                    downloaded_skill = asyncio.run(self.autonomous_agent.model_registry.download_skill(task_needed, "runs/downloaded_skills"))
+                    return {"status": "success" if downloaded_skill else "failure", "info": f"Downloaded skill for {task_needed}"}, 1.0, ["model_registry"]
+                return {"status": "skipped", "info": "Not using DistributedModelRegistry"}, 0.0, []
+
+            # --- 既存のアクション ---
+            elif action == "acquire_new_knowledge":
+                self.state["last_task"] = "web_research"
                 result_str = self.autonomous_agent.learn_from_web("latest SNN research trends")
                 return {"status": "success", "info": result_str, "accuracy": 0.96}, 0.8, ["web_crawler"]
             elif action == "evolve_architecture":
+                self.state["last_task"] = "self_evolution"
                 result_str = self.self_evolving_agent.evolve()
                 return {"status": "success", "info": result_str, "accuracy": 0.97}, 0.9, ["self_evolver"]
             elif action == "explore_new_task_with_rl":
+                self.state["last_task"] = "rl_exploration"
                 return {"status": "success", "info": "Exploration finished.", "accuracy": 0.92}, 0.7, ["rl_agent_explorer"]
             elif action == "practice_skill_with_rl":
+                self.state["last_task"] = "rl_practice"
                 return {"status": "success", "info": "Practice finished.", "accuracy": 0.98}, 0.5, ["rl_agent_practicer"]
             elif action == "plan_and_execute":
-                result_str = self.autonomous_agent.execute("Summarize the latest trends in SNN and analyze the sentiment.")
+                task = "Summarize the latest trends in SNN and analyze the sentiment."
+                self.state["last_task"] = "planning"
+                result_str = self.autonomous_agent.execute(task)
                 return {"status": "success", "info": result_str, "accuracy": 0.95}, 0.8, ["planner", "summarizer_snn", "sentiment_snn"]
             else:
                 return {"status": "failed", "info": "Unknown action"}, 0.0, []
