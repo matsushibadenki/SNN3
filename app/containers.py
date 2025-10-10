@@ -2,18 +2,15 @@
 #
 # DIコンテナの定義ファイル (完全版)
 #
-# 機能:
-# - 勾配ベース学習と生物学的学習を含む複数の学習パラダイムをDIコンテナで管理。
-# - 設定ファイルの `training.paradigm` の値に応じて、適切なコンポーネント群を構築する。
-# - 既存の全機能を維持しつつ、新しい学習方法への拡張性を確保。
-# - 変更点: SpikingTransformerを新しいアーキテクチャとして追加し、設定で切り替えられるように修正。
-# - 変更点: 生物学的強化学習(BioRLTrainer)関連のプロバイダを再統合し、完全な状態に復元。
-# - mypyエラー修正: BioSNNのインポートパスを修正。
-# - BugFix: SNNCoreに設定ファイルの`model`セクションを正しく渡すように修正。
+# (省略)
 #
 # 改善点:
 # - ROADMAPフェーズ8に基づき、設定ファイルに応じて
 #   SimpleModelRegistryとDistributedModelRegistryを切り替えられるように修正。
+#
+# 修正点:
+# - ReinforcementLearnerAgent の直接インポートをやめ、文字列パスによる
+#   遅延読み込み（Lazy Loading）に変更。これにより循環インポートエラーを解消。
 
 import torch
 from dependency_injector import containers, providers
@@ -32,9 +29,7 @@ from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitive
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
 from .services.chat_service import ChatService
 from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.distillation.model_registry import SimpleModelRegistry, DistributedModelRegistry
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 import redis
 from snn_research.tools.web_crawler import WebCrawler
 
@@ -43,7 +38,6 @@ from snn_research.learning_rules.stdp import STDP
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
 from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
 from snn_research.bio_models.simple_network import BioSNN
-from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
 
@@ -227,7 +221,7 @@ class TrainingContainer(containers.DeclarativeContainer):
     rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
 
     rl_agent = providers.Factory(
-        ReinforcementLearnerAgent,
+        "snn_research.agent.reinforcement_learner_agent.ReinforcementLearnerAgent",
         input_size=10,
         output_size=10,
         device=providers.Factory(get_auto_device),
@@ -258,8 +252,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # ModelRegistryのプロバイダをセレクタに変更
     model_registry = providers.Selector(
         config.model_registry.provider,
         file=providers.Singleton(
@@ -271,7 +263,6 @@ class TrainingContainer(containers.DeclarativeContainer):
             registry_path=config.model_registry.file.path
         ),
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
