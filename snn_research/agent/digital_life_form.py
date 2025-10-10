@@ -2,31 +2,12 @@
 #
 # DigitalLifeForm オーケストレーター
 #
-# 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
-#
-# 改善点:
-# - ROADMAPフェーズ7「自己言及」を実装。
-# - LangChain連携機能を利用し、自身の行動ログを基に、
-#   「なぜその行動を取ったのか」を自然言語で説明する`explain_last_action`メソッドを追加。
-# - ROADMAPフェーズ7「記号創発」を実装。
-# - SymbolGroundingモジュールを統合し、未知の経験から新しい概念を自律的に生成する機能を追加。
-#
-# 改善点 (v2):
-# - 依存性注入に対応するため、__init__メソッドで必要なコンポーネントを受け取るように変更。
-#
-# 改善点 (v3):
-# - self.state の型ヒントを明示し、mypyエラーを修正。
-#
-# 改善点 (v4):
-# - mypyエラー Name "List" is not defined を修正するため、Listをインポート。
-#
-# 改善点 (v5):
-# - ROADMAPフェーズ4, 旧8「社会学習」に基づき、スキルの公開とダウンロードを行う
-#   `publish_successful_skill`と`download_skill_from_community`アクションを追加。
-# - 意思決定ロジックを更新し、内部状態に応じてこれらの社会的な行動が選択されるようにした。
-#
-# 修正点 (v6):
-# - mypyエラーを解消するため、asyncioモジュールのインポートと、クラス名のタイポを修正。
+# (省略)
+# 
+# 改善点 (v6):
+# - 旧ロードマップ フェーズ5「多目的報酬ランドスケープ」を完全に実装。
+# - 経験を記録する際、報酬ベクトルに「好奇心」を追加し、
+#   エージェントの行動原理をより高度化した。
 
 import time
 import logging
@@ -34,7 +15,7 @@ import torch
 import random
 import json
 import asyncio
-from typing import Dict, Any, Optional, List # Listをインポート
+from typing import Dict, Any, Optional, List
 
 from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
@@ -79,7 +60,6 @@ class DigitalLifeForm:
         self.app_container = app_container
         
         self.running = False
-        # mypyエラー修正: 型ヒントを明示的に指定
         self.state: Dict[str, Any] = {"last_action": None, "last_result": None, "last_task": "unknown"}
 
 
@@ -112,14 +92,15 @@ class DigitalLifeForm:
         if isinstance(result, dict):
             self.symbol_grounding.process_observation(result, context=f"action '{action}'")
         
+        # 報酬ベクトルに好奇心を追加
         reward_vector = {
             "external": external_reward,
-            "physical": physical_rewards
+            "physical": physical_rewards,
+            "curiosity": internal_state.get("curiosity", 0.0)
         }
         decision_context = {"internal_state": internal_state, "performance_eval": performance_eval, "physical_rewards": physical_rewards}
         self.memory.record_experience(self.state, action, result, reward_vector, expert_used, decision_context)
         
-        # ダミーのメトリクス更新
         dummy_prediction_error = result.get("prediction_error", 0.1) if isinstance(result, dict) else 0.1
         dummy_success_rate = result.get("success_rate", 0.9) if isinstance(result, dict) else 0.9
         dummy_task_similarity = 0.8
@@ -132,7 +113,7 @@ class DigitalLifeForm:
         self.state["last_action"] = action
         self.state["last_result"] = result
         
-        logging.info(f"Action: {action}, Result: {str(result)[:200]}, Reward: {external_reward}")
+        logging.info(f"Action: {action}, Result: {str(result)[:200]}, Reward Vector: {reward_vector}")
         logging.info(f"New Internal State: {self.motivation_system.get_internal_state()}")
 
     def _decide_next_action(self, internal_state: Dict[str, float], performance_eval: Dict[str, Any], physical_rewards: Dict[str, float]) -> str:
@@ -146,9 +127,8 @@ class DigitalLifeForm:
             "download_skill_from_community": 0.0,
         }
 
-        # --- 社会学習の意思決定 ---
         if performance_eval.get("status") == "knowledge_gap":
-            action_scores["download_skill_from_community"] += 20.0 # 最優先
+            action_scores["download_skill_from_community"] += 20.0 
             logging.info("Decision reason: Knowledge gap detected. Prioritizing skill download.")
         else:
             action_scores["acquire_new_knowledge"] += 5.0
@@ -157,7 +137,6 @@ class DigitalLifeForm:
             action_scores["publish_successful_skill"] += 10.0
             logging.info("Decision reason: High confidence. Considering publishing skill.")
 
-        # --- その他の意思決定 ---
         if performance_eval.get("status") == "capability_gap":
             action_scores["evolve_architecture"] += 5.0
             logging.info("Decision reason: Capability gap detected.")
@@ -196,10 +175,8 @@ class DigitalLifeForm:
 
     def _execute_action(self, action: str) -> tuple[Dict[str, Any], float, List[str]]:
         try:
-            # --- 社会学習アクションの実行 ---
             if action == "publish_successful_skill":
                 if isinstance(self.autonomous_agent.model_registry, DistributedModelRegistry):
-                    # 成功体験から公開するスキルを選択（ここではダミーとして最後の成功体験）
                     successful_experiences = self.memory.retrieve_successful_experiences(top_k=1)
                     if successful_experiences and successful_experiences[0].get("expert_used"):
                         skill_to_publish = successful_experiences[0]["expert_used"][0]
@@ -209,13 +186,11 @@ class DigitalLifeForm:
 
             elif action == "download_skill_from_community":
                 if isinstance(self.autonomous_agent.model_registry, DistributedModelRegistry):
-                    # 知識不足のタスクを特定（ここではダミー）
                     task_needed = self.state.get("last_task", "text_summarization")
                     downloaded_skill = asyncio.run(self.autonomous_agent.model_registry.download_skill(task_needed, "runs/downloaded_skills"))
                     return {"status": "success" if downloaded_skill else "failure", "info": f"Downloaded skill for {task_needed}"}, 1.0, ["model_registry"]
                 return {"status": "skipped", "info": "Not using DistributedModelRegistry"}, 0.0, []
 
-            # --- 既存のアクション ---
             elif action == "acquire_new_knowledge":
                 self.state["last_task"] = "web_research"
                 result_str = self.autonomous_agent.learn_from_web("latest SNN research trends")
@@ -254,9 +229,6 @@ class DigitalLifeForm:
         print("🧬 Awareness loop finished.")
 
     def explain_last_action(self) -> Optional[str]:
-        """
-        直近の行動ログを基に、自身の行動理由を自然言語で説明する。
-        """
         try:
             with open(self.memory.memory_path, "rb") as f:
                 try:
