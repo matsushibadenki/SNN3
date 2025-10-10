@@ -2,13 +2,9 @@
 #
 # (省略)
 #
-# 改善点 (v3):
-# - DigitalLifeFormのコンストラクタに必要な引数をすべて渡すように修正し、mypyエラーを解消。
-#
-# 修正点 (v4):
-# - rl run コマンドを、GridWorldEnvに対応するように更新し、
-#   ReinforcementLearnerAgentの新しいインターフェースとの互換性を確保。
-#   これによりmypyエラーを解消。
+# 修正点 (v5):
+# - mypyエラー `Incompatible types in assignment` を解消するため、
+#   `rl run` コマンド内の `episode_reward` をfloatで初期化するように修正。
 
 import sys
 from pathlib import Path
@@ -26,7 +22,6 @@ from snn_research.agent.digital_life_form import DigitalLifeForm
 from snn_research.agent.autonomous_agent import AutonomousAgent
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.rl_env.grid_world import GridWorldEnv
 import train as gradient_based_trainer
 from snn_research.distillation.model_registry import SimpleModelRegistry
@@ -72,7 +67,6 @@ emergent_app = typer.Typer(help="創発的なマルチエージェントシス�
 app.add_typer(emergent_app, name="emergent-system")
 
 
-# (省略: agent, planner, life-form, evolve サブコマンド)
 @agent_app.command("solve", help="指定されたタスクを解決します。専門家モデルの検索、オンデマンド学習、推論を実行します。")
 def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
@@ -126,7 +120,6 @@ def planner_execute(
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
 
 def get_life_form_instance() -> DigitalLifeForm:
-    """DIコンテナを使用してDigitalLifeFormのインスタンスを生成するヘルパー関数"""
     agent_container = AgentContainer()
     agent_container.config.from_yaml("configs/base_config.yaml")
     app_container = AppContainer()
@@ -209,7 +202,6 @@ def evolve_run(
     )
 
 
-# --- rl サブコマンドの実装 ---
 @rl_app.command("run", help="強化学習ループを開始します。エージェントがGridWorld環境を探索します。")
 def rl_run(
     episodes: int = typer.Option(500, help="学習エピソード数"),
@@ -220,7 +212,6 @@ def rl_run(
     
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     env = GridWorldEnv(size=grid_size, max_steps=max_steps, device=device)
-    # GridWorldの仕様に合わせる: state=4, action=4
     agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device=device)
     
     progress_bar = tqdm(range(episodes))
@@ -229,7 +220,7 @@ def rl_run(
     for episode in progress_bar:
         state = env.reset()
         done = False
-        episode_reward = 0
+        episode_reward = 0.0
         while not done:
             action = agent.get_action(state)
             next_state, reward, done = env.step(action)
@@ -244,7 +235,6 @@ def rl_run(
     final_avg_reward = sum(total_rewards) / episodes if episodes > 0 else 0.0
     print(f"\n✅ 学習完了。最終的な平均報酬: {final_avg_reward:.4f}")
 
-# (省略: ui, emergent-system, gradient-train サブコマンド)
 @ui_app.command("start", help="標準のGradio UIを起動します。")
 def ui_start(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
