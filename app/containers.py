@@ -9,10 +9,9 @@
 #   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
 #   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
 #
-# 修正点 (v11):
-# - TypeError: missing required positional argumentsを解消するため、
-#   @providers.Singletonデコレータを使ったメソッド定義から、より堅牢な
-#   ファクトリ関数パターンにリファクタリング。
+# 修正点 (v12):
+# - DIコンテナがconfigを辞書として解決してしまう根本原因に対処するため、
+#   ファクトリ関数内での設定アクセスを属性ベースからキーベースに変更。
 
 import torch
 from dependency_injector import containers, providers
@@ -71,6 +70,7 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
 
 def _model_registry_factory(config):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     provider_name = config['model_registry']['provider']
     if provider_name == "file":
         return SimpleModelRegistry(registry_path=config['model_registry']['file']['path'])
@@ -78,10 +78,13 @@ def _model_registry_factory(config):
         return DistributedModelRegistry(registry_path=config['model_registry']['file']['path'])
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def _load_planner_snn_factory(trained_planner_snn, config, device):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
-    model_path = config.training.planner.model_path()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    model_path = config['training']['planner']['model_path']
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model = trained_planner_snn
     if os.path.exists(model_path):
         try:
