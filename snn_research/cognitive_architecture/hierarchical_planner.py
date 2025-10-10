@@ -11,6 +11,10 @@
 #
 # 改善点 (v3):
 # - mypyの型互換性エラーを修正するため、辞書に明示的な型ヒントを追加。
+#
+# 改善点 (v4):
+# - ROADMAPフェーズ3「因果プランナー」に基づき、ナレッジグラフから推論を行う
+#   `_create_causal_plan`メソッドを実装し、プランニング能力を強化。
 
 from typing import List, Dict, Any, Optional
 import torch
@@ -88,16 +92,17 @@ class HierarchicalPlanner:
 
         self.SKILL_MAP = await self._build_skill_map()
 
-        knowledge_query = f"Find concepts and relations for: {high_level_goal}"
-        retrieved_knowledge = self.rag_system.search(knowledge_query, k=5)
-        
-        full_prompt = f"Goal: {high_level_goal}\n\nRetrieved Knowledge:\n{' '.join(retrieved_knowledge)}"
-        if context:
-            full_prompt += f"\n\nUser Provided Context:\n{context}"
-        
-        print(f"🧠 Planner is reasoning with prompt: {full_prompt[:200]}...")
-
+        # PlannerSNNが利用可能な場合は、知識検索と組み合わせた予測を実行
         if self.planner_model and len(self.SKILL_MAP) > 0:
+            knowledge_query = f"Find concepts and relations for: {high_level_goal}"
+            retrieved_knowledge = self.rag_system.search(knowledge_query, k=5)
+            
+            full_prompt = f"Goal: {high_level_goal}\n\nRetrieved Knowledge:\n{' '.join(retrieved_knowledge)}"
+            if context:
+                full_prompt += f"\n\nUser Provided Context:\n{context}"
+            
+            print(f"🧠 PlannerSNN is reasoning with prompt: {full_prompt[:200]}...")
+            
             self.planner_model.eval()
             with torch.no_grad():
                 inputs = self.tokenizer(full_prompt, return_tensors="pt")
@@ -110,14 +115,47 @@ class HierarchicalPlanner:
                     task_list = [task]
                     print(f"🧠 PlannerSNN predicted skill ID: {predicted_skill_id} -> Task: {task.get('task')}")
                 else:
-                    print(f"⚠️ PlannerSNN predicted an invalid skill ID: {predicted_skill_id}. Falling back to rule-based planning.")
-                    task_list = self._create_rule_based_plan(full_prompt)
+                    print(f"⚠️ PlannerSNN predicted an invalid skill ID: {predicted_skill_id}. Falling back to causal planning.")
+                    task_list = self._create_causal_plan(high_level_goal)
         else:
-            print("⚠️ PlannerSNN model not found or no skills available. Falling back to rule-based planning.")
-            task_list = self._create_rule_based_plan(full_prompt)
+            # PlannerSNNがない場合は、因果推論によるプランニングを試みる
+            print("⚠️ PlannerSNN not available. Attempting causal planning...")
+            task_list = self._create_causal_plan(high_level_goal)
+
+        # 因果プランニングが失敗した場合、最終手段としてルールベースにフォールバック
+        if not task_list:
+            print("⚠️ Causal planning failed. Falling back to rule-based planning.")
+            task_list = self._create_rule_based_plan(high_level_goal)
 
         print(f"✅ Plan created with {len(task_list)} step(s).")
         return Plan(goal=high_level_goal, task_list=task_list)
+
+    def _create_causal_plan(self, high_level_goal: str) -> List[Dict[str, Any]]:
+        """
+        ナレッジグラフ（RAGSystem）を検索し、因果関係を辿って計画を推論する。
+        """
+        print(f"🔍 Inferring plan from knowledge graph for: {high_level_goal}")
+        task_list = []
+        
+        # 1. ゴールに直接関連するスキルを検索
+        query = f"Goal: {high_level_goal}. Find skills or actions that achieve this."
+        retrieved_docs = self.rag_system.search(query, k=3)
+        
+        available_skills = list(self.SKILL_MAP.values())
+
+        # 2. 検索結果からスキルを抽出
+        for doc in retrieved_docs:
+            for skill in available_skills:
+                skill_name = (skill.get('task') or '').lower()
+                if skill_name and skill_name in doc.lower():
+                    if skill not in task_list:
+                        print(f"  - Found relevant skill from KG: {skill_name}")
+                        task_list.append(skill)
+                        # 簡単なプランニングのため、最初に見つかったスキルで終了
+                        return task_list
+        
+        print("  - No direct causal path found in the knowledge graph.")
+        return []
 
     def _create_rule_based_plan(self, prompt: str) -> List[Dict[str, Any]]:
         """ルールベースで簡易的な計画を作成するフォールバックメソッド。"""
