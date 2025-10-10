@@ -1,76 +1,71 @@
-# snn_research/bio_models/simple_network.py
-# Title: BioSNN (生物学的SNN)
+# ファイルパス: snn_research/bio_models/simple_network.py
+# タイトル: BioSNN (生物学的SNN)
 # Description: 生物学的学習則を組み込んだシンプルな2層SNN。
 # 変更点:
 # - 強化学習ループに対応するため、推論(forward)と学習(update_weights)を分離。
 # - forwardメソッドが中間層のスパイクも返すように変更。
+# 改善点:
+# - ROADMAPフェーズ2「階層的因果学習」に基づき、複数層に対応できるように拡張。
+# - update_weightsメソッドを一般化し、深いネットワークでの信用割り当てを可能にした。
 
 import torch
 import torch.nn as nn
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 from .lif_neuron import BioLIFNeuron
 from snn_research.learning_rules.base_rule import BioLearningRule
 
 class BioSNN(nn.Module):
-    """生物学的学習則で学習するシンプルなSNNモデル。"""
-    def __init__(self, n_input: int, n_hidden: int, n_output: int, neuron_params: dict, learning_rule: BioLearningRule):
+    """生物学的学習則で学習する、複数層に対応したSNNモデル。"""
+    def __init__(self, layer_sizes: List[int], neuron_params: dict, learning_rule: BioLearningRule):
         super().__init__()
-        self.n_input = n_input
-        self.n_hidden = n_hidden
-        self.n_output = n_output
+        self.layer_sizes = layer_sizes
         self.learning_rule = learning_rule
         
-        self.hidden_layer = BioLIFNeuron(n_hidden, neuron_params)
-        self.output_layer = BioLIFNeuron(n_output, neuron_params)
+        # 層と重みのリストを作成
+        self.layers = nn.ModuleList()
+        self.weights = nn.ParameterList()
         
-        # 重み
-        self.w1 = nn.Parameter(torch.rand(n_hidden, n_input) * 0.5)
-        self.w2 = nn.Parameter(torch.rand(n_output, n_hidden) * 0.5)
+        for i in range(len(layer_sizes) - 1):
+            self.layers.append(BioLIFNeuron(layer_sizes[i+1], neuron_params))
+            # 重みをParameterとして登録
+            weight = nn.Parameter(torch.rand(layer_sizes[i+1], layer_sizes[i]) * 0.5)
+            self.weights.append(weight)
 
-    def forward(self, input_spikes: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """推論のみを実行し、出力スパイクと中間層のスパイクを返す。"""
-        # 入力層 -> 隠れ層
-        hidden_current = torch.matmul(self.w1, input_spikes)
-        hidden_spikes = self.hidden_layer(hidden_current)
+    def forward(self, input_spikes: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        """推論のみを実行し、最終出力スパイクと各層のスパイク履歴を返す。"""
+        hidden_spikes_history = []
+        current_spikes = input_spikes
         
-        # 出力層
-        output_current = torch.matmul(self.w2, hidden_spikes)
-        output_spikes = self.output_layer(output_current)
+        for i, layer in enumerate(self.layers):
+            current = torch.matmul(self.weights[i], current_spikes)
+            current_spikes = layer(current)
+            hidden_spikes_history.append(current_spikes)
             
-        return output_spikes, hidden_spikes
+        return current_spikes, hidden_spikes_history
         
     def update_weights(
         self,
-        pre_spikes_l1: torch.Tensor,
-        post_spikes_l1: torch.Tensor,
-        pre_spikes_l2: torch.Tensor,
-        post_spikes_l2: torch.Tensor,
+        all_layer_spikes: List[torch.Tensor],
         optional_params: Optional[Dict[str, Any]] = None
     ):
-        """学習則に基づいて重みを更新する。"""
+        """学習則に基づいて全層の重みを更新する。"""
         if not self.training:
             return
 
-        # 隠れ層の重み更新
-        dw1 = self.learning_rule.update(
-            pre_spikes=pre_spikes_l1, 
-            post_spikes=post_spikes_l1,
-            weights=self.w1,
-            optional_params=optional_params
-        )
-        # nn.Parameterの更新は .data を使う
-        self.w1.data += dw1
-        
-        # 出力層の重み更新
-        dw2 = self.learning_rule.update(
-            pre_spikes=pre_spikes_l2,
-            post_spikes=post_spikes_l2,
-            weights=self.w2,
-            optional_params=optional_params
-        )
-        self.w2.data += dw2
-
-        # 重みが負にならないようにクリッピング
-        self.w1.data.clamp_(min=0)
-        self.w2.data.clamp_(min=0)
+        # 各層の重みを順番に更新
+        for i in range(len(self.weights)):
+            # 入力層のスパイクは all_layer_spikes の先頭に追加する
+            pre_spikes = all_layer_spikes[i]
+            post_spikes = all_layer_spikes[i+1]
+            
+            dw = self.learning_rule.update(
+                pre_spikes=pre_spikes, 
+                post_spikes=post_spikes,
+                weights=self.weights[i],
+                optional_params=optional_params
+            )
+            # nn.Parameterの更新は .data を使う
+            self.weights[i].data += dw
+            # 重みが負にならないようにクリッピング
+            self.weights[i].data.clamp_(min=0)
