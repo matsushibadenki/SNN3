@@ -3,6 +3,10 @@
 #
 # 変更点:
 # - mypyエラーを解消するため、型ヒントの修正と、結果を格納する辞書の扱いを変更。
+#
+# 改善点:
+# - ROADMAPフェーズ4「ハードウェア展開」に基づき、ハードウェアプロファイルの選択機能を追加。
+# - SNNとANNのエネルギー効率を比較し、最終レポートに表示する機能を追加。
 
 import argparse
 import time
@@ -18,17 +22,15 @@ from pathlib import Path
 # プロジェクトルートをPythonパスに追加
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.benchmark.tasks import SST2Task
+from snn_research.hardware.profiles import get_hardware_profile
 
 # タスク名とクラスのマッピング
 TASK_REGISTRY = {
     "sst2": SST2Task,
-    # "xsum": XSumTask, # datasetsライブラリの仕様変更によりエラーが発生するため一時的に無効化
 }
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-def run_single_task(task_name: str, device: str):
+def run_single_task(task_name: str, device: str, hardware_profile: Dict[str, Any]):
     """単一のベンチマークタスクを実行する。"""
     print("\n" + "="*20 + f" 🚀 Starting Benchmark for: {task_name.upper()} " + "="*20)
     
@@ -37,7 +39,7 @@ def run_single_task(task_name: str, device: str):
         tokenizer.pad_token = tokenizer.eos_token
 
     TaskClass = TASK_REGISTRY[task_name]
-    task = TaskClass(tokenizer, device)
+    task = TaskClass(tokenizer, device, hardware_profile)
 
     _, val_dataset = task.prepare_data(data_dir="data")
     val_loader = DataLoader(val_dataset, batch_size=16, collate_fn=task.get_collate_fn())
@@ -58,6 +60,13 @@ def run_single_task(task_name: str, device: str):
         }
         result_record.update(metrics)
         
+        # ANNの場合、比較用のエネルギー消費を計算
+        if model_type == 'ANN':
+            num_params = sum(p.numel() for p in model.parameters())
+            # 1パラメータあたり1回のMAC演算と仮定
+            ann_ops = num_params
+            result_record['estimated_energy_j'] = ann_ops * hardware_profile["ann_energy_per_op"]
+        
         results.append(result_record)
         print(f"  - Results: {result_record}")
     
@@ -72,24 +81,34 @@ def main():
         choices=["all"] + list(TASK_REGISTRY.keys()),
         help="実行するベンチマークタスクを選択します。"
     )
-    # --model_path引数を追加
     parser.add_argument("--model_path", type=str, help="評価する学習済みSNNモデルのパス。")
+    parser.add_argument("--hardware_profile", type=str, default="default", help="使用するハードウェアプロファイル (例: 'loihi')")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
+    
+    hardware_profile = get_hardware_profile(args.hardware_profile)
+    print(f"Using hardware profile: {hardware_profile['name']}")
 
     tasks_to_run = TASK_REGISTRY.keys() if args.task == "all" else [args.task]
     
     all_results = []
     for task_name in tasks_to_run:
-        all_results.extend(run_single_task(task_name, device))
+        all_results.extend(run_single_task(task_name, device, hardware_profile))
 
     print("\n\n" + "="*25 + " 🏆 Final Benchmark Summary " + "="*25)
     df = pd.DataFrame(all_results)
+    
+    # エネルギー効率の比較を計算
+    snn_energy = df[df['model'] == 'SNN']['estimated_energy_j'].iloc[0]
+    ann_energy = df[df['model'] == 'ANN']['estimated_energy_j'].iloc[0]
+    if ann_energy > 0:
+        efficiency_gain = (1 - (snn_energy / ann_energy)) * 100
+        df['efficiency_gain_%'] = [f"{efficiency_gain:.2f}%" if m == 'SNN' else '-' for m in df['model']]
+
     print(df.to_string())
-    print("="*75)
+    print("="*90)
 
 if __name__ == "__main__":
     main()
-
