@@ -1,10 +1,13 @@
-# matsushibadenki/snn3/snn_research/agent/reinforcement_learner_agent.py
+# ファイルパス: snn_research/agent/reinforcement_learner_agent.py
 # Title: 強化学習エージェント
 # Description: 生物学的学習則（報酬変調型STDP）を用いて、環境との相互作用から
 #              自律的に学習するエージェント。
+# 修正点:
+# - 階層的因果学習に対応したBioSNNの新しいインターフェースに合わせて、
+#   モデルの初期化と重み更新の呼び出し方を修正し、mypyエラーを解消。
 
 import torch
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
@@ -24,19 +27,20 @@ class ReinforcementLearnerAgent:
             tau_eligibility=100.0
         )
         
-        # BioSNNモデルを初期化
+        # ネットワークの層構造を定義
+        hidden_size = (input_size + output_size) // 2
+        layer_sizes = [input_size, hidden_size, output_size]
+        
+        # BioSNNモデルを初期化 (新しいインターフェースを使用)
         self.model = BioSNN(
-            n_input=input_size,
-            n_hidden= (input_size + output_size) // 2,
-            n_output=output_size,
+            layer_sizes=layer_sizes,
             neuron_params={'tau_mem': 10.0, 'v_threshold': 1.0, 'v_reset': 0.0, 'v_rest': 0.0},
             learning_rule=learning_rule
         ).to(device)
 
         # 学習のための状態を保持
-        self.last_input_spikes: torch.Tensor = torch.zeros(input_size, device=device)
-        self.last_hidden_spikes: torch.Tensor = torch.zeros((input_size + output_size) // 2, device=device)
-        self.last_output_spikes: torch.Tensor = torch.zeros(output_size, device=device)
+        self.last_all_spikes: List[torch.Tensor] = []
+
 
     def get_action(self, state: torch.Tensor) -> torch.Tensor:
         """
@@ -48,12 +52,10 @@ class ReinforcementLearnerAgent:
             input_spikes = state
             
             # モデルのフォワードパスを実行して行動を決定
-            output_spikes, hidden_spikes = self.model(input_spikes)
+            output_spikes, hidden_spikes_history = self.model(input_spikes)
 
-            # 次の学習ステップのために状態を保存
-            self.last_input_spikes = input_spikes
-            self.last_hidden_spikes = hidden_spikes
-            self.last_output_spikes = output_spikes
+            # 次の学習ステップのために状態を保存 (入力スパイクと全隠れ層のスパイク)
+            self.last_all_spikes = [input_spikes] + hidden_spikes_history
 
         return output_spikes
 
@@ -61,15 +63,18 @@ class ReinforcementLearnerAgent:
         """
         受け取った報酬信号を用いて、直前の行動を評価し、モデルの重みを更新する。
         """
+        if not self.last_all_spikes:
+            return
+
         self.model.train() # 学習モード
         
         optional_params = {"reward": reward}
         
-        # 保存しておいたスパイク活動と報酬を使って重みを更新
+        # 保存しておいた全層のスパイク活動と報酬を使って重みを更新 (新しいインターフェースを使用)
         self.model.update_weights(
-            pre_spikes_l1=self.last_input_spikes,
-            post_spikes_l1=self.last_hidden_spikes,
-            pre_spikes_l2=self.last_hidden_spikes,
-            post_spikes_l2=self.last_output_spikes,
+            all_layer_spikes=self.last_all_spikes,
             optional_params=optional_params
         )
+        
+        # 更新後に状態をクリア
+        self.last_all_spikes = []
