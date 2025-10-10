@@ -12,6 +12,9 @@
 # 修正点 (v6):
 # - AttributeErrorを解消するため、_model_registry_factoryを廃止し、
 #   より堅牢なSelectorパターンにリファクタリング。
+#
+# 修正点 (v7):
+# - Selectorが設定オプションの値をキーとして正しく参照するように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -67,6 +70,16 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler_t_max = _calculate_t_max(epochs=epochs, warmup_epochs=warmup_epochs)
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
+
+def _model_registry_factory(config):
+    """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
+    provider_name = config.model_registry.provider()
+    if provider_name == "file":
+        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+    elif provider_name == "distributed":
+        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+    else:
+        raise ValueError(f"Unknown model registry provider: {provider_name}")
 
 
 class TrainingContainer(containers.DeclarativeContainer):
