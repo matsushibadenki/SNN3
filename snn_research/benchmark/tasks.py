@@ -1,13 +1,12 @@
 # matsushibadenki/snn3/snn_research/benchmark/tasks.py
 # ベンチマークタスクの定義ファイル
 #
-# 変更点:
-# - mypyエラーを解消するため、型ヒントの修正、ライブラリimportへの# type: ignore追加、
-#   len()呼び出しのキャストなどを行った。
-# - BreakthroughSNNの呼び出しを修正し、型推論エラーを解消。
-# - 変更点: 外部ライブラリの仕様変更によりエラーとなっていたXSumタスクを無効化。
+# (省略)
 # - ValueError修正: SNNClassifier.forwardの戻り値を3つのタプル(logits, spikes, mem)に修正し、
 #                   Trainerが期待するインターフェースと一致させた。
+# 改善点:
+# - ROADMAPフェーズ4「ハードウェア展開」に基づき、ハードウェアプロファイルを導入。
+# - evaluateメソッドを更新し、スパイク数から推定エネルギー消費量を計算するようにした。
 
 import os
 import json
@@ -22,7 +21,8 @@ from transformers import PreTrainedTokenizerBase
 
 from snn_research.core.snn_core import BreakthroughSNN
 from snn_research.benchmark.ann_baseline import ANNBaselineModel
-from snn_research.benchmark.metrics import calculate_accuracy
+from snn_research.benchmark.metrics import calculate_accuracy, calculate_energy_consumption
+from snn_research.hardware.profiles import get_hardware_profile
 
 # --- 共通データセットクラス ---
 class GenericDataset(Dataset):
@@ -35,9 +35,10 @@ class GenericDataset(Dataset):
 # --- ベンチマークタスクの基底クラス ---
 class BenchmarkTask(ABC):
     """ベンチマークタスクの抽象基底クラス。"""
-    def __init__(self, tokenizer: PreTrainedTokenizerBase, device: str):
+    def __init__(self, tokenizer: PreTrainedTokenizerBase, device: str, hardware_profile: Dict[str, Any]):
         self.tokenizer = tokenizer
         self.device = device
+        self.hardware_profile = hardware_profile
 
     @abstractmethod
     def prepare_data(self, data_dir: str) -> Tuple[Dataset, Dataset]:
@@ -107,16 +108,12 @@ class SST2Task(BenchmarkTask):
                 pooled_output = hidden_states[:, -1, :] # 最後のトークンの特徴量を使用
                 logits = self.classifier(pooled_output)
                 
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # Trainerが3つの戻り値を期待しているため、インターフェースを合わせる
                 return logits, spikes, mem
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if model_type == 'SNN':
-            # BreakthroughSNNのアーキテクチャで初期化
             backbone = BreakthroughSNN(
                 vocab_size=vocab_size,
-                d_model=64, # small.yaml に合わせるのが望ましい
+                d_model=64, 
                 d_state=32,
                 num_layers=4,
                 time_steps=64,
@@ -125,7 +122,6 @@ class SST2Task(BenchmarkTask):
             )
             return SNNClassifier(backbone)
         else:
-            # ANNのベースラインモデル
             ann_params = {'d_model': 64, 'd_hid': 128, 'nlayers': 2, 'nhead': 2, 'num_classes': 2}
             return ANNBaselineModel(vocab_size=vocab_size, **ann_params)
 
@@ -134,13 +130,13 @@ class SST2Task(BenchmarkTask):
         true_labels: List[int] = []
         pred_labels: List[int] = []
         total_spikes = 0
+        num_neurons = sum(p.numel() for p in model.parameters())
         
         with torch.no_grad():
             for batch in tqdm(loader, desc="Evaluating SST-2"):
                 inputs = {k: v.to(self.device) for k, v in batch.items()}
                 targets = inputs.pop("labels")
                 
-                # モデルからの戻り値が3つであることを想定
                 outputs, spikes, _ = model(**inputs)
                 if spikes is not None:
                     total_spikes += spikes.sum().item()
@@ -149,13 +145,17 @@ class SST2Task(BenchmarkTask):
                 pred_labels.extend(preds.cpu().numpy())
                 true_labels.extend(targets.cpu().numpy())
         
-        avg_spikes = total_spikes / len(cast(Sized, loader.dataset)) if total_spikes > 0 else 0.0
+        dataset_size = len(cast(Sized, loader.dataset))
+        avg_spikes = total_spikes / dataset_size if total_spikes > 0 else 0.0
+        
+        energy_j = calculate_energy_consumption(
+            avg_spikes_per_sample=avg_spikes,
+            num_neurons=num_neurons,
+            energy_per_synop=self.hardware_profile["energy_per_synop"]
+        )
+
         return {
             "accuracy": calculate_accuracy(true_labels, pred_labels),
-            "avg_spikes": avg_spikes
+            "avg_spikes": avg_spikes,
+            "estimated_energy_j": energy_j,
         }
-
-# --- 文章要約タスク (XSum) ---
-# datasetsライブラリの仕様変更によりエラーが発生するため、クラス全体を無効化
-# class XSumTask(BenchmarkTask):
-#     ...
