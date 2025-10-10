@@ -12,6 +12,10 @@
 # 修正点 (v12):
 # - DIコンテナがconfigを辞書として解決してしまう根本原因に対処するため、
 #   ファクトリ関数内での設定アクセスを属性ベースからキーベースに変更。
+#
+# 修正点 (v13):
+# - TypeError: expected str, bytes or os.PathLike object, not NoneType を解決するため、
+#   memoryとrag_systemのプロバイダをファクトリ関数形式に変更。
 
 import torch
 from dependency_injector import containers, providers
@@ -302,8 +306,24 @@ class AgentContainer(containers.DeclarativeContainer):
     device = providers.Factory(get_auto_device)
     model_registry = training_container.model_registry
     web_crawler = providers.Singleton(WebCrawler)
-    rag_system = providers.Singleton(RAGSystem, vector_store_path=config.training.log_dir.concat("/vector_store"))
-    memory = providers.Singleton(Memory, memory_path=config.training.log_dir.concat("/agent_memory.jsonl"))
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    @providers.Singleton
+    def rag_system(config=config):
+        log_dir = config.get('training', {}).get('log_dir')
+        if log_dir:
+            vector_store_path = os.path.join(log_dir, "vector_store")
+            return RAGSystem(vector_store_path=vector_store_path)
+        return RAGSystem()
+
+    @providers.Singleton
+    def memory(config=config):
+        log_dir = config.get('training', {}).get('log_dir')
+        if log_dir:
+            memory_path = os.path.join(log_dir, "agent_memory.jsonl")
+            return Memory(memory_path=memory_path)
+        return Memory()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- 学習済みプランナーモデルのプロバイダ ---
     trained_planner_snn = providers.Factory(
