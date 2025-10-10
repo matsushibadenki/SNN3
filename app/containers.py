@@ -4,10 +4,10 @@
 #
 # (省略)
 #
-# 修正点 (v4):
-# - `Selector has no provider` エラーを根本的に解決するため、
-#   宣言的なSelectorの使用をやめ、設定値を明示的に読み込んで分岐する
-#   堅牢なファクトリメソッド方式に`model_registry`プロバイダを再実装した。
+# 修正点 (v5):
+# - `TypeError: missing 1 required positional argument: 'config'` を
+#   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
+#   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
 
 import torch
 from dependency_injector import containers, providers
@@ -63,6 +63,16 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler_t_max = _calculate_t_max(epochs=epochs, warmup_epochs=warmup_epochs)
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
+
+def _model_registry_factory(config):
+    """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
+    provider_name = config.model_registry.provider()
+    if provider_name == "file":
+        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+    elif provider_name == "distributed":
+        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+    else:
+        raise ValueError(f"Unknown model registry provider: {provider_name}")
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -253,15 +263,10 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    @providers.Singleton
-    def model_registry(config):
-        provider_name = config.model_registry.provider()
-        if provider_name == "file":
-            return SimpleModelRegistry(registry_path=config.model_registry.file.path())
-        elif provider_name == "distributed":
-            return DistributedModelRegistry(registry_path=config.model_registry.file.path())
-        else:
-            raise ValueError(f"Unknown model registry provider: {provider_name}")
+    model_registry = providers.Singleton(
+        _model_registry_factory,
+        config=config,
+    )
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -310,11 +315,19 @@ class AgentContainer(containers.DeclarativeContainer):
 class AppContainer(containers.DeclarativeContainer):
     """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
     config = providers.Configuration()
+    
+    # AppContainerが独自のTrainingContainerインスタンスを持つように変更
     training_container = providers.Container(TrainingContainer, config=config)
+
     # Tools
     web_crawler = providers.Singleton(WebCrawler)
     device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, config=config)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
-    langchain_adapter = providers.Factory(SNNLangChainAdapter, snn_engine=snn_inference_engine)
+    
+    # AppContainerのtraining_containerからlangchain_adapterに必要なものを注入
+    langchain_adapter = providers.Factory(
+        SNNLangChainAdapter, 
+        snn_engine=snn_inference_engine
+    )
 
