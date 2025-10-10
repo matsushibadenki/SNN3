@@ -9,12 +9,8 @@
 #   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
 #   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
 #
-# 修正点 (v6):
-# - AttributeErrorを解消するため、_model_registry_factoryを廃止し、
-#   より堅牢なSelectorパターンにリファクタリング。
-#
-# 修正点 (v7):
-# - Selectorが設定オプションの値をキーとして正しく参照するように修正。
+# 修正点 (v8):
+# - 繰り返されるSelectorのエラーを解決するため、より堅牢なファクトリ関数パターンに再修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -71,15 +67,16 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-def _model_registry_factory(config):
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+def _model_registry_factory(provider_name: str, file_path: str):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
-    provider_name = config.model_registry.provider()
     if provider_name == "file":
-        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+        return SimpleModelRegistry(registry_path=file_path)
     elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+        return DistributedModelRegistry(registry_path=file_path)
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -271,16 +268,10 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    model_registry = providers.Selector(
-        config.model_registry.provider,
-        file=providers.Singleton(
-            SimpleModelRegistry,
-            registry_path=config.model_registry.file.path,
-        ),
-        distributed=providers.Singleton(
-            DistributedModelRegistry,
-            registry_path=config.model_registry.file.path,
-        ),
+    model_registry = providers.Singleton(
+        _model_registry_factory,
+        provider_name=config.model_registry.provider,
+        file_path=config.model_registry.file.path,
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
