@@ -79,7 +79,6 @@ def _model_registry_factory(config):
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 def _load_planner_snn_factory(trained_planner_snn, config, device):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
     model_path = config.training.planner.model_path()
@@ -95,7 +94,6 @@ def _load_planner_snn_factory(trained_planner_snn, config, device):
     else:
         print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
     return model.to(device)
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -309,14 +307,12 @@ class AgentContainer(containers.DeclarativeContainer):
         training_container.planner_snn
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     loaded_planner_snn = providers.Singleton(
         _load_planner_snn_factory,
         trained_planner_snn=trained_planner_snn,
         config=config,
         device=device,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- プランナー ---
     hierarchical_planner = providers.Singleton(
