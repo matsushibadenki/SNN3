@@ -8,6 +8,10 @@
 # - `TypeError: missing 1 required positional argument: 'config'` を
 #   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
 #   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
+#
+# 修正点 (v6):
+# - AttributeErrorを解消するため、_model_registry_factoryを廃止し、
+#   より堅牢なSelectorパターンにリファクタリング。
 
 import torch
 from dependency_injector import containers, providers
@@ -63,16 +67,6 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler_t_max = _calculate_t_max(epochs=epochs, warmup_epochs=warmup_epochs)
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
-
-def _model_registry_factory(config):
-    """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
-    provider_name = config.model_registry.provider()
-    if provider_name == "file":
-        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
-    elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
-    else:
-        raise ValueError(f"Unknown model registry provider: {provider_name}")
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -158,7 +152,7 @@ class TrainingContainer(containers.DeclarativeContainer):
     # === 物理情報学習 (physics_informed) のためのプロバイダ ===
     pi_optimizer = providers.Factory(AdamW, lr=config.training.physics_informed.learning_rate)
     pi_scheduler = providers.Factory(_create_scheduler, optimizer=pi_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.physics_informed.warmup_epochs)
-    
+
     physics_informed_loss = providers.Factory(
         PhysicsInformedLoss,
         tokenizer=tokenizer,
@@ -177,7 +171,7 @@ class TrainingContainer(containers.DeclarativeContainer):
     # === 確率的アンサンブル学習 (probabilistic_ensemble) のためのプロバイダ ===
     pe_optimizer = providers.Factory(AdamW, lr=config.training.probabilistic_ensemble.learning_rate)
     pe_scheduler = providers.Factory(_create_scheduler, optimizer=pe_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.probabilistic_ensemble.warmup_epochs)
-    
+
     probabilistic_ensemble_loss = providers.Factory(
         ProbabilisticEnsembleLoss,
         tokenizer=tokenizer,
@@ -263,10 +257,19 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    model_registry = providers.Singleton(
-        _model_registry_factory,
-        config=config,
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    model_registry = providers.Selector(
+        config.model_registry.provider,
+        file=providers.Singleton(
+            SimpleModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
+        distributed=providers.Singleton(
+            DistributedModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -315,7 +318,7 @@ class AgentContainer(containers.DeclarativeContainer):
 class AppContainer(containers.DeclarativeContainer):
     """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
     config = providers.Configuration()
-    
+
     # AppContainerが独自のTrainingContainerインスタンスを持つように変更
     training_container = providers.Container(TrainingContainer, config=config)
 
@@ -324,10 +327,9 @@ class AppContainer(containers.DeclarativeContainer):
     device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
     snn_inference_engine = providers.Singleton(SNNInferenceEngine, config=config)
     chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
-    
+
     # AppContainerのtraining_containerからlangchain_adapterに必要なものを注入
     langchain_adapter = providers.Factory(
-        SNNLangChainAdapter, 
+        SNNLangChainAdapter,
         snn_engine=snn_inference_engine
     )
-
