@@ -313,7 +313,8 @@ class AgentContainer(containers.DeclarativeContainer):
         model_path=config.training.planner.model_path,
         device=device,
     )
-    
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正↓◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     hierarchical_planner = providers.Factory(
         HierarchicalPlanner,
         model_registry=model_registry,
@@ -322,6 +323,7 @@ class AgentContainer(containers.DeclarativeContainer):
         tokenizer_name=config.data.tokenizer_name,
         device=device,
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正↑◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AppContainer(containers.DeclarativeContainer):
