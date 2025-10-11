@@ -11,6 +11,7 @@ from .planner_snn import PlannerSNN
 from .rag_snn import RAGSystem
 from .amygdala import Amygdala
 from .basal_ganglia import BasalGanglia
+from .cerebellum import Cerebellum
 
 __all__ = [
     "AstrocyteNetwork",
@@ -23,5 +24,6 @@ __all__ = [
     "PlannerSNN",
     "RAGSystem",
     "Amygdala",
-    "BasalGanglia"
+    "BasalGanglia",
+    "Cerebellum"
 ]
