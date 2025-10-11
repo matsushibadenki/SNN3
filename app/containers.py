@@ -61,6 +61,7 @@ from snn_research.cognitive_architecture.amygdala import Amygdala
 from snn_research.cognitive_architecture.basal_ganglia import BasalGanglia
 from snn_research.cognitive_architecture.cerebellum import Cerebellum
 from snn_research.cognitive_architecture.motor_cortex import MotorCortex
+from snn_research.cognitive_architecture.hybrid_perception_cortex import HybridPerceptionCortex # 追加
 
 
 if TYPE_CHECKING:
@@ -386,7 +387,13 @@ class BrainContainer(containers.DeclarativeContainer):
     actuator = providers.Singleton(Actuator, actuator_name="voice_synthesizer")
 
     # --- Cognitive Modules ---
-    perception_cortex = providers.Singleton(PerceptionCortex, num_neurons=num_neurons, feature_dim=64)
+    perception_cortex = providers.Singleton(
+        HybridPerceptionCortex, 
+        num_neurons=num_neurons, 
+        feature_dim=64,
+        som_map_size=providers.List(8, 8),
+        stdp_params=config.training.biologically_plausible.stdp
+    )
     prefrontal_cortex = providers.Singleton(PrefrontalCortex)
     hierarchical_planner = agent_container.hierarchical_planner
     
