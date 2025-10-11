@@ -39,9 +39,7 @@ class RewardModulatedSTDP(STDP):
 
         # 1. STDPライクなルールで適格性トレースを更新
         self.eligibility_trace += self.a_plus * torch.outer(post_spikes, self.pre_trace)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.eligibility_trace -= self.a_minus * torch.outer(pre_spikes, self.post_trace)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.eligibility_trace -= self.a_minus * torch.outer(self.post_trace, pre_spikes)
 
         # 2. 適格性トレースを時間減衰させる
         self.eligibility_trace -= (self.eligibility_trace / self.tau_eligibility) * self.dt
