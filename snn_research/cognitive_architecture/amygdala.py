@@ -1,25 +1,30 @@
 # ファイルパス: snn_research/cognitive_architecture/amygdala.py
-# (新規作成)
+# (修正)
 #
 # Title: Amygdala (扁桃体) モジュール
 #
 # Description:
+# - mypyエラーを解消するため、Optional型を明示的にインポート・使用し、
+#   メソッドに戻り値の型ヒントを追加。
 # - 人工脳アーキテクチャにおける「価値評価層」の中核コンポーネント。
 # - 入力された情報（テキスト）に対し、情動価（Valence: 快・不快）と
 #   覚醒度（Arousal: 興奮・沈静）を評価し、スコアを算出する。
 # - シンプルなキーワードベースの実装だが、将来的により高度な
 #   学習済みモデルに置き換え可能なように設計されている。
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 class Amygdala:
     """
     テキスト情報から情動価と覚醒度を評価する扁桃体モジュール。
     """
-    def __init__(self, emotion_lexicon: Dict[str, Tuple[float, float]] = None):
+    # クラス属性として型ヒントを定義
+    emotion_lexicon: Dict[str, Tuple[float, float]]
+
+    def __init__(self, emotion_lexicon: Optional[Dict[str, Tuple[float, float]]] = None):
         """
         Args:
-            emotion_lexicon (Dict[str, Tuple[float, float]], optional):
+            emotion_lexicon (Optional[Dict[str, Tuple[float, float]]], optional):
                 感情の辞書。キーは単語、値は(Valence, Arousal)のタプル。
                 指定されない場合は、デフォルトの簡易辞書を使用する。
         """
