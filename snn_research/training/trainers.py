@@ -1,8 +1,9 @@
-# snn_research/training/trainers.py
-# (省略...)
+# matsushibadenki/snn/snn_research/training/trainers.py
+# SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
 # 改善点: モデル保存時に'adaptive_threshold'も除外対象に追加し、安定性を向上。
 # 改善点 (v2): 確率的アンサンブル学習のためのParticleFilterTrainerを新規追加。
 # 修正点 (v3): ParticleFilterTrainerがdict型のconfigを正しく扱えるように修正。
+# 修正点 (v4): ParticleFilterTrainerのデータ次元の不整合を修正。
 
 import torch
 import torch.nn as nn
@@ -427,13 +428,11 @@ class ParticleFilterTrainer:
     逐次モンテカルロ法（パーティクルフィルタ）を用いて、微分不可能なSNNを学習するトレーナー。
     CPU上での実行を想定し、GPU依存から脱却するアプローチ。
     """
-    def __init__(self, base_model: BioSNN, config: Dict[str, Any]): # ◾️ Dict[str, Any] に修正
+    def __init__(self, base_model: BioSNN, config: Dict[str, Any]):
         self.base_model = base_model
         self.config = config
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.num_particles = config['training']['biologically_plausible']['particle_filter']['num_particles']
         self.noise_std = config['training']['biologically_plausible']['particle_filter']['noise_std']
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 複数のモデル（パーティクル）をアンサンブルとして保持
         self.particles = [copy.deepcopy(self.base_model) for _ in range(self.num_particles)]
@@ -456,16 +455,16 @@ class ParticleFilterTrainer:
         for particle in self.particles:
             particle.eval()
             with torch.no_grad():
-                #
-                # Note: This is a simplified example. The forward pass for BioSNN
-                # might need to be run over multiple time steps.
-                # Assuming single-step prediction for this example.
-                #
-                input_spikes = (torch.rand_like(data) > 0.5).float() # Dummy conversion
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # BioSNNは1Dテンソルを期待するため、バッチ次元を削除
+                squeezed_data = data.squeeze(0)
+                input_spikes = (torch.rand_like(squeezed_data) > 0.5).float()
                 outputs, _ = particle(input_spikes)
                 
-                # ここでは単純なMSEを尤度として使用
-                loss = F.mse_loss(outputs, targets)
+                # ターゲットも同様に次元を合わせる
+                squeezed_targets = targets.squeeze(0)
+                loss = F.mse_loss(outputs, squeezed_targets)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 log_likelihoods.append(-loss) # 損失が小さいほど尤度が高い
         
         # 3. 重みの更新と正規化
