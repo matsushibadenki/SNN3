@@ -1,12 +1,7 @@
 # ファイルパス: run_brain_simulation.py
-# (新規作成)
-#
-# Title: 人工脳シミュレーション実行スクリプト
-#
-# Description:
-# - これまでに実装した全ての認知アーキテクチャコンポーネントをインスタンス化し、
-#   ArtificialBrainに注入して、システム全体の動作をシミュレートする。
-# - 外部からのテキスト入力を与え、一連の認知プロセスが実行される様子を確認できる。
+# (更新)
+# 修正: ArtificialBrainの新しい依存関係（HierarchicalPlannerなど）を
+#       すべてインスタンス化して正しく注入するように修正。
 
 import sys
 from pathlib import Path
@@ -16,26 +11,37 @@ import time
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from snn_research.cognitive_architecture.artificial_brain import ArtificialBrain
+# IO and encoding
 from snn_research.io.sensory_receptor import SensoryReceptor
 from snn_research.io.spike_encoder import SpikeEncoder
 from snn_research.io.actuator import Actuator
+# Core cognitive modules
 from snn_research.cognitive_architecture.perception_cortex import PerceptionCortex
 from snn_research.cognitive_architecture.prefrontal_cortex import PrefrontalCortex
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+# Memory systems
 from snn_research.cognitive_architecture.hippocampus import Hippocampus
 from snn_research.cognitive_architecture.cortex import Cortex
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
+from snn_research.distillation.model_registry import SimpleModelRegistry
+# Value and action selection
 from snn_research.cognitive_architecture.amygdala import Amygdala
 from snn_research.cognitive_architecture.basal_ganglia import BasalGanglia
+# Motor control
 from snn_research.cognitive_architecture.cerebellum import Cerebellum
 from snn_research.cognitive_architecture.motor_cortex import MotorCortex
+
 
 def main():
     """
     人工脳の全コンポーネントを初期化し、シミュレーションを実行する。
     """
-    # 各コンポーネントの初期化
-    # (将来的にDIコンテナから取得するように変更可能)
+    # 依存関係の深いコンポーネントを先に初期化
     num_neurons = 256
-    
+    model_registry = SimpleModelRegistry()
+    rag_system = RAGSystem()
+
+    # 各コンポーネントの初期化
     receptor = SensoryReceptor()
     encoder = SpikeEncoder(num_neurons=num_neurons)
     perception = PerceptionCortex(num_neurons=num_neurons, feature_dim=64)
@@ -43,6 +49,8 @@ def main():
     cortex = Cortex()
     amygdala = Amygdala()
     pfc = PrefrontalCortex()
+    # PlannerはModelRegistryとRAGSystemに依存
+    planner = HierarchicalPlanner(model_registry=model_registry, rag_system=rag_system)
     basal_ganglia = BasalGanglia()
     cerebellum = Cerebellum()
     motor_cortex = MotorCortex(actuators=['voice_synthesizer'])
@@ -52,15 +60,16 @@ def main():
     brain = ArtificialBrain(
         sensory_receptor=receptor,
         spike_encoder=encoder,
+        actuator=actuator,
         perception_cortex=perception,
+        prefrontal_cortex=pfc,
+        hierarchical_planner=planner,
         hippocampus=hippocampus,
         cortex=cortex,
         amygdala=amygdala,
-        prefrontal_cortex=pfc,
         basal_ganglia=basal_ganglia,
         cerebellum=cerebellum,
-        motor_cortex=motor_cortex,
-        actuator=actuator
+        motor_cortex=motor_cortex
     )
 
     # シミュレーションの実行
@@ -72,7 +81,7 @@ def main():
 
     for text_input in inputs:
         brain.run_cognitive_cycle(text_input)
-        time.sleep(2) # 各サイクルの間に少し待機
+        time.sleep(1) # 各サイクルの間に少し待機
 
 if __name__ == "__main__":
     main()
