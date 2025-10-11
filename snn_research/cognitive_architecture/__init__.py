@@ -16,13 +16,15 @@ from .motor_cortex import MotorCortex
 from .hippocampus import Hippocampus
 from .cortex import Cortex
 from .prefrontal_cortex import PrefrontalCortex
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .artificial_brain import ArtificialBrain
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .perception_cortex import PerceptionCortex
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 __all__ = [
     "AstrocyteNetwork",
+    "ArtificialBrain",
     "EmergentCognitiveSystem",
     "GlobalWorkspace",
     "HierarchicalPlanner",
@@ -39,6 +41,6 @@ __all__ = [
     "Cortex",
     "PrefrontalCortex",
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    "ArtificialBrain"
+    "PerceptionCortex"
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 ]
