@@ -19,6 +19,9 @@ from .prefrontal_cortex import PrefrontalCortex
 from .artificial_brain import ArtificialBrain
 from .perception_cortex import PerceptionCortex
 from .som_feature_map import SomFeatureMap
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .hybrid_perception_cortex import HybridPerceptionCortex
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 __all__ = [
@@ -40,5 +43,8 @@ __all__ = [
     "Cortex",
     "PrefrontalCortex",
     "PerceptionCortex",
-    "SomFeatureMap"
+    "SomFeatureMap",
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    "HybridPerceptionCortex"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 ]
