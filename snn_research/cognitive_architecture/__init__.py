@@ -8,9 +8,8 @@ from .intrinsic_motivation import IntrinsicMotivationSystem
 from .meta_cognitive_snn import MetaCognitiveSNN
 from .physics_evaluator import PhysicsEvaluator
 from .planner_snn import PlannerSNN
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .rag_snn import RAGSystem
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .amygdala import Amygdala
 
 __all__ = [
     "AstrocyteNetwork",
@@ -21,5 +20,6 @@ __all__ = [
     "MetaCognitiveSNN",
     "PhysicsEvaluator",
     "PlannerSNN",
-    "RAGSystem"
+    "RAGSystem",
+    "Amygdala"
 ]
