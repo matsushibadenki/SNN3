@@ -1,9 +1,7 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn-cli.py
-#
+# matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn-cli.py
 # (省略)
-#
 # 修正点 (v10):
-# - 循環インポートエラーを根本的に解決するため、トップレベルでのインポートを最小限にし、
+# - 循環インポートエラーを根本的に解決するため、トップレベルのインポートを最小限にし、
 #   各コマンド関数が必要とするモジュールを、その関数内で局所的にインポートする設計に統一。
 # - これにより、Typerのコマンド解決時に発生する意図しないモジュール読み込みループを完全に遮断する。
 
@@ -110,7 +108,6 @@ def planner_execute(
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
 
 def get_life_form_instance():
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # 必要なモジュールを関数内でインポート
     from app.containers import AgentContainer, AppContainer
     from snn_research.agent.digital_life_form import DigitalLifeForm
@@ -121,7 +118,6 @@ def get_life_form_instance():
     from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
     from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
     from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     agent_container = AgentContainer()
     agent_container.config.from_yaml("configs/base_config.yaml")
