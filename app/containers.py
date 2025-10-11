@@ -25,6 +25,7 @@ from snn_research.training.trainers import (
     BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer,
     PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer
 )
+# BioRLTrainerを正しいファイルからインポートするように修正
 from snn_research.training.bio_trainer import BioRLTrainer
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
