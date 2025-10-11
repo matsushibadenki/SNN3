@@ -10,6 +10,7 @@ from .physics_evaluator import PhysicsEvaluator
 from .planner_snn import PlannerSNN
 from .rag_snn import RAGSystem
 from .amygdala import Amygdala
+from .basal_ganglia import BasalGanglia
 
 __all__ = [
     "AstrocyteNetwork",
@@ -21,5 +22,6 @@ __all__ = [
     "PhysicsEvaluator",
     "PlannerSNN",
     "RAGSystem",
-    "Amygdala"
+    "Amygdala",
+    "BasalGanglia"
 ]
