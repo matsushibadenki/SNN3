@@ -1,7 +1,7 @@
 # ファイルパス: run_brain_simulation.py
-# (更新)
-# 修正: DIコンテナ(BrainContainer)を使用して依存関係を構築し、
-#       ArtificialBrainインスタンスを取得するようにリファクタリング。
+# (修正)
+# 修正: DIコンテナがモデルアーキテクチャ設定（small.yaml）を読み込むように修正し、
+#       実行時エラーを解消。
 
 import sys
 from pathlib import Path
@@ -16,9 +16,12 @@ def main():
     """
     DIコンテナを使って人工脳を初期化し、シミュレーションを実行する。
     """
-    # 1. DIコンテナを初期化
+    # 1. DIコンテナを初期化し、設定ファイルをロード
     container = BrainContainer()
-    container.config.from_yaml("configs/base_config.yaml") # 必要に応じて設定をロード
+    container.config.from_yaml("configs/base_config.yaml")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    container.config.from_yaml("configs/models/small.yaml") # モデル設定を追加
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # 2. コンテナから完成品の人工脳インスタンスを取得
     brain = container.artificial_brain()
