@@ -6,6 +6,7 @@
 # (省略...)
 # - 変更点: 不要になった古い生物学的学習(BioTrainer)のコードブロックを削除。
 # - BugFix: 'physics_informed'や'self_supervised'パラダイムでもモデルが保存されるように修正。
+# - 改善点 (v2): 新しい生物学的学習パラダイム（適応的因果スパース化、パーティクルフィルタ）に対応。
 
 import argparse
 import os
@@ -19,7 +20,8 @@ from typing import Optional, Tuple, List, Dict, Any, Callable
 
 from app.containers import TrainingContainer
 from snn_research.data.datasets import get_dataset_class, DistillationDataset, DataFormat, SNNBaseDataset
-from snn_research.training.trainers import BreakthroughTrainer
+from snn_research.training.trainers import BreakthroughTrainer, ParticleFilterTrainer
+from snn_research.training.bio_trainer import BioRLTrainer
 from scripts.data_preparation import prepare_wikitext_data
 from snn_research.core.snn_core import SNNCore
 
@@ -38,44 +40,68 @@ def train(
     device = f'cuda:{rank}' if is_distributed and torch.cuda.is_available() else get_auto_device()
     
     paradigm = config['training']['paradigm']
-    is_distillation = paradigm == "gradient_based" and config['training']['gradient_based']['type'] == "distillation"
 
-    # 【SNN能力向上】大規模データセット(WikiText)が存在すれば、そちらを優先して使用する
-    wikitext_path = "data/wikitext-103_train.jsonl"
-    if os.path.exists(wikitext_path):
-        print(f"✅ 大規模データセット '{wikitext_path}' を発見。学習に使用します。")
-        data_path = wikitext_path
-    else:
-        # データパスが指定されていなければconfigの値を使用
-        data_path = args.data_path or config['data']['path']
-        print(f"⚠️ 大規模データセットが見つからないため、'{data_path}' を使用します。")
-        print(f"   より性能を向上させるには、`python scripts/data_preparation.py` を実行してください。")
-    
-    DatasetClass = get_dataset_class(DataFormat(config['data']['format']))
-    dataset = DistillationDataset(
-        file_path=os.path.join(data_path, "distillation_data.jsonl"), data_dir=data_path,
-        tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
-    ) if is_distillation else DatasetClass(
-        file_path=data_path, tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
-    )
+    # 生物学的学習パラダイム以外はデータセットの準備が必要
+    if not paradigm.startswith("bio-"):
+        is_distillation = paradigm == "gradient_based" and config['training']['gradient_based']['type'] == "distillation"
+
+        # 【SNN能力向上】大規模データセット(WikiText)が存在すれば、そちらを優先して使用する
+        wikitext_path = "data/wikitext-103_train.jsonl"
+        if os.path.exists(wikitext_path):
+            print(f"✅ 大規模データセット '{wikitext_path}' を発見。学習に使用します。")
+            data_path = wikitext_path
+        else:
+            # データパスが指定されていなければconfigの値を使用
+            data_path = args.data_path or config['data']['path']
+            print(f"⚠️ 大規模データセットが見つからないため、'{data_path}' を使用します。")
+            print(f"   より性能を向上させるには、`python scripts/data_preparation.py` を実行してください。")
         
-    train_size = int((1.0 - config['data']['split_ratio']) * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        DatasetClass = get_dataset_class(DataFormat(config['data']['format']))
+        dataset = DistillationDataset(
+            file_path=os.path.join(data_path, "distillation_data.jsonl"), data_dir=data_path,
+            tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
+        ) if is_distillation else DatasetClass(
+            file_path=data_path, tokenizer=tokenizer, max_seq_len=config['model']['time_steps']
+        )
+            
+        train_size = int((1.0 - config['data']['split_ratio']) * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_sampler: Optional[DistributedSampler] = DistributedSampler(train_dataset) if is_distributed else None
-    train_loader = DataLoader(
-        train_dataset, batch_size=config['training']['batch_size'], shuffle=(train_sampler is None),
-        sampler=train_sampler, collate_fn=collate_fn(tokenizer, is_distillation)
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=config['training']['batch_size'], shuffle=False,
-        collate_fn=collate_fn(tokenizer, is_distillation)
-    )
+        train_sampler: Optional[DistributedSampler] = DistributedSampler(train_dataset) if is_distributed else None
+        train_loader = DataLoader(
+            train_dataset, batch_size=config['training']['batch_size'], shuffle=(train_sampler is None),
+            sampler=train_sampler, collate_fn=collate_fn(tokenizer, is_distillation)
+        )
+        val_loader = DataLoader(
+            val_dataset, batch_size=config['training']['batch_size'], shuffle=False,
+            collate_fn=collate_fn(tokenizer, is_distillation)
+        )
 
     print(f"🚀 学習パラダイム '{paradigm}' で学習を開始します...")
 
-    if paradigm in ["gradient_based", "self_supervised", "physics_informed"]:
+    if paradigm.startswith("bio-"):
+        if paradigm == "bio-causal-sparse":
+            print("🧬 適応的因果スパース化を有効にした強化学習を開始します。")
+            # 適応的因果スパース化を有効にしてBioRLTrainerを実行
+            container.config.training.biologically_plausible.adaptive_causal_sparsification.enabled.from_value(True)
+            bio_trainer: BioRLTrainer = container.bio_rl_trainer()
+            bio_trainer.train(num_episodes=config['training']['epochs'])
+        elif paradigm == "bio-particle-filter":
+            print("🌪️ パーティクルフィルタによる確率的学習を開始します (CPUベース)。")
+            # パーティクルフィルタートレーナーを実行
+            container.config.training.biologically_plausible.particle_filter.enabled.from_value(True)
+            particle_trainer: ParticleFilterTrainer = container.particle_filter_trainer()
+            # ダミーデータで学習ステップを実行
+            dummy_data = torch.rand(1, 10, device=device)
+            dummy_targets = torch.rand(1, 2, device=device) # BioSNNの出力サイズに合わせる
+            for epoch in range(config['training']['epochs']):
+                loss = particle_trainer.train_step(dummy_data, dummy_targets)
+                print(f"Epoch {epoch+1}/{config['training']['epochs']}: Particle Filter Loss = {loss:.4f}")
+        else:
+            raise ValueError(f"不明な生物学的学習パラダイム: {paradigm}")
+
+    elif paradigm in ["gradient_based", "self_supervised", "physics_informed", "probabilistic_ensemble"]:
         if is_distributed and paradigm != "gradient_based":
             raise NotImplementedError(f"{paradigm} learning does not support DDP yet.")
         
@@ -95,10 +121,15 @@ def train(
             optimizer = container.ssl_optimizer(params=snn_model.parameters())
             scheduler = container.ssl_scheduler(optimizer=optimizer) if config['training']['self_supervised']['use_scheduler'] else None
             trainer = container.self_supervised_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
-        else: # physics_informed
+        elif paradigm == "physics_informed":
             optimizer = container.pi_optimizer(params=snn_model.parameters())
             scheduler = container.pi_scheduler(optimizer=optimizer) if config['training']['physics_informed']['use_scheduler'] else None
             trainer = container.physics_informed_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
+        else: # probabilistic_ensemble
+            optimizer = container.pe_optimizer(params=snn_model.parameters())
+            scheduler = container.pe_scheduler(optimizer=optimizer) if config['training']['probabilistic_ensemble']['use_scheduler'] else None
+            trainer = container.probabilistic_ensemble_trainer(model=snn_model, optimizer=optimizer, scheduler=scheduler, device=device, rank=rank, astrocyte_network=astrocyte)
+
         
         start_epoch = trainer.load_checkpoint(args.resume_path) if args.resume_path else 0
         for epoch in range(start_epoch, config['training']['epochs']):
@@ -106,9 +137,7 @@ def train(
             trainer.train_epoch(train_loader, epoch)
             if rank in [-1, 0] and (epoch % config['training']['eval_interval'] == 0 or epoch == config['training']['epochs'] - 1):
                 val_metrics = trainer.evaluate(val_loader, epoch)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                if paradigm in ["gradient_based", "self_supervised", "physics_informed"] and epoch % config['training']['log_interval'] == 0:
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                if epoch % config['training']['log_interval'] == 0:
                     checkpoint_path = os.path.join(config['training']['log_dir'], f"checkpoint_epoch_{epoch}.pth")
                     trainer.save_checkpoint(
                         path=checkpoint_path, epoch=epoch, metric_value=val_metrics.get('total', float('inf')),
@@ -116,7 +145,7 @@ def train(
                     )
 
     else:
-        raise ValueError(f"Unknown or unsupported training paradigm for this script: '{paradigm}'. Use run_rl_agent.py for 'biologically_plausible'.")
+        raise ValueError(f"Unknown or unsupported training paradigm for this script: '{paradigm}'.")
 
     if rank in [-1, 0]: print("✅ 学習が完了しました。")
 
@@ -151,15 +180,16 @@ def main():
     parser.add_argument("--data_path", type=str, help="データセットのパス（configを上書き）")
     parser.add_argument("--override_config", type=str, action='append', help="設定を上書き (例: 'training.epochs=5')")
     parser.add_argument("--distributed", action="store_true", help="分散学習を有効にする")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     parser.add_argument("--resume_path", type=str, help="チェックポイントから学習を再開する")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
     parser.add_argument("--use_astrocyte", action="store_true", help="アストロサイトネットワークを有効にする (gradient_based系のみ)")
+    # paradigm引数を追加
+    parser.add_argument("--paradigm", type=str, help="学習パラダイムを上書き (例: gradient_based, bio-causal-sparse, bio-particle-filter)")
     args = parser.parse_args()
 
     container.config.from_yaml(args.config)
     if args.model_config: container.config.from_yaml(args.model_config)
     if args.data_path: container.config.data.path.from_value(args.data_path)
+    if args.paradigm: container.config.training.paradigm.from_value(args.paradigm)
     
     # コマンドラインからの上書きを処理
     if args.override_config:
