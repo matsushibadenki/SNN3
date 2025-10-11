@@ -4,8 +4,8 @@
 # Title: Cortex (大脳皮質) モジュール
 #
 # Description:
-# - mypyエラーを解消するため、辞書のキーとして使用する変数がNoneでないことを
-#   明示的にチェックする処理を追加。
+# - mypyエラーを解消するため、辞書のキーとして使用する変数がNoneでないこと、
+#   かつ文字列であることをisinstanceで明示的にチェックする処理を追加。
 # - 人工脳アーキテクチャの「記憶層」に属し、長期記憶を担うコンポーネント。
 # - Hippocampus (海馬) から送られてきた短期記憶（エピソード）を、
 #   永続的な知識として構造化し、固定する役割を持つ。
@@ -37,18 +37,18 @@ class Cortex:
         relation = episode.get("relation")
         target = episode.get("target")
 
-        # source, relation, target が None や空文字列でないことを確認
-        if not all(isinstance(val, str) and val for val in [source, relation, target]):
+        # sourceが文字列であることを明示的にチェック
+        if isinstance(source, str) and source and relation and target:
+            # 'source'がNoneでないことが保証されたため、安全にキーとして使用できる
+            if source not in self.knowledge_graph:
+                self.knowledge_graph[source] = []
+
+            # 新しい知識（関係性）を追加
+            self.knowledge_graph[source].append({"relation": relation, "target": target})
+            print(f"📚 大脳皮質: 新しい知識を固定しました: '{source}' --({relation})--> '{target}'")
+        else:
             print("⚠️ 大脳皮質: 知識として統合するには情報が不十分なエピソードです。")
             return
-
-        # 'source'がNoneでないことが保証されたため、安全にキーとして使用できる
-        if source not in self.knowledge_graph:
-            self.knowledge_graph[source] = []
-
-        # 新しい知識（関係性）を追加
-        self.knowledge_graph[source].append({"relation": relation, "target": target})
-        print(f"📚 大脳皮質: 新しい知識を固定しました: '{source}' --({relation})--> '{target}'")
 
 
     def retrieve_knowledge(self, concept: str) -> Optional[List[Dict[str, Any]]]:
