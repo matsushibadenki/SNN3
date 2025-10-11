@@ -1,4 +1,4 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/snn-cli.py
+# ファイルパス: matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn-cli.py
 #
 # (省略)
 #
@@ -9,6 +9,10 @@
 # 修正点 (v8):
 # - TypeErrorの根本原因であるモデル設定ファイルの読み込み漏れを修正。
 #   `agent solve`コマンドに`--model-config`引数を追加した。
+#
+# 修正点 (v9):
+# - 循環インポートエラーを根本的に解決するため、トップレベルのインポートを最小限にし、
+#   各コマンド関数内で必要なモジュールを局所的にインポートするように変更。
 
 import sys
 from pathlib import Path
@@ -20,26 +24,6 @@ from typing import List, Optional
 # --- プロジェクトルートをPythonパスに追加 ---
 sys.path.append(str(Path(__file__).resolve().parent))
 
-# --- 各機能のコアロジックをインポート ---
-from app.containers import AgentContainer, AppContainer
-from snn_research.agent.digital_life_form import DigitalLifeForm
-from snn_research.agent.autonomous_agent import AutonomousAgent
-from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
-from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-from snn_research.rl_env.grid_world import GridWorldEnv
-import train as gradient_based_trainer
-from snn_research.distillation.model_registry import SimpleModelRegistry
-from snn_research.agent.memory import Memory
-from snn_research.tools.web_crawler import WebCrawler
-from snn_research.cognitive_architecture.rag_snn import RAGSystem
-from snn_research.cognitive_architecture.emergent_system import EmergentCognitiveSystem
-from snn_research.cognitive_architecture.global_workspace import GlobalWorkspace
-import app.main as gradio_app
-import app.langchain_main as langchain_gradio_app
-from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
-from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
-from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
-from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
 
 # --- CLIアプリケーションの定義 ---
 app = typer.Typer(
@@ -76,18 +60,20 @@ def agent_solve(
     task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
     prompt: Optional[str] = typer.Option(None, help="推論を実行する場合の入力プロンプト"),
     unlabeled_data: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     force_retrain: bool = typer.Option(False, "--force-retrain", help="モデル登録簿を無視して強制的に再学習"),
     min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
     max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 必要なモジュールを関数内でインポート
+    from app.containers import AgentContainer
+    from snn_research.agent.autonomous_agent import AutonomousAgent
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container.config.from_yaml(str(model_config))
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     agent = AutonomousAgent(
         name="cli-agent",
@@ -118,6 +104,9 @@ def planner_execute(
     request: str = typer.Option(..., help="タスク要求 (例: '記事を要約して感情を分析')"),
     context: str = typer.Option(..., help="処理対象のデータ")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    from app.containers import AgentContainer
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container = AgentContainer()
     container.config.from_yaml("configs/base_config.yaml")
     planner = container.hierarchical_planner()
@@ -129,7 +118,18 @@ def planner_execute(
     else:
         print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
 
-def get_life_form_instance() -> DigitalLifeForm:
+def get_life_form_instance():
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    from app.containers import AgentContainer, AppContainer
+    from snn_research.agent.digital_life_form import DigitalLifeForm
+    from snn_research.agent.autonomous_agent import AutonomousAgent
+    from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+    from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+    from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+    from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+    from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
+    from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     agent_container = AgentContainer()
     agent_container.config.from_yaml("configs/base_config.yaml")
     app_container = AppContainer()
@@ -149,7 +149,9 @@ def get_life_form_instance() -> DigitalLifeForm:
     rl_agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device="cpu")
     self_evolving_agent = SelfEvolvingAgent(
         name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
-        memory=memory, web_crawler=web_crawler
+        memory=memory, web_crawler=web_crawler,
+        model_config_path="configs/models/small.yaml",
+        training_config_path="configs/base_config.yaml"
     )
     
     return DigitalLifeForm(
@@ -189,6 +191,10 @@ def evolve_run(
     initial_accuracy: float = typer.Option(0.75, help="自己評価のための初期精度"),
     initial_spikes: float = typer.Option(1500.0, help="自己評価のための初期スパイク数")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    from app.containers import AgentContainer
+    from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     container = AgentContainer()
     container.config.from_yaml(str(training_config))
     container.config.from_yaml(str(model_config))
@@ -219,7 +225,11 @@ def rl_run(
     grid_size: int = typer.Option(5, help="グリッドワールドのサイズ"),
     max_steps: int = typer.Option(50, help="1エピソードあたりの最大ステップ数")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     from tqdm import tqdm
+    from snn_research.rl_env.grid_world import GridWorldEnv
+    from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     env = GridWorldEnv(size=grid_size, max_steps=max_steps, device=device)
@@ -251,6 +261,9 @@ def ui_start(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    import app.main as gradio_app
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     original_argv = sys.argv
     sys.argv = [
         "app/main.py",
@@ -270,6 +283,9 @@ def ui_start_langchain(
     model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
     model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    import app.langchain_main as langchain_gradio_app
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     original_argv = sys.argv
     sys.argv = [
         "app/langchain_main.py",
@@ -288,6 +304,12 @@ def ui_start_langchain(
 def emergent_execute(
     goal: str = typer.Option(..., help="システムに達成させたい高レベルの目標")
 ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    from app.containers import AgentContainer
+    from snn_research.agent.autonomous_agent import AutonomousAgent
+    from snn_research.cognitive_architecture.emergent_system import EmergentCognitiveSystem
+    from snn_research.cognitive_architecture.global_workspace import GlobalWorkspace
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     print(f"🚀 Emergent System Activated. Goal: {goal}")
 
     container = AgentContainer()
@@ -327,6 +349,9 @@ def emergent_execute(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
 )
 def gradient_train(ctx: typer.Context):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    import train as gradient_based_trainer
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     print("🔧 勾配ベースの学習プロセスを開始します...")
     train_args = ctx.args
     
