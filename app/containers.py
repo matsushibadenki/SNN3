@@ -25,8 +25,7 @@ from snn_research.training.losses import (
 )
 from snn_research.training.trainers import (
     BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer,
-    PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer,
-    BioRLTrainer
+    PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer
 )
 from snn_research.training.bio_trainer import BioRLTrainer
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
