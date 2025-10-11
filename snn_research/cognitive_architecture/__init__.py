@@ -13,6 +13,7 @@ from .amygdala import Amygdala
 from .basal_ganglia import BasalGanglia
 from .cerebellum import Cerebellum
 from .motor_cortex import MotorCortex
+from .hippocampus import Hippocampus
 
 __all__ = [
     "AstrocyteNetwork",
@@ -27,5 +28,6 @@ __all__ = [
     "Amygdala",
     "BasalGanglia",
     "Cerebellum",
-    "MotorCortex"
+    "MotorCortex",
+    "Hippocampus"
 ]
