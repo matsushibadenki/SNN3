@@ -1,20 +1,27 @@
 # ファイルパス: snn_research/cognitive_architecture/artificial_brain.py
 # (更新)
-# 改善点: 依存性注入(DI)パターンを採用し、各モジュールをコンストラクタで受け取るように変更。
-# 改善点: process_sensory_inputメソッドを完全に実装し、感覚入力から行動出力までの
+# 改善点: DIパターンを拡張し、HierarchicalPlannerもコンストラクタで受け取るように変更。
+# 改善点: run_cognitive_cycleを完全に実装し、感覚入力から行動出力までの
 #          一連の認知プロセスをシミュレートする。
 
 from typing import Dict, Any, List
+import asyncio
 
+# IO and encoding
 from snn_research.io.sensory_receptor import SensoryReceptor
 from snn_research.io.spike_encoder import SpikeEncoder
 from snn_research.io.actuator import Actuator
+# Core cognitive modules
 from .perception_cortex import PerceptionCortex
 from .prefrontal_cortex import PrefrontalCortex
+from .hierarchical_planner import HierarchicalPlanner
+# Memory systems
 from .hippocampus import Hippocampus
 from .cortex import Cortex
+# Value and action selection
 from .amygdala import Amygdala
 from .basal_ganglia import BasalGanglia
+# Motor control
 from .cerebellum import Cerebellum
 from .motor_cortex import MotorCortex
 
@@ -24,30 +31,39 @@ class ArtificialBrain:
     """
     def __init__(
         self,
+        # Input/Output
         sensory_receptor: SensoryReceptor,
         spike_encoder: SpikeEncoder,
+        actuator: Actuator,
+        # Core Cognitive Flow
         perception_cortex: PerceptionCortex,
+        prefrontal_cortex: PrefrontalCortex,
+        hierarchical_planner: HierarchicalPlanner,
+        # Memory
         hippocampus: Hippocampus,
         cortex: Cortex,
+        # Value and Action
         amygdala: Amygdala,
-        prefrontal_cortex: PrefrontalCortex,
         basal_ganglia: BasalGanglia,
+        # Motor
         cerebellum: Cerebellum,
-        motor_cortex: MotorCortex,
-        actuator: Actuator
+        motor_cortex: MotorCortex
     ):
         print("🚀 人工脳システムの起動を開始...")
+        # I/O Modules
         self.receptor = sensory_receptor
         self.encoder = spike_encoder
+        self.actuator = actuator
+        # Cognitive Modules
         self.perception = perception_cortex
+        self.pfc = prefrontal_cortex
+        self.planner = hierarchical_planner
         self.hippocampus = hippocampus
         self.cortex = cortex
         self.amygdala = amygdala
-        self.pfc = prefrontal_cortex
         self.basal_ganglia = basal_ganglia
         self.cerebellum = cerebellum
         self.motor = motor_cortex
-        self.actuator = actuator
         
         self.global_context: Dict[str, Any] = {
             "internal_state": {}, "external_request": None
@@ -80,13 +96,12 @@ class ArtificialBrain:
         print(f"💖 扁桃体による評価: {emotion}")
 
         # 6. 目標設定: 現在の状況に基づき、次の高レベル目標を決定
-        #    (短期記憶や情動状態をコンテキストとして渡す)
         self.global_context['recent_memory'] = self.hippocampus.retrieve_recent_episodes(1)
         goal = self.pfc.decide_goal(self.global_context)
         
-        # 7. 計画: HierarchicalPlannerが目標を具体的な行動候補に分解 (ダミー)
-        #    (長期的にはプランナーもDIで受け取る)
-        action_candidates = self._generate_action_candidates(goal, perception_result)
+        # 7. 計画: HierarchicalPlannerが目標を具体的な行動候補に分解
+        plan = asyncio.run(self.planner.create_plan(goal))
+        action_candidates = self._convert_plan_to_candidates(plan)
         
         # 8. 行動選択: 大脳基底核が最適な行動を選択
         selected_action = self.basal_ganglia.select_action(action_candidates)
@@ -103,11 +118,14 @@ class ArtificialBrain:
 
         print("--- ✅ 認知サイクル完了 ---")
 
-    def _generate_action_candidates(self, goal: str, perception: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """現在の目標と知覚に基づき、行動の選択肢を生成する（ダミー実装）。"""
-        # ここでは簡易的なルールベースで行動候補を生成
-        if "analyze" in goal.lower():
-            return [{'action': 'analyze_features', 'value': 0.9, 'duration': 1.0}]
-        if "response" in goal.lower():
-            return [{'action': 'generate_voice_response', 'value': 0.85, 'duration': 2.5}]
-        return [{'action': 'observe', 'value': 0.5, 'duration': 0.5}]
+    def _convert_plan_to_candidates(self, plan) -> List[Dict[str, Any]]:
+        """プランナーからの計画を、大脳基底核が解釈できる行動候補リストに変換する。"""
+        candidates = []
+        for task in plan.task_list:
+            # ここでは単純に価値を固定値とするが、将来的には予測モデルで計算
+            candidates.append({
+                'action': task.get('task', 'unknown_action'),
+                'value': 0.8, # 計画されたタスクは価値が高いと仮定
+                'duration': 1.0 # デフォルト持続時間
+            })
+        return candidates
