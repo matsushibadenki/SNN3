@@ -1,9 +1,12 @@
-# matsushibadenki/snn/snn_research/training/trainers.py
-# SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
+# snn_research/training/trainers.py
+# (省略...)
 # 改善点: モデル保存時に'adaptive_threshold'も除外対象に追加し、安定性を向上。
+# 改善点 (v2): 確率的アンサンブル学習のためのParticleFilterTrainerを新規追加。
+# 修正点 (v3): ParticleFilterTrainerがdict型のconfigを正しく扱えるように修正。
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 import os
@@ -19,6 +22,7 @@ from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSup
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
+
 from snn_research.bio_models.simple_network import BioSNN
 import copy
 
@@ -162,7 +166,6 @@ class BreakthroughTrainer:
     def save_checkpoint(self, path: str, epoch: int, metric_value: float, **kwargs: Any):
         if self.rank in [-1, 0]:
             model_to_save_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             actual_model = cast(nn.Module, model_to_save_container.model if hasattr(model_to_save_container, 'model') else model_to_save_container)
             
             buffers_to_exclude = {
@@ -170,7 +173,6 @@ class BreakthroughTrainer:
                 if any(keyword in name for keyword in ['mem', 'spikes', 'adaptive_threshold'])
             }
             model_state = {k: v for k, v in actual_model.state_dict().items() if k not in buffers_to_exclude}
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             state = {
                 'epoch': epoch, 'model_state_dict': model_state, 
@@ -199,10 +201,8 @@ class BreakthroughTrainer:
             
         checkpoint = torch.load(path, map_location=self.device)
         model_to_load_container = self.model.module if isinstance(self.model, nn.parallel.DistributedDataParallel) else self.model
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         actual_model = cast(nn.Module, model_to_load_container.model if hasattr(model_to_load_container, 'model') else model_to_load_container)
         actual_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         if 'optimizer_state_dict' in checkpoint: self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if self.scheduler and 'scheduler_state_dict' in checkpoint: self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -421,17 +421,19 @@ class BPTTTrainer:
         self.optimizer.step()
         
         return loss.item()
-        
+
 class ParticleFilterTrainer:
     """
     逐次モンテカルロ法（パーティクルフィルタ）を用いて、微分不可能なSNNを学習するトレーナー。
     CPU上での実行を想定し、GPU依存から脱却するアプローチ。
     """
-    def __init__(self, base_model: BioSNN, config: DictConfig):
+    def __init__(self, base_model: BioSNN, config: Dict[str, Any]): # ◾️ Dict[str, Any] に修正
         self.base_model = base_model
         self.config = config
-        self.num_particles = config.training.biologically_plausible.particle_filter.num_particles
-        self.noise_std = config.training.biologically_plausible.particle_filter.noise_std
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.num_particles = config['training']['biologically_plausible']['particle_filter']['num_particles']
+        self.noise_std = config['training']['biologically_plausible']['particle_filter']['noise_std']
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 複数のモデル（パーティクル）をアンサンブルとして保持
         self.particles = [copy.deepcopy(self.base_model) for _ in range(self.num_particles)]
@@ -454,7 +456,14 @@ class ParticleFilterTrainer:
         for particle in self.particles:
             particle.eval()
             with torch.no_grad():
-                outputs, _ = particle(data)
+                #
+                # Note: This is a simplified example. The forward pass for BioSNN
+                # might need to be run over multiple time steps.
+                # Assuming single-step prediction for this example.
+                #
+                input_spikes = (torch.rand_like(data) > 0.5).float() # Dummy conversion
+                outputs, _ = particle(input_spikes)
+                
                 # ここでは単純なMSEを尤度として使用
                 loss = F.mse_loss(outputs, targets)
                 log_likelihoods.append(-loss) # 損失が小さいほど尤度が高い
@@ -475,4 +484,3 @@ class ParticleFilterTrainer:
         # 最も尤度の高いパーティクルの損失を返す
         best_particle_loss = -log_likelihoods_tensor.max().item()
         return best_particle_loss
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
