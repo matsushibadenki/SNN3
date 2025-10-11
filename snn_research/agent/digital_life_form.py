@@ -1,16 +1,7 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn_research/agent/digital_life_form.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c90968675a68ccf65069201c/snn_research/agent/digital_life_form.py
 #
 # DigitalLifeForm オーケストレーター
-#
-# 概要：内発的動機付けとメタ認知に基づき、各種エージェントを自律的に起動するマスタープロセス。
-#
 # (省略)
-#
-# 修正点 (v8):
-# - 根本的な循環インポートエラーを解消するため、上位層であるAppContainerへの依存を削除。
-# - 必要なSNNLangChainAdapterを直接コンストラクタで受け取るように変更し、
-#   モジュール間の依存関係を正常化した。
-#
 # 修正点 (v9):
 # - 循環インポートエラーを解消するため、SNNLangChainAdapterのトップレベルインポートを削除し、
 #   TYPE_CHECKINGとForward Reference（文字列による型指定）を使用するように修正。
@@ -33,6 +24,7 @@ from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerA
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import DistributedModelRegistry
+
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 # 循環インポートを避けるため、トップレベルでのインポートを削除
 # from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
@@ -41,7 +33,6 @@ from snn_research.distillation.model_registry import DistributedModelRegistry
 if TYPE_CHECKING:
     from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
