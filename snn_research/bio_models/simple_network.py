@@ -5,6 +5,8 @@
 # - ROADMAPフェーズ2「階層的因果学習」に基づき、複数層に対応できるように拡張。
 # - update_weightsメソッドを一般化し、深いネットワークでの信用割り当てを可能にした。
 # 改善点 (v2): 「適応的因果スパース化」を実装。貢献度の低いシナプスの学習を抑制する。
+# 改善点 (v3): 「階層的因果クレジット割り当て」を実装。
+#              後段の層からのクレジット信号を前段の層に逆伝播させる。
 
 import torch
 import torch.nn as nn
@@ -12,23 +14,19 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from .lif_neuron import BioLIFNeuron
 from snn_research.learning_rules.base_rule import BioLearningRule
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class BioSNN(nn.Module):
     """生物学的学習則で学習する、複数層に対応したSNNモデル。"""
     def __init__(self, layer_sizes: List[int], neuron_params: dict, learning_rule: BioLearningRule, 
-                 sparsification_config: Optional[Dict[str, Any]] = None): # ◾️ 追加
+                 sparsification_config: Optional[Dict[str, Any]] = None):
         super().__init__()
         self.layer_sizes = layer_sizes
         self.learning_rule = learning_rule
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.sparsification_enabled = sparsification_config.get("enabled", False) if sparsification_config else False
         self.contribution_threshold = sparsification_config.get("contribution_threshold", 0.0) if sparsification_config else 0.0
         if self.sparsification_enabled:
             print(f"🧬 適応的因果スパース化が有効です (貢献度閾値: {self.contribution_threshold})")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 層と重みのリストを作成
         self.layers = nn.ModuleList()
@@ -57,31 +55,44 @@ class BioSNN(nn.Module):
         all_layer_spikes: List[torch.Tensor],
         optional_params: Optional[Dict[str, Any]] = None
     ):
-        """学習則に基づいて全層の重みを更新する。"""
+        """
+        学習則に基づいて全層の重みを更新する。
+        後段の層から前段の層へ、因果的クレジットを逆伝播させる。
+        """
         if not self.training:
             return
 
-        # 各層の重みを順番に更新
-        for i in range(len(self.weights)):
-            # 入力層のスパイクは all_layer_spikes の先頭に追加する
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 階層的クレジット割り当てのため、後ろの層から順番に更新
+        backward_credit = None
+        current_params = optional_params.copy() if optional_params else {}
+
+        for i in reversed(range(len(self.weights))):
             pre_spikes = all_layer_spikes[i]
             post_spikes = all_layer_spikes[i+1]
             
-            dw = self.learning_rule.update(
+            # 後段の層からのクレジット信号を現在の報酬と結合する
+            if backward_credit is not None:
+                # 外部報酬と内部クレジットを組み合わせる（ここでは単純な加算）
+                reward_signal = current_params.get("reward", 0.0)
+                modulated_reward = reward_signal + backward_credit.mean().item() # スカラー値に変換
+                current_params["reward"] = modulated_reward
+
+            # CausalTraceCreditAssignment.update は (dw, backward_credit) を返す
+            dw, backward_credit = self.learning_rule.update(
                 pre_spikes=pre_spikes, 
                 post_spikes=post_spikes,
                 weights=self.weights[i],
-                optional_params=optional_params
+                optional_params=current_params
             )
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 適応的因果スパース化のロジック
             if self.sparsification_enabled and isinstance(self.learning_rule, CausalTraceCreditAssignment):
                 if self.learning_rule.causal_contribution is not None:
                     # 貢献度が閾値以下のシナプスの学習を抑制（ゲーティング）
                     contribution_mask = self.learning_rule.causal_contribution > self.contribution_threshold
                     dw = dw * contribution_mask
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             # nn.Parameterの更新は .data を使う
             self.weights[i].data += dw
