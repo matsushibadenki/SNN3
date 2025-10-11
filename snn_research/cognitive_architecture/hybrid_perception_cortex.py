@@ -1,17 +1,9 @@
 # ファイルパス: snn_research/cognitive_architecture/hybrid_perception_cortex.py
-# (新規作成)
-#
-# Title: Hybrid Perception Cortex (ハイブリッド知覚野)
-#
-# Description:
-# - ロードマップv8.0「フェーズ1：高忠実度な知覚」を実装するコンポーネント。
-# - 自己組織化マップ(SomFeatureMap)を内部に組み込み、入力されたスパイクパターンから
-#   教師なしで高次元の特徴を学習・抽出する。
-# - これまでの単純な線形射影による特徴抽出を置き換え、より生物学的に妥当で
-#   高性能な知覚能力の基盤を構築する。
+# (修正)
+# 修正: mypyエラーを解消するため、Optional型を明示的にインポート・使用。
 
 import torch
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from .som_feature_map import SomFeatureMap
 
@@ -19,13 +11,13 @@ class HybridPerceptionCortex:
     """
     自己組織化マップ(SOM)を統合した、高忠実度な知覚野モジュール。
     """
-    def __init__(self, num_neurons: int, feature_dim: int = 64, som_map_size=(8, 8), stdp_params: Dict[str, Any] = None):
+    def __init__(self, num_neurons: int, feature_dim: int = 64, som_map_size=(8, 8), stdp_params: Optional[Dict[str, Any]] = None):
         """
         Args:
             num_neurons (int): 入力スパイクパターンのニューロン数。
             feature_dim (int): SOMへの入力特徴ベクトルの次元数。
             som_map_size (tuple): SOMのマップサイズ。
-            stdp_params (dict): SOMが使用するSTDP学習則のパラメータ。
+            stdp_params (Optional[dict]): SOMが使用するSTDP学習則のパラメータ。
         """
         self.num_neurons = num_neurons
         self.feature_dim = feature_dim
@@ -78,3 +70,4 @@ class HybridPerceptionCortex:
         
         print(f"  - SOMが特徴を分類し、勝者ニューロンが発火しました。")
         return {"features": final_som_activation}
+
