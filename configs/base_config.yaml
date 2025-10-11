@@ -51,7 +51,16 @@ training:
         temperature: 2.0
 
   biologically_plausible:
-    learning_rule: "REWARD_MODULATED_STDP"
+    learning_rule: "CAUSAL_TRACE" # デフォルトの学習則
+    # --- 適応的因果スパース化 ---
+    adaptive_causal_sparsification:
+      enabled: false
+      contribution_threshold: 0.01 # この貢献度以下のシナプスは学習を抑制
+    # --- パーティクルフィルタ (確率的アンサンブル) ---
+    particle_filter:
+      enabled: false
+      num_particles: 20 # アンサンブルを構成するモデル（パーティクル）の数
+      noise_std: 0.05   # 各パーティクルに加えるノイズの標準偏差
     neuron:
       tau_mem: 10.0
       v_threshold: 1.0
