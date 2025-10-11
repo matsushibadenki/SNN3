@@ -15,8 +15,9 @@ from .cerebellum import Cerebellum
 from .motor_cortex import MotorCortex
 from .hippocampus import Hippocampus
 from .cortex import Cortex
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from .prefrontal_cortex import PrefrontalCortex
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from .artificial_brain import ArtificialBrain
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
@@ -36,7 +37,8 @@ __all__ = [
     "MotorCortex",
     "Hippocampus",
     "Cortex",
+    "PrefrontalCortex",
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    "PrefrontalCortex"
+    "ArtificialBrain"
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
 ]
