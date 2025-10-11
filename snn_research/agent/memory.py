@@ -12,22 +12,35 @@
 # - 旧ロードマップ フェーズ5「多目的報酬ランドスケープ」を完全に実装。
 # - `get_total_reward`を更新し、外的報酬、物理法則、好奇心を
 #   総合的に評価して経験の「価値」を判断するようにした。
+#
+# 修正点 (v3):
+# - コンストラクタでmemory_pathがNoneの場合のフォールバック処理を強化。
 
 import json
 from datetime import datetime
 from typing import List, Dict, Any
+import os
 
 class Memory:
     """
     エージェントの経験を構造化されたタプルとして長期記憶に記録するクラス。
     ファイルは追記専用のjsonl形式で保存される。
     """
-    def __init__(self, memory_path="runs/agent_memory.jsonl"):
+    def __init__(self, memory_path: str = "runs/agent_memory.jsonl"):
         """
         Args:
             memory_path (str): 記憶を保存するファイルへのパス。
         """
-        self.memory_path = memory_path
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if memory_path is None:
+            print("⚠️ MemoryにNoneのパスが渡されたため、デフォルト値 'runs/agent_memory.jsonl' を使用します。")
+            self.memory_path = "runs/agent_memory.jsonl"
+        else:
+            self.memory_path = memory_path
+        
+        # ファイルパスのディレクトリが存在しない場合は作成
+        os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def record_experience(self, state, action, result, reward, expert_used, decision_context):
         """
