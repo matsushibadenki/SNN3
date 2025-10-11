@@ -28,6 +28,7 @@ from snn_research.training.trainers import (
     PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer,
     BioRLTrainer
 )
+from snn_research.training.bio_trainer import BioRLTrainer
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
