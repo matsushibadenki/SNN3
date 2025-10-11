@@ -1,8 +1,8 @@
-# matsushibadenki/snn3/app/containers.py
+# matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
 #
 # DIコンテナの定義ファイル (完全版)
 #
-# (省略)
+# (省略...)
 #
 # 修正点 (v5):
 # - `TypeError: missing 1 required positional argument: 'config'` を
@@ -20,6 +20,11 @@
 # 修正点 (v14):
 # - AttributeError: 'NoneType' object has no attribute 'get' を解決するため、
 #   rag_systemとmemoryのプロバイダをより直接的な依存性注入の形式に修正。
+#
+# 修正点 (v15):
+# - TypeError: expected str, bytes or os.PathLike object, not NoneType の根本原因である
+#   設定値の解決方法を、安全なファクトリプロバイダとos.path.joinを使用する方式に修正。
+# - ファクトリ関数内での設定アクセスを一貫して属性ベースに修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -79,11 +84,11 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
 def _model_registry_factory(config):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    provider_name = config['model_registry']['provider']
+    provider_name = config.model_registry.provider()
     if provider_name == "file":
-        return SimpleModelRegistry(registry_path=config['model_registry']['file']['path'])
+        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
     elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=config['model_registry']['file']['path'])
+        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
@@ -91,7 +96,7 @@ def _model_registry_factory(config):
 def _load_planner_snn_factory(trained_planner_snn, config, device):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    model_path = config['training']['planner']['model_path']
+    model_path = config.training.planner.model_path()
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model = trained_planner_snn
     if os.path.exists(model_path):
@@ -139,7 +144,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         tokenizer=tokenizer,
         ce_weight=config.training.gradient_based.loss.ce_weight,
         spike_reg_weight=config.training.gradient_based.loss.spike_reg_weight,
-        sparsity_reg_weight=config.training.gradient_based.loss.sparsity_reg_weight,
         mem_reg_weight=config.training.gradient_based.loss.mem_reg_weight,
     )
     distillation_loss = providers.Factory(
@@ -148,7 +152,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         ce_weight=config.training.gradient_based.distillation.loss.ce_weight,
         distill_weight=config.training.gradient_based.distillation.loss.distill_weight,
         spike_reg_weight=config.training.gradient_based.distillation.loss.spike_reg_weight,
-        sparsity_reg_weight=config.training.gradient_based.distillation.loss.sparsity_reg_weight,
         mem_reg_weight=config.training.gradient_based.distillation.loss.mem_reg_weight,
         temperature=config.training.gradient_based.distillation.loss.temperature,
     )
@@ -176,7 +179,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         tokenizer=tokenizer,
         prediction_weight=config.training.self_supervised.loss.prediction_weight,
         spike_reg_weight=config.training.self_supervised.loss.spike_reg_weight,
-        sparsity_reg_weight=config.training.self_supervised.loss.sparsity_reg_weight,
         mem_reg_weight=config.training.self_supervised.loss.mem_reg_weight,
     )
 
@@ -254,9 +256,7 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     bio_snn_model = providers.Factory(
         BioSNN,
-        n_input=10,
-        n_hidden=50,
-        n_output=2,
+        layer_sizes=[10, 50, 2],  # n_input, n_hidden, n_output
         neuron_params=config.training.biologically_plausible.neuron,
         learning_rule=bio_learning_rule,
     )
@@ -265,8 +265,8 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     rl_agent = providers.Factory(
         "snn_research.agent.reinforcement_learner_agent.ReinforcementLearnerAgent",
-        input_size=10,
-        output_size=10,
+        input_size=4, # GridWorld state size
+        output_size=4, # GridWorld action size
         device=providers.Factory(get_auto_device),
     )
 
@@ -312,14 +312,20 @@ class AgentContainer(containers.DeclarativeContainer):
     web_crawler = providers.Singleton(WebCrawler)
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    rag_system = providers.Singleton(
+    rag_system = providers.Factory(
         RAGSystem,
-        vector_store_path=config.training.log_dir.concat("/vector_store")
+        vector_store_path=providers.Callable(
+            lambda log_dir: os.path.join(log_dir, "vector_store") if log_dir else "runs/vector_store",
+            log_dir=config.training.log_dir
+        )
     )
 
-    memory = providers.Singleton(
+    memory = providers.Factory(
         Memory,
-        memory_path=config.training.log_dir.concat("/agent_memory.jsonl")
+        memory_path=providers.Callable(
+            lambda log_dir: os.path.join(log_dir, "agent_memory.jsonl") if log_dir else "runs/agent_memory.jsonl",
+            log_dir=config.training.log_dir
+        )
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
