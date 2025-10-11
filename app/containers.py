@@ -1,30 +1,14 @@
-# matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
+# matsushibadenki/snn3/app/containers.py
 #
 # DIコンテナの定義ファイル (完全版)
 #
-# (省略...)
+# (省略)
 #
-# 修正点 (v5):
-# - `TypeError: missing 1 required positional argument: 'config'` を
-#   根本的に解決するため、`model_registry`プロバイダを宣言的なメソッド形式から、
-#   依存関係を明示的に注入する堅牢なファクトリ関数方式に再実装した。
-#
-# 修正点 (v12):
-# - DIコンテナがconfigを辞書として解決してしまう根本原因に対処するため、
-#   ファクトリ関数内での設定アクセスを属性ベースからキーベースに変更。
-#
-# 修正点 (v13):
-# - TypeError: expected str, bytes or os.PathLike object, not NoneType を解決するため、
-#   memoryとrag_systemのプロバイダをファクトリ関数形式に変更。
-#
-# 修正点 (v14):
-# - AttributeError: 'NoneType' object has no attribute 'get' を解決するため、
-#   rag_systemとmemoryのプロバイダをより直接的な依存性注入の形式に修正。
-#
-# 修正点 (v15):
-# - TypeError: expected str, bytes or os.PathLike object, not NoneType の根本原因である
-#   設定値の解決方法を、安全なファクトリプロバイダとos.path.joinを使用する方式に修正。
-# - ファクトリ関数内での設定アクセスを一貫して属性ベースに修正。
+# 修正点 (v16):
+# - AttributeError: 'dict' object has no attribute 'model_registry' を解決。
+# - ファクトリ関数(_model_registry_factory, _load_planner_snn_factory)が、
+#   コンフィグオブジェクト全体ではなく、必要な個別の設定値を受け取るようにシグネチャを変更。
+# - これにより、DIコンテナがコンフィグを辞書として解決してしまう問題を根本的に回避。
 
 import torch
 from dependency_injector import containers, providers
@@ -81,23 +65,18 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-def _model_registry_factory(config):
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+def _model_registry_factory(provider_name: str, file_path: str):
     """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    provider_name = config.model_registry.provider()
     if provider_name == "file":
-        return SimpleModelRegistry(registry_path=config.model_registry.file.path())
+        return SimpleModelRegistry(registry_path=file_path)
     elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=config.model_registry.file.path())
+        return DistributedModelRegistry(registry_path=file_path)
     else:
         raise ValueError(f"Unknown model registry provider: {provider_name}")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
-def _load_planner_snn_factory(trained_planner_snn, config, device):
+def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    model_path = config.training.planner.model_path()
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model = trained_planner_snn
     if os.path.exists(model_path):
         try:
@@ -110,6 +89,7 @@ def _load_planner_snn_factory(trained_planner_snn, config, device):
     else:
         print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
     return model.to(device)
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -256,7 +236,7 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     bio_snn_model = providers.Factory(
         BioSNN,
-        layer_sizes=[10, 50, 2],  # n_input, n_hidden, n_output
+        layer_sizes=[10, 50, 2],
         neuron_params=config.training.biologically_plausible.neuron,
         learning_rule=bio_learning_rule,
     )
@@ -265,8 +245,8 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     rl_agent = providers.Factory(
         "snn_research.agent.reinforcement_learner_agent.ReinforcementLearnerAgent",
-        input_size=4, # GridWorld state size
-        output_size=4, # GridWorld action size
+        input_size=4,
+        output_size=4,
         device=providers.Factory(get_auto_device),
     )
 
@@ -295,10 +275,13 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = providers.Singleton(
         _model_registry_factory,
-        config=config,
+        provider_name=config.model_registry.provider,
+        file_path=config.model_registry.file.path,
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -311,7 +294,6 @@ class AgentContainer(containers.DeclarativeContainer):
     model_registry = training_container.model_registry
     web_crawler = providers.Singleton(WebCrawler)
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     rag_system = providers.Factory(
         RAGSystem,
         vector_store_path=providers.Callable(
@@ -327,19 +309,20 @@ class AgentContainer(containers.DeclarativeContainer):
             log_dir=config.training.log_dir
         )
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- 学習済みプランナーモデルのプロバイダ ---
     trained_planner_snn = providers.Factory(
         training_container.planner_snn
     )
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     loaded_planner_snn = providers.Singleton(
         _load_planner_snn_factory,
         trained_planner_snn=trained_planner_snn,
-        config=config,
+        model_path=config.training.planner.model_path,
         device=device,
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- プランナー ---
     hierarchical_planner = providers.Singleton(
