@@ -4,6 +4,7 @@
 # 改善点 (v2): 確率的アンサンブル学習のためのParticleFilterTrainerを新規追加。
 # 修正点 (v3): ParticleFilterTrainerがdict型のconfigを正しく扱えるように修正。
 # 修正点 (v4): ParticleFilterTrainerのデータ次元の不整合を修正。
+# 修正点 (v5): MPSデバイス不整合エラーを修正。
 
 import torch
 import torch.nn as nn
@@ -428,15 +429,16 @@ class ParticleFilterTrainer:
     逐次モンテカルロ法（パーティクルフィルタ）を用いて、微分不可能なSNNを学習するトレーナー。
     CPU上での実行を想定し、GPU依存から脱却するアプローチ。
     """
-    def __init__(self, base_model: BioSNN, config: Dict[str, Any]):
-        self.base_model = base_model
+    def __init__(self, base_model: BioSNN, config: Dict[str, Any], device: str):
+        self.base_model = base_model.to(device)
+        self.device = device
         self.config = config
         self.num_particles = config['training']['biologically_plausible']['particle_filter']['num_particles']
         self.noise_std = config['training']['biologically_plausible']['particle_filter']['noise_std']
         
         # 複数のモデル（パーティクル）をアンサンブルとして保持
         self.particles = [copy.deepcopy(self.base_model) for _ in range(self.num_particles)]
-        self.particle_weights = torch.ones(self.num_particles) / self.num_particles
+        self.particle_weights = torch.ones(self.num_particles, device=self.device) / self.num_particles
         print(f"🌪️ ParticleFilterTrainer initialized with {self.num_particles} particles.")
 
     def train_step(self, data: torch.Tensor, targets: torch.Tensor) -> float:
@@ -455,8 +457,6 @@ class ParticleFilterTrainer:
         for particle in self.particles:
             particle.eval()
             with torch.no_grad():
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # BioSNNはバッチ次元を持たない1Dテンソルを期待するため、次元を削除
                 if data.dim() > 1:
                     squeezed_data = data.squeeze(0)
                 else:
@@ -465,29 +465,30 @@ class ParticleFilterTrainer:
                 input_spikes = (torch.rand_like(squeezed_data) > 0.5).float()
                 outputs, _ = particle(input_spikes)
                 
-                # ターゲットも同様に次元を合わせる
                 if targets.dim() > 1:
                     squeezed_targets = targets.squeeze(0)
                 else:
                     squeezed_targets = targets
                 
                 loss = F.mse_loss(outputs, squeezed_targets)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                log_likelihoods.append(-loss) # 損失が小さいほど尤度が高い
+                log_likelihoods.append(-loss)
         
         # 3. 重みの更新と正規化
-        log_likelihoods_tensor = torch.tensor(log_likelihoods)
+        log_likelihoods_tensor = torch.tensor(log_likelihoods, device=self.device)
         self.particle_weights *= torch.exp(log_likelihoods_tensor - log_likelihoods_tensor.max())
-        self.particle_weights /= self.particle_weights.sum()
+        
+        if self.particle_weights.sum() > 0:
+            self.particle_weights /= self.particle_weights.sum()
+        else:
+            self.particle_weights.fill_(1.0 / self.num_particles)
+
 
         # 4. 再サンプリング (Resampling)
-        # 有効粒子数が閾値を下回ったら、尤度の高い粒子を複製し、低い粒子を淘汰
-        if (self.particle_weights.sum() > 0) and (1. / (self.particle_weights**2).sum() < self.num_particles / 2):
+        if 1. / (self.particle_weights**2).sum() < self.num_particles / 2:
             indices = torch.multinomial(self.particle_weights, self.num_particles, replacement=True)
             new_particles = [copy.deepcopy(self.particles[i]) for i in indices]
             self.particles = new_particles
             self.particle_weights.fill_(1.0 / self.num_particles)
         
-        # 最も尤度の高いパーティクルの損失を返す
         best_particle_loss = -log_likelihoods_tensor.max().item()
         return best_particle_loss
