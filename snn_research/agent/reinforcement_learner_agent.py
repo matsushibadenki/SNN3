@@ -1,21 +1,25 @@
 # ファイルパス: snn_research/agent/reinforcement_learner_agent.py
 # Title: 強化学習エージェント
 # (省略)
-# 改善点:
-# - ROADMAPフェーズ2検証のため、GridWorldのような複数ステップ環境に対応。
-# - get_actionでスパイク出力から単一の行動を選択するように変更。
-# - learnメソッドを更新し、毎ステップの経験を蓄積し、報酬に基づいて
-#   時間的信用割り当てを行うようにした。
 # 修正点:
 # - mypyエラー `Incompatible return value type` を解消するため、
 #   get_actionの戻り値を明示的にintにキャストした。
+#
+# 修正点 (v2):
+# - 循環インポートエラーを解消するため、app.containers のインポートを削除し、
+#   必要な SpikeEncoderDecoder を直接インポートするように変更。
 
 import torch
 from typing import Dict, Any, List
 
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# 循環インポートの原因となるため、DIコンテナのインポートを削除
+# from app.containers import TrainingContainer
+# 必要なモジュールを直接インポートする
 from snn_research.communication import SpikeEncoderDecoder
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class ReinforcementLearnerAgent:
     """
