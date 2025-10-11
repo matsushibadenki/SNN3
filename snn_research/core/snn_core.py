@@ -1,5 +1,6 @@
 # matsushibadenki/snn3/snn_research/core/snn_core.py
 # SNNモデルの定義、次世代ニューロンなど、中核となるロジックを集約したライブラリ
+# 修正点: AdaptiveLIFNeuronに不要なキーワード引数('type')が渡されるエラーを修正。
 
 import torch
 import torch.nn as nn
@@ -154,9 +155,19 @@ class BreakthroughSNN(BaseModel):
         self.num_layers = num_layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
         self.input_encoder = nn.Linear(d_model, d_model)
+
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # AdaptiveLIFNeuronに渡すパラメータをフィルタリングする
+        neuron_params = neuron_config.copy() if neuron_config is not None else {}
+        neuron_params.pop('type', None) # 'type'キーはコンストラクタに不要なため削除
+        neuron_params.pop('num_branches', None)
+        neuron_params.pop('branch_features', None)
+
         self.pc_layers = nn.ModuleList(
-            [PredictiveCodingLayer(d_model, d_state, AdaptiveLIFNeuron, neuron_config if neuron_config is not None else {}) for _ in range(num_layers)]
+            [PredictiveCodingLayer(d_model, d_state, AdaptiveLIFNeuron, neuron_params) for _ in range(num_layers)]
         )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
         self.output_projection = nn.Linear(d_state * num_layers, vocab_size)
         self._init_weights()
 
