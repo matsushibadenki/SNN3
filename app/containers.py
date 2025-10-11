@@ -1,14 +1,14 @@
-# matsushibadenki/snn3/app/containers.py
+# matsibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
 #
 # DIコンテナの定義ファイル (完全版)
 #
-# (省略)
+# (省略...)
 #
-# 修正点 (v16):
-# - AttributeError: 'dict' object has no attribute 'model_registry' を解決。
-# - ファクトリ関数(_model_registry_factory, _load_planner_snn_factory)が、
-#   コンフィグオブジェクト全体ではなく、必要な個別の設定値を受け取るようにシグネチャを変更。
-# - これにより、DIコンテナがコンフィグを辞書として解決してしまう問題を根本的に回避。
+# 修正点 (v17):
+# - ValueError: Unknown model registry provider の根本原因を解決。
+# - ファクトリ関数(_model_registry_factory)を廃止し、DIコンテナの標準機能である
+#   `providers.Selector` を用いて、設定値に応じてプロバイダを動的に切り替えるように修正。
+# - これにより、設定値が解決されずにオブジェクトとして渡される問題を完全に回避する。
 
 import torch
 from dependency_injector import containers, providers
@@ -65,16 +65,6 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-def _model_registry_factory(provider_name: str, file_path: str):
-    """設定に基づいて適切なModelRegistryを生成するファクトリ関数。"""
-    if provider_name == "file":
-        return SimpleModelRegistry(registry_path=file_path)
-    elif provider_name == "distributed":
-        return DistributedModelRegistry(registry_path=file_path)
-    else:
-        raise ValueError(f"Unknown model registry provider: {provider_name}")
-
 def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
     model = trained_planner_snn
@@ -89,7 +79,6 @@ def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str)
     else:
         print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
     return model.to(device)
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class TrainingContainer(containers.DeclarativeContainer):
@@ -276,10 +265,16 @@ class TrainingContainer(containers.DeclarativeContainer):
     )
 
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    model_registry = providers.Singleton(
-        _model_registry_factory,
-        provider_name=config.model_registry.provider,
-        file_path=config.model_registry.file.path,
+    model_registry = providers.Selector(
+        config.model_registry.provider,
+        file=providers.Singleton(
+            SimpleModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
+        distributed=providers.Singleton(
+            DistributedModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
@@ -322,33 +317,4 @@ class AgentContainer(containers.DeclarativeContainer):
         model_path=config.training.planner.model_path,
         device=device,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
-    # --- プランナー ---
-    hierarchical_planner = providers.Singleton(
-        HierarchicalPlanner,
-        model_registry=model_registry,
-        rag_system=rag_system,
-        planner_model=loaded_planner_snn,
-        tokenizer_name=config.data.tokenizer_name,
-        device=device,
-    )
-
-class AppContainer(containers.DeclarativeContainer):
-    """GradioアプリやAPIなど、アプリケーション層の依存関係を管理するコンテナ。"""
-    config = providers.Configuration()
-
-    # AppContainerが独自のTrainingContainerインスタンスを持つように変更
-    training_container = providers.Container(TrainingContainer, config=config)
-
-    # Tools
-    web_crawler = providers.Singleton(WebCrawler)
-    device = providers.Factory(lambda cfg_device: get_auto_device() if cfg_device == "auto" else cfg_device, cfg_device=config.device)
-    snn_inference_engine = providers.Singleton(SNNInferenceEngine, config=config)
-    chat_service = providers.Factory(ChatService, snn_engine=snn_inference_engine, max_len=config.app.max_len)
-
-    # AppContainerのtraining_containerからlangchain_adapterに必要なものを注入
-    langchain_adapter = providers.Factory(
-        SNNLangChainAdapter,
-        snn_engine=snn_inference_engine
-    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾
