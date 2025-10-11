@@ -19,6 +19,8 @@ from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSup
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from torch.utils.tensorboard import SummaryWriter
+from snn_research.bio_models.simple_network import BioSNN
+import copy
 
 
 class BreakthroughTrainer:
@@ -419,3 +421,58 @@ class BPTTTrainer:
         self.optimizer.step()
         
         return loss.item()
+        
+class ParticleFilterTrainer:
+    """
+    逐次モンテカルロ法（パーティクルフィルタ）を用いて、微分不可能なSNNを学習するトレーナー。
+    CPU上での実行を想定し、GPU依存から脱却するアプローチ。
+    """
+    def __init__(self, base_model: BioSNN, config: DictConfig):
+        self.base_model = base_model
+        self.config = config
+        self.num_particles = config.training.biologically_plausible.particle_filter.num_particles
+        self.noise_std = config.training.biologically_plausible.particle_filter.noise_std
+        
+        # 複数のモデル（パーティクル）をアンサンブルとして保持
+        self.particles = [copy.deepcopy(self.base_model) for _ in range(self.num_particles)]
+        self.particle_weights = torch.ones(self.num_particles) / self.num_particles
+        print(f"🌪️ ParticleFilterTrainer initialized with {self.num_particles} particles.")
+
+    def train_step(self, data: torch.Tensor, targets: torch.Tensor) -> float:
+        """1ステップの学習（予測、尤度計算、再サンプリング）を実行する。"""
+        
+        # 1. 予測 & ノイズ付加 (各パーティクル)
+        for particle in self.particles:
+            # パラメータに少量のノイズを加えて多様性を維持
+            with torch.no_grad():
+                for param in particle.parameters():
+                    param.add_(torch.randn_like(param) * self.noise_std)
+        
+        # 2. 尤度計算
+        # 各パーティクルがターゲットをどれだけうまく予測できたかを評価
+        log_likelihoods = []
+        for particle in self.particles:
+            particle.eval()
+            with torch.no_grad():
+                outputs, _ = particle(data)
+                # ここでは単純なMSEを尤度として使用
+                loss = F.mse_loss(outputs, targets)
+                log_likelihoods.append(-loss) # 損失が小さいほど尤度が高い
+        
+        # 3. 重みの更新と正規化
+        log_likelihoods_tensor = torch.tensor(log_likelihoods)
+        self.particle_weights *= torch.exp(log_likelihoods_tensor - log_likelihoods_tensor.max())
+        self.particle_weights /= self.particle_weights.sum()
+
+        # 4. 再サンプリング (Resampling)
+        # 有効粒子数が閾値を下回ったら、尤度の高い粒子を複製し、低い粒子を淘汰
+        if 1. / (self.particle_weights**2).sum() < self.num_particles / 2:
+            indices = torch.multinomial(self.particle_weights, self.num_particles, replacement=True)
+            new_particles = [copy.deepcopy(self.particles[i]) for i in indices]
+            self.particles = new_particles
+            self.particle_weights.fill_(1.0 / self.num_particles)
+        
+        # 最も尤度の高いパーティクルの損失を返す
+        best_particle_loss = -log_likelihoods_tensor.max().item()
+        return best_particle_loss
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
