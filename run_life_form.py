@@ -1,21 +1,24 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c909685675a68ccf65069201c/run_life_form.py
+# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c90968675a68ccf65069201c/run_life_form.py
 #
 # デジタル生命体 起動スクリプト
-# 概要：DigitalLifeFormインスタンスを生成し、その活動を開始・停止する。
-# 修正点: DIコンテナを利用して依存関係を構築するように修正。
-# 修正点 (v2): 循環インポートエラー解消のため、DigitalLifeFormへの依存関係の渡し方を修正。
+# (省略)
+# 修正点 (v3): 循環インポートを避けるため、トップレベルのインポートを削除し、
+#              main関数内で局所的にインポートするように修正。
 
 import time
 import argparse
-from app.containers import AgentContainer, AppContainer
-from snn_research.agent.digital_life_form import DigitalLifeForm
-from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
-from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
-from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
-from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
-from snn_research.agent.autonomous_agent import AutonomousAgent
-from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# トップレベルのインポートを削除
+# from app.containers import AgentContainer, AppContainer
+# from snn_research.agent.digital_life_form import DigitalLifeForm
+# from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+# from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+# from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
+# from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
+# from snn_research.agent.autonomous_agent import AutonomousAgent
+# from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+# from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 def main():
     """
@@ -24,6 +27,20 @@ def main():
     parser = argparse.ArgumentParser(description="Digital Life Form Orchestrator")
     parser.add_argument("--duration", type=int, default=60, help="実行時間（秒）。0を指定すると無限に実行します。")
     args = parser.parse_args()
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 必要なモジュールを関数内で局所的にインポート
+    from app.containers import AgentContainer, AppContainer
+    from snn_research.agent.digital_life_form import DigitalLifeForm
+    from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
+    from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+    from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
+    from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
+    from snn_research.agent.autonomous_agent import AutonomousAgent
+    from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+    from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
 
     # --- 改善: DIコンテナを使用して依存関係を構築 ---
     print("Initializing Digital Life Form with dependencies...")
