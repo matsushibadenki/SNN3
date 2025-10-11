@@ -1,13 +1,6 @@
 # ファイルパス: tests/cognitive_architecture/test_artificial_brain.py
-# (新規作成)
-#
-# Title: 人工脳 統合テスト
-#
-# Description:
-# - ArtificialBrainの主要な認知サイクルが、コンポーネントの連携を含め
-#   エラーなく実行されることを確認する統合テスト。
-# - DIコンテナ(BrainContainer)を使用して、依存関係が注入された
-#   完全なArtificialBrainインスタンスを構築してテストする。
+# (修正)
+# 修正: DIコンテナの階層構造に合わせて、rag_systemに正しくアクセスするよう修正。
 
 import sys
 from pathlib import Path
@@ -22,10 +15,15 @@ from app.containers import BrainContainer
 def brain_container():
     """DIコンテナを初期化し、テストフィクスチャとして提供する。"""
     container = BrainContainer()
-    # テスト用の設定をロードすることも可能
+    # テスト用の設定をロード
     container.config.from_yaml("configs/base_config.yaml")
+    container.config.from_yaml("configs/models/small.yaml")
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # RAGSystemの初回セットアップをシミュレート
-    rag_system = container.rag_system()
+    # rag_systemはagent_containerの配下にあるため、正しくアクセスする
+    rag_system = container.agent_container.rag_system()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     if not rag_system.vector_store:
         rag_system.setup_vector_store()
     return container
