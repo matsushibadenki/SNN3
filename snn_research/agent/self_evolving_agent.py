@@ -1,16 +1,12 @@
-# matsushibadenki/snn3/snn_research/agent/self_evolving_agent.py
+# ファイルパス: snn_research/agent/self_evolving_agent.py
+# (更新)
 #
 # Title: 自己進化エージェント
 #
-# Description: 自身のアーキテクチャや学習ルールを自律的に修正・改善できるエージェント。
-#              mypyエラー修正: super().__init__に引数を追加。
-#              mypyエラー修正: snn-cli.pyからの呼び出しに対応するため、メソッドと引数を修正。
-# 
-# 改善点: 
-# - ダミーだったevolveメソッドに、設定ファイルを読み込んでパラメータを強化し、
-#   新しい設定ファイルとして保存する具体的な自己進化ロジックを実装。
-# - ROADMAP.mdの「メタ可塑性」に基づき、アーキテクチャだけでなく
-#   学習ハイパーパラメータも進化させる機能を追加。
+# 改善点 (v2): ロードマップ「学習パラダイムの自己進化」を実装。
+#              アーキテクチャや学習パラメータだけでなく、学習パラダイム自体
+#              (例: 'bio-causal-sparse' -> 'bio-particle-filter') を
+#              自律的に変更する`_evolve_learning_paradigm`メソッドを追加。
 
 from typing import Dict, Any, Optional
 import os
@@ -39,17 +35,13 @@ class SelfEvolvingAgent(AutonomousAgent):
         evolution_threshold: float = 0.5,
         project_root: str = ".",
         model_config_path: Optional[str] = None,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         training_config_path: Optional[str] = None,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ):
         super().__init__(name, planner, model_registry, memory, web_crawler)
         self.evolution_threshold = evolution_threshold
         self.project_root = project_root
         self.model_config_path = model_config_path
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.training_config_path = training_config_path
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
     def execute(self, task_description: str) -> str:
@@ -58,7 +50,6 @@ class SelfEvolvingAgent(AutonomousAgent):
         """
         result = super().execute(task_description)
         
-        # 簡易的な性能評価
         performance = self.evaluate_performance(task_description, result)
         
         if performance < self.evolution_threshold:
@@ -78,16 +69,20 @@ class SelfEvolvingAgent(AutonomousAgent):
             return 0.4
         return 0.1
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def evolve(self) -> str:
         """
         自己進化のプロセスを実行する。
-        アーキテクチャを進化させるか、学習パラメータを進化させるかをランダムに決定する。
+        アーキテクチャ、学習パラメータ、学習パラダイムのいずれかを進化させる。
         """
-        if random.random() < 0.6:  # 60%の確率でアーキテクチャを進化
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        evolution_choice = random.random()
+        if evolution_choice < 0.5:  # 50%の確率でアーキテクチャを進化
             return self._evolve_architecture()
-        else:  # 40%の確率で学習パラメータを進化
+        elif evolution_choice < 0.8: # 30%の確率で学習パラメータを進化
             return self._evolve_learning_parameters()
+        else: # 20%の確率で学習パラダイム自体を進化
+            return self._evolve_learning_paradigm()
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _evolve_architecture(self) -> str:
         """モデルアーキテクチャを進化させる。"""
@@ -102,7 +97,6 @@ class SelfEvolvingAgent(AutonomousAgent):
             original_d_model = cfg.model.get("d_model", 128)
             original_num_layers = cfg.model.get("num_layers", 4)
 
-            # パラメータをランダムに少し増加させる
             cfg.model.d_model = int(original_d_model * random.uniform(1.1, 1.5))
             cfg.model.num_layers = original_num_layers + random.randint(1, 2)
             
@@ -148,7 +142,6 @@ class SelfEvolvingAgent(AutonomousAgent):
                 return f"Parameter '{param_key}' not found in the config. Skipping evolution."
 
             original_value = selected_param
-            # 値をランダムに摂動させる (80% ~ 120%の範囲)
             new_value = original_value * random.uniform(0.8, 1.2)
             
             OmegaConf.update(cfg, param_key, new_value, merge=True)
@@ -163,17 +156,48 @@ class SelfEvolvingAgent(AutonomousAgent):
 
         except Exception as e:
             return f"Learning parameter evolution failed with an error: {e}"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def _evolve_learning_paradigm(self) -> str:
+        """学習パラダイム自体を進化させる。"""
+        if not self.training_config_path or not os.path.exists(self.training_config_path):
+            return "Learning paradigm evolution failed: training_config_path is not set or file not found."
+
+        try:
+            print(f"🔄 Starting learning paradigm evolution for {self.training_config_path}...")
+            cfg = OmegaConf.load(self.training_config_path)
+
+            current_paradigm = cfg.training.get("paradigm", "gradient_based")
+            
+            # 利用可能な代替パラダイムのリスト
+            available_paradigms = ["bio-causal-sparse", "bio-particle-filter", "physics_informed"]
+            
+            # 現在のパラダイムを除外したリストから新しいものをランダムに選択
+            new_paradigm = random.choice([p for p in available_paradigms if p != current_paradigm])
+
+            cfg.training.paradigm = new_paradigm
+            
+            print(f"   - Learning paradigm evolved: '{current_paradigm}' -> '{new_paradigm}'")
+            
+            # 新しい設定ファイルを保存
+            base_name, ext = os.path.splitext(self.training_config_path)
+            new_config_path = f"{base_name}_evolved_v{self.get_next_version()}{ext}"
+            OmegaConf.save(config=cfg, f=new_config_path)
+
+            return f"Successfully evolved learning paradigm. New configuration saved to '{new_config_path}'."
+
+        except Exception as e:
+            return f"Learning paradigm evolution failed with an error: {e}"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def get_next_version(self) -> int:
         # 簡易的なバージョン管理
-        return 2
+        return random.randint(100, 999)
 
     def run_evolution_cycle(self, task_description: str, initial_metrics: Dict[str, float]) -> None:
         """snn-cli.pyから呼び出されるためのエントリポイント。"""
         print(f"Running evolution cycle for task: {task_description} with initial metrics: {initial_metrics}")
         
-        # 初期性能を評価
         performance = initial_metrics.get("accuracy", 0.0)
         
         if performance < self.evolution_threshold:
