@@ -15,10 +15,11 @@
 #
 # 修正点 (v3):
 # - コンストラクタでmemory_pathがNoneの場合のフォールバック処理を強化。
+# - mypyエラーを解消するため、memory_pathに型ヒントを追加。
 
 import json
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 
 class Memory:
@@ -26,21 +27,20 @@ class Memory:
     エージェントの経験を構造化されたタプルとして長期記憶に記録するクラス。
     ファイルは追記専用のjsonl形式で保存される。
     """
-    def __init__(self, memory_path: str = "runs/agent_memory.jsonl"):
+    def __init__(self, memory_path: Optional[str] = "runs/agent_memory.jsonl"):
         """
         Args:
             memory_path (str): 記憶を保存するファイルへのパス。
         """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if memory_path is None:
             print("⚠️ MemoryにNoneのパスが渡されたため、デフォルト値 'runs/agent_memory.jsonl' を使用します。")
-            self.memory_path = "runs/agent_memory.jsonl"
+            self.memory_path: str = "runs/agent_memory.jsonl"
         else:
             self.memory_path = memory_path
         
         # ファイルパスのディレクトリが存在しない場合は作成
-        os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        if os.path.dirname(self.memory_path):
+            os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
 
     def record_experience(self, state, action, result, reward, expert_used, decision_context):
         """
