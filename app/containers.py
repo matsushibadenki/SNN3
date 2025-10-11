@@ -4,11 +4,9 @@
 #
 # (省略...)
 #
-# 修正点 (v17):
-# - ValueError: Unknown model registry provider の根本原因を解決。
-# - ファクトリ関数(_model_registry_factory)を廃止し、DIコンテナの標準機能である
-#   `providers.Selector` を用いて、設定値に応じてプロバイダを動的に切り替えるように修正。
-# - これにより、設定値が解決されずにオブジェクトとして渡される問題を完全に回避する。
+# 修正点 (v18):
+# - AttributeError: 'DynamicContainer' object has no attribute 'hierarchical_planner' を解決。
+# - AgentContainerに、不足していた`hierarchical_planner`プロバイダを追加。
 
 import torch
 from dependency_injector import containers, providers
@@ -39,6 +37,7 @@ from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
+from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.cognitive_architecture.rag_snn import RAGSystem
@@ -232,8 +231,8 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
 
-    rl_agent = providers.Factory(
-        "snn_research.agent.reinforcement_learner_agent.ReinforcementLearnerAgent",
+    rl_agent: providers.Provider[ReinforcementLearnerAgent] = providers.Factory(
+        ReinforcementLearnerAgent,
         input_size=4,
         output_size=4,
         device=providers.Factory(get_auto_device),
@@ -264,7 +263,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = providers.Selector(
         config.model_registry.provider,
         file=providers.Singleton(
@@ -276,7 +274,6 @@ class TrainingContainer(containers.DeclarativeContainer):
             registry_path=config.model_registry.file.path,
         ),
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -310,11 +307,41 @@ class AgentContainer(containers.DeclarativeContainer):
         training_container.planner_snn
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     loaded_planner_snn = providers.Singleton(
         _load_planner_snn_factory,
         trained_planner_snn=trained_planner_snn,
         model_path=config.training.planner.model_path,
         device=device,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾
+    
+    hierarchical_planner = providers.Factory(
+        HierarchicalPlanner,
+        model_registry=model_registry,
+        rag_system=rag_system,
+        planner_model=loaded_planner_snn,
+        tokenizer_name=config.data.tokenizer_name,
+        device=device,
+    )
+
+
+class AppContainer(containers.DeclarativeContainer):
+    """Gradioアプリケーションの依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
+    training_container = providers.Container(TrainingContainer, config=config)
+    agent_container = providers.Container(AgentContainer, config=config)
+
+    snn_inference_engine = providers.Factory(
+        SNNInferenceEngine,
+        config=config,
+    )
+
+    chat_service = providers.Factory(
+        ChatService,
+        snn_engine=snn_inference_engine,
+        max_len=config.app.max_len,
+    )
+
+    langchain_adapter = providers.Factory(
+        SNNLangChainAdapter,
+        snn_engine=snn_inference_engine,
+    )
