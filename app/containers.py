@@ -4,9 +4,10 @@
 #
 # (省略...)
 #
-# 修正点 (v18):
-# - AttributeError: 'DynamicContainer' object has no attribute 'hierarchical_planner' を解決。
-# - AgentContainerに、不足していた`hierarchical_planner`プロバイダを追加。
+# 修正点 (v19):
+# - Error: Selector has no provider... を解決。
+# - Selectorが設定値を正しく解決できるよう、Callableプロバイダを使用して
+#   設定値の参照を遅延させるように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -263,8 +264,9 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = providers.Selector(
-        config.model_registry.provider,
+        providers.Callable(lambda cfg: cfg.get("model_registry", {}).get("provider"), config.provided),
         file=providers.Singleton(
             SimpleModelRegistry,
             registry_path=config.model_registry.file.path,
@@ -274,6 +276,7 @@ class TrainingContainer(containers.DeclarativeContainer):
             registry_path=config.model_registry.file.path,
         ),
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
@@ -313,8 +316,7 @@ class AgentContainer(containers.DeclarativeContainer):
         model_path=config.training.planner.model_path,
         device=device,
     )
-
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正↓◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    
     hierarchical_planner = providers.Factory(
         HierarchicalPlanner,
         model_registry=model_registry,
@@ -323,7 +325,6 @@ class AgentContainer(containers.DeclarativeContainer):
         tokenizer_name=config.data.tokenizer_name,
         device=device,
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正↑◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AppContainer(containers.DeclarativeContainer):
