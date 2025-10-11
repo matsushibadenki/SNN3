@@ -456,13 +456,21 @@ class ParticleFilterTrainer:
             particle.eval()
             with torch.no_grad():
                 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # BioSNNは1Dテンソルを期待するため、バッチ次元を削除
-                squeezed_data = data.squeeze(0)
+                # BioSNNはバッチ次元を持たない1Dテンソルを期待するため、次元を削除
+                if data.dim() > 1:
+                    squeezed_data = data.squeeze(0)
+                else:
+                    squeezed_data = data
+
                 input_spikes = (torch.rand_like(squeezed_data) > 0.5).float()
                 outputs, _ = particle(input_spikes)
                 
                 # ターゲットも同様に次元を合わせる
-                squeezed_targets = targets.squeeze(0)
+                if targets.dim() > 1:
+                    squeezed_targets = targets.squeeze(0)
+                else:
+                    squeezed_targets = targets
+                
                 loss = F.mse_loss(outputs, squeezed_targets)
                 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 log_likelihoods.append(-loss) # 損失が小さいほど尤度が高い
@@ -474,7 +482,7 @@ class ParticleFilterTrainer:
 
         # 4. 再サンプリング (Resampling)
         # 有効粒子数が閾値を下回ったら、尤度の高い粒子を複製し、低い粒子を淘汰
-        if 1. / (self.particle_weights**2).sum() < self.num_particles / 2:
+        if (self.particle_weights.sum() > 0) and (1. / (self.particle_weights**2).sum() < self.num_particles / 2):
             indices = torch.multinomial(self.particle_weights, self.num_particles, replacement=True)
             new_particles = [copy.deepcopy(self.particles[i]) for i in indices]
             self.particles = new_particles
