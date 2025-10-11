@@ -1,15 +1,14 @@
-# matsushibadenki/snn3/SNN3-dc5882d7979aa870fe1f1a7070fcf860578cea33/snn_research/learning_rules/stdp.py
-# Title: STDP (Spike-Timing-Dependent Plasticity) 学習ルール
-# Description: 古典的なSTDPを実装します。
-# BugFix: ファイル末尾の不正な閉じ括弧を削除し、構文エラーを修正。
-# BugFix (v2): LTD計算時の次元不整合エラーを修正。
+# snn_research/learning_rules/stdp.py
+# (修正)
+# 修正: 階層的因果学習のため、戻り値の型を基底クラスに合わせる。
 
 import torch
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from .base_rule import BioLearningRule
 
 class STDP(BioLearningRule):
     """ペアベースのSTDP学習ルールを実装するクラス。"""
+    # ... (init, _initialize_traces, _update_traces は変更なし) ...
     def __init__(self, learning_rate: float, a_plus: float, a_minus: float, tau_trace: float, dt: float = 1.0):
         self.learning_rate = learning_rate
         self.a_plus = a_plus
@@ -37,22 +36,17 @@ class STDP(BioLearningRule):
         post_spikes: torch.Tensor,
         weights: torch.Tensor,
         optional_params: Optional[Dict[str, Any]] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """STDPに基づいて重み変化量を計算する。"""
         if self.pre_trace is None or self.post_trace is None or self.pre_trace.shape[0] != pre_spikes.shape[0] or self.post_trace.shape[0] != post_spikes.shape[0]:
             self._initialize_traces(pre_spikes.shape[0], post_spikes.shape[0], pre_spikes.device)
 
         self._update_traces(pre_spikes, post_spikes)
 
-        # mypyにNoneでないことを伝える
         assert self.pre_trace is not None and self.post_trace is not None
 
         dw = torch.zeros_like(weights)
-        
-        # LTP (ポスト -> プレ): post_spikesとpre_traceのouter積
         dw += self.learning_rate * self.a_plus * torch.outer(post_spikes, self.pre_trace)
-        
-        # LTD (プレ -> ポスト): pre_spikesとpost_traceのouter積
         dw -= self.learning_rate * self.a_minus * torch.outer(pre_spikes, self.post_trace).T
         
-        return dw
+        return dw, None
