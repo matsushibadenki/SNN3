@@ -1,345 +1,351 @@
-# matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn-cli.py
-# (省略)
-# 修正点 (v10):
-# - 循環インポートエラーを根本的に解決するため、トップレベルのインポートを最小限にし、
-#   各コマンド関数が必要とするモジュールを、その関数内で局所的にインポートする設計に統一。
-# - これにより、Typerのコマンド解決時に発生する意図しないモジュール読み込みループを完全に遮断する。
+# matsibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
+#
+# DIコンテナの定義ファイル (完全版)
+#
+# (省略...)
+#
+# 修正点 (v17):
+# - ValueError: Unknown model registry provider の根本原因を解決。
+# - ファクトリ関数(_model_registry_factory)を廃止し、DIコンテナの標準機能である
+#   `providers.Selector` を用いて、設定値に応じてプロバイダを動的に切り替えるように修正。
+# - これにより、設定値が解決されずにオブジェクトとして渡される問題を完全に回避する。
+# - hierarchical_planner を AgentContainer に追加。
+# - AppContainer を追加。
 
-import sys
-from pathlib import Path
-import asyncio
 import torch
-import typer
-from typing import List, Optional
+from dependency_injector import containers, providers
+from torch.optim import AdamW, Optimizer
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, LRScheduler
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import os
+from typing import TYPE_CHECKING
 
-# --- プロジェクトルートをPythonパスに追加 ---
-sys.path.append(str(Path(__file__).resolve().parent))
+# --- プロジェクト内モジュールのインポート ---
+from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
+from snn_research.deployment import SNNInferenceEngine
+from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
+from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer
+from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
+from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
+from snn_research.cognitive_architecture.planner_snn import PlannerSNN
+from .services.chat_service import ChatService
+from .adapters.snn_langchain_adapter import SNNLangChainAdapter
+from snn_research.distillation.model_registry import SimpleModelRegistry, DistributedModelRegistry
+import redis
+from snn_research.tools.web_crawler import WebCrawler
+
+# --- 生物学的学習のためのインポート ---
+from snn_research.learning_rules.stdp import STDP
+from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
+from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
+from snn_research.bio_models.simple_network import BioSNN
+from snn_research.rl_env.simple_env import SimpleEnvironment
+from snn_research.training.bio_trainer import BioRLTrainer
+from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
+
+from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
+from snn_research.cognitive_architecture.rag_snn import RAGSystem
+from snn_research.agent.memory import Memory
+
+if TYPE_CHECKING:
+    from .adapters.snn_langchain_adapter import SNNLangChainAdapter
 
 
-# --- CLIアプリケーションの定義 ---
-app = typer.Typer(
-    help="Project SNN: 統合CLIツール",
-    rich_markup_mode="markdown",
-    add_completion=False
-)
+def get_auto_device() -> str:
+    """実行環境に最適なデバイスを自動的に選択する。"""
+    if torch.cuda.is_available(): return "cuda"
+    if torch.backends.mps.is_available(): return "mps"
+    return "cpu"
 
-# --- サブコマンドグループの作成 ---
-agent_app = typer.Typer(help="自律エージェントを操作して単一タスクを実行")
-app.add_typer(agent_app, name="agent")
+def _calculate_t_max(epochs: int, warmup_epochs: int) -> int:
+    """学習率スケジューラのT_maxを計算する"""
+    return max(1, epochs - warmup_epochs)
 
-planner_app = typer.Typer(help="高次認知プランナーを操作して複雑なタスクを実行")
-app.add_typer(planner_app, name="planner")
+def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> LRScheduler:
+    """ウォームアップ付きのCosineAnnealingスケジューラを生成するファクトリ関数。"""
+    warmup_scheduler = LinearLR(optimizer=optimizer, start_factor=1e-3, total_iters=warmup_epochs)
+    main_scheduler_t_max = _calculate_t_max(epochs=epochs, warmup_epochs=warmup_epochs)
+    main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
+    return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-life_form_app = typer.Typer(help="デジタル生命体の自律ループを開始")
-app.add_typer(life_form_app, name="life-form")
-
-evolve_app = typer.Typer(help="自己進化サイクルを実行")
-app.add_typer(evolve_app, name="evolve")
-
-rl_app = typer.Typer(help="生物学的強化学習を実行")
-app.add_typer(rl_app, name="rl")
-
-ui_app = typer.Typer(help="Gradioベースの対話UIを起動")
-app.add_typer(ui_app, name="ui")
-
-emergent_app = typer.Typer(help="創発的なマルチエージェントシステムを操作")
-app.add_typer(emergent_app, name="emergent-system")
-
-
-@agent_app.command("solve", help="指定されたタスクを解決します。専門家モデルの検索、オンデマンド学習、推論を実行します。")
-def agent_solve(
-    task: str = typer.Option(..., help="タスクの自然言語説明 (例: '感情分析')"),
-    prompt: Optional[str] = typer.Option(None, help="推論を実行する場合の入力プロンプト"),
-    unlabeled_data: Optional[Path] = typer.Option(None, help="新規学習時に使用するデータパス", exists=True, file_okay=True, dir_okay=False),
-    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
-    force_retrain: bool = typer.Option(False, "--force-retrain", help="モデル登録簿を無視して強制的に再学習"),
-    min_accuracy: float = typer.Option(0.6, help="専門家モデルを選択するための最低精度要件"),
-    max_spikes: float = typer.Option(10000.0, help="専門家モデルを選択するための平均スパイク数上限")
-):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # 必要なモジュールを関数内でインポート
-    from app.containers import AgentContainer
-    from snn_research.agent.autonomous_agent import AutonomousAgent
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    
-    container = AgentContainer()
-    container.config.from_yaml("configs/base_config.yaml")
-    container.config.from_yaml(str(model_config))
-    
-    agent = AutonomousAgent(
-        name="cli-agent",
-        planner=container.hierarchical_planner(),
-        model_registry=container.model_registry(),
-        memory=container.memory(),
-        web_crawler=container.web_crawler(),
-        accuracy_threshold=min_accuracy,
-        energy_budget=max_spikes
-    )
-    
-    selected_model_info = asyncio.run(agent.handle_task(
-        task_description=task,
-        unlabeled_data_path=str(unlabeled_data) if unlabeled_data else None,
-        force_retrain=force_retrain
-    ))
-    
-    if selected_model_info and prompt:
-        print("\n" + "="*20 + " 🧠 INFERENCE " + "="*20)
-        print(f"入力プロンプト: {prompt}")
-        asyncio.run(agent.run_inference(selected_model_info, prompt))
-    elif not selected_model_info:
-        print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
-        print("タスクを完了できませんでした。")
-
-@planner_app.command("execute", help="複雑なタスク要求を実行します。内部で計画を立案し、複数の専門家を連携させます。")
-def planner_execute(
-    request: str = typer.Option(..., help="タスク要求 (例: '記事を要約して感情を分析')"),
-    context: str = typer.Option(..., help="処理対象のデータ")
-):
-    from app.containers import AgentContainer
-    container = AgentContainer()
-    container.config.from_yaml("configs/base_config.yaml")
-    planner = container.hierarchical_planner()
-    
-    final_result = planner.execute_task(task_request=request, context=context)
-    if final_result:
-        print("\n" + "="*20 + " ✅ FINAL RESULT " + "="*20)
-        print(final_result)
+def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str):
+    """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
+    model = trained_planner_snn
+    if os.path.exists(model_path):
+        try:
+            checkpoint = torch.load(model_path, map_location=device)
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            model.load_state_dict(state_dict)
+            print(f"✅ 学習済みPlannerSNNモデルを '{model_path}' から正常にロードしました。")
+        except Exception as e:
+            print(f"⚠️ PlannerSNNモデルのロードに失敗しました: {e}。未学習のモデルを使用します。")
     else:
-        print("\n" + "="*20 + " ❌ TASK FAILED " + "="*20)
+        print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
+    return model.to(device)
 
-def get_life_form_instance():
-    # 必要なモジュールを関数内でインポート
-    from app.containers import AgentContainer, AppContainer
-    from snn_research.agent.digital_life_form import DigitalLifeForm
-    from snn_research.agent.autonomous_agent import AutonomousAgent
-    from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-    from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
-    from snn_research.cognitive_architecture.intrinsic_motivation import IntrinsicMotivationSystem
-    from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
-    from snn_research.cognitive_architecture.physics_evaluator import PhysicsEvaluator
-    from snn_research.cognitive_architecture.symbol_grounding import SymbolGrounding
 
-    agent_container = AgentContainer()
-    agent_container.config.from_yaml("configs/base_config.yaml")
-    app_container = AppContainer()
-    app_container.config.from_yaml("configs/base_config.yaml")
+class TrainingContainer(containers.DeclarativeContainer):
+    """学習に関連するオブジェクトの依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
 
-    planner = agent_container.hierarchical_planner()
-    model_registry = agent_container.model_registry()
-    memory = agent_container.memory()
-    web_crawler = agent_container.web_crawler()
-    rag_system = agent_container.rag_system()
-    langchain_adapter = app_container.langchain_adapter()
+    # --- 共通ツール ---
+    device = providers.Factory(get_auto_device)
 
-    autonomous_agent = AutonomousAgent(
-        name="AutonomousAgent", planner=planner, model_registry=model_registry, 
-        memory=memory, web_crawler=web_crawler
-    )
-    rl_agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device="cpu")
-    self_evolving_agent = SelfEvolvingAgent(
-        name="SelfEvolvingAgent", planner=planner, model_registry=model_registry, 
-        memory=memory, web_crawler=web_crawler,
-        model_config_path="configs/models/small.yaml",
-        training_config_path="configs/base_config.yaml"
-    )
-    
-    return DigitalLifeForm(
-        autonomous_agent=autonomous_agent,
-        rl_agent=rl_agent,
-        self_evolving_agent=self_evolving_agent,
-        motivation_system=IntrinsicMotivationSystem(),
-        meta_cognitive_snn=MetaCognitiveSNN(),
-        memory=memory,
-        physics_evaluator=PhysicsEvaluator(),
-        symbol_grounding=SymbolGrounding(rag_system),
-        langchain_adapter=langchain_adapter
+    # --- 共通コンポーネント ---
+    tokenizer = providers.Factory(AutoTokenizer.from_pretrained, pretrained_model_name_or_path=config.data.tokenizer_name)
+
+    # --- アーキテクチャ選択 ---
+    snn_model = providers.Factory(
+        SNNCore,
+        config=config.model,
+        vocab_size=tokenizer.provided.vocab_size,
     )
 
-@life_form_app.command("start", help="意識ループを開始します。AIが自律的に思考・学習します。")
-def life_form_start(cycles: int = typer.Option(5, help="実行する意識サイクルの回数")):
-    life_form = get_life_form_instance()
-    life_form.awareness_loop(cycles=cycles)
-
-@life_form_app.command("explain-last-action", help="AI自身に、直近の行動理由を自然言語で説明させます。")
-def life_form_explain():
-    print("🤔 AIに自身の行動理由を説明させます...")
-    life_form = get_life_form_instance()
-    explanation = life_form.explain_last_action()
-    print("\n" + "="*20 + " 🤖 AIによる自己解説 " + "="*20)
-    if explanation:
-        print(explanation)
-    else:
-        print("説明の生成に失敗しました。")
-    print("="*64)
-
-@evolve_app.command("run", help="自己進化サイクルを1回実行します。AIが自身の性能を評価し、アーキテクチャを改善します。")
-def evolve_run(
-    task_description: str = typer.Option(..., help="自己評価の起点となるタスク説明"),
-    training_config: Path = typer.Option("configs/base_config.yaml", help="進化対象の基本設定ファイル", exists=True),
-    model_config: Path = typer.Option("configs/models/small.yaml", help="進化対象のモデル設定ファイル", exists=True),
-    initial_accuracy: float = typer.Option(0.75, help="自己評価のための初期精度"),
-    initial_spikes: float = typer.Option(1500.0, help="自己評価のための初期スパイク数")
-):
-    from app.containers import AgentContainer
-    from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
-    container = AgentContainer()
-    container.config.from_yaml(str(training_config))
-    container.config.from_yaml(str(model_config))
-
-    agent = SelfEvolvingAgent(
-        name="evolving-agent",
-        planner=container.hierarchical_planner(),
-        model_registry=container.model_registry(),
-        memory=container.memory(),
-        web_crawler=container.web_crawler(),
-        project_root=".",
-        model_config_path=str(model_config),
-        training_config_path=str(training_config)
-    )
-    initial_metrics = {
-        "accuracy": initial_accuracy,
-        "avg_spikes_per_sample": initial_spikes
-    }
-    agent.run_evolution_cycle(
-        task_description=task_description,
-        initial_metrics=initial_metrics
+    astrocyte_network = providers.Factory(AstrocyteNetwork, snn_model=snn_model)
+    meta_cognitive_snn = providers.Factory(
+        MetaCognitiveSNN,
+        **(config.training.meta_cognition.to_dict() or {})
     )
 
+    # === 勾配ベース学習 (gradient_based) のためのプロバイダ ===
+    optimizer = providers.Factory(AdamW, lr=config.training.gradient_based.learning_rate)
+    scheduler = providers.Factory(_create_scheduler, optimizer=optimizer, epochs=config.training.epochs, warmup_epochs=config.training.gradient_based.warmup_epochs)
 
-@rl_app.command("run", help="強化学習ループを開始します。エージェントがGridWorld環境を探索します。")
-def rl_run(
-    episodes: int = typer.Option(500, help="学習エピソード数"),
-    grid_size: int = typer.Option(5, help="グリッドワールドのサイズ"),
-    max_steps: int = typer.Option(50, help="1エピソードあたりの最大ステップ数")
-):
-    from tqdm import tqdm
-    from snn_research.rl_env.grid_world import GridWorldEnv
-    from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-    
-    device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-    env = GridWorldEnv(size=grid_size, max_steps=max_steps, device=device)
-    agent = ReinforcementLearnerAgent(input_size=4, output_size=4, device=device)
-    
-    progress_bar = tqdm(range(episodes))
-    total_rewards = []
-
-    for episode in progress_bar:
-        state = env.reset()
-        done = False
-        episode_reward = 0.0
-        while not done:
-            action = agent.get_action(state)
-            next_state, reward, done = env.step(action)
-            agent.learn(reward)
-            episode_reward += reward
-            state = next_state
-        
-        total_rewards.append(episode_reward)
-        avg_reward = sum(total_rewards[-10:]) / len(total_rewards[-10:])
-        progress_bar.set_postfix({"Avg Reward (last 10)": f"{avg_reward:.3f}"})
-    
-    final_avg_reward = sum(total_rewards) / episodes if episodes > 0 else 0.0
-    print(f"\n✅ 学習完了。最終的な平均報酬: {final_avg_reward:.4f}")
-
-@ui_app.command("start", help="標準のGradio UIを起動します。")
-def ui_start(
-    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
-    model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
-):
-    import app.main as gradio_app
-    original_argv = sys.argv
-    sys.argv = [
-        "app/main.py",
-        "--model_config", str(model_config),
-    ]
-    if model_path:
-        sys.argv.extend(["--model_path", model_path])
-    
-    try:
-        print("🚀 標準のGradio UIを起動します...")
-        gradio_app.main()
-    finally:
-        sys.argv = original_argv
-
-@ui_app.command("start-langchain", help="LangChain連携版のGradio UIを起動します。")
-def ui_start_langchain(
-    model_config: Path = typer.Option("configs/models/small.yaml", help="モデルアーキテクチャ設定ファイル", exists=True),
-    model_path: Optional[str] = typer.Option(None, help="モデルのパス（設定ファイルを上書き）"),
-):
-    import app.langchain_main as langchain_gradio_app
-    original_argv = sys.argv
-    sys.argv = [
-        "app/langchain_main.py",
-        "--model_config", str(model_config),
-    ]
-    if model_path:
-        sys.argv.extend(["--model_path", model_path])
-
-    try:
-        print("🚀 LangChain連携版のGradio UIを起動します...")
-        langchain_gradio_app.main()
-    finally:
-        sys.argv = original_argv
-
-@emergent_app.command("execute", help="高レベルの目標を与え、マルチエージェントシステムに協調的に解決させます。")
-def emergent_execute(
-    goal: str = typer.Option(..., help="システムに達成させたい高レベルの目標")
-):
-    from app.containers import AgentContainer
-    from snn_research.agent.autonomous_agent import AutonomousAgent
-    from snn_research.cognitive_architecture.emergent_system import EmergentCognitiveSystem
-    from snn_research.cognitive_architecture.global_workspace import GlobalWorkspace
-    print(f"🚀 Emergent System Activated. Goal: {goal}")
-
-    container = AgentContainer()
-    container.config.from_yaml("configs/base_config.yaml")
-
-    planner = container.hierarchical_planner()
-    model_registry = container.model_registry()
-    memory = container.memory()
-    web_crawler = container.web_crawler()
-    
-    global_workspace = GlobalWorkspace(model_registry=model_registry)
-
-    agent1 = AutonomousAgent(name="AutonomousAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
-    agent2 = AutonomousAgent(name="SpecialistAgent", planner=planner, model_registry=model_registry, memory=memory, web_crawler=web_crawler)
-    
-    emergent_system = EmergentCognitiveSystem(
-        planner=planner,
-        agents=[agent1, agent2],
-        global_workspace=global_workspace,
-        model_registry=model_registry
+    standard_loss = providers.Factory(
+        CombinedLoss,
+        tokenizer=tokenizer,
+        ce_weight=config.training.gradient_based.loss.ce_weight,
+        spike_reg_weight=config.training.gradient_based.loss.spike_reg_weight,
+        mem_reg_weight=config.training.gradient_based.loss.mem_reg_weight,
+    )
+    distillation_loss = providers.Factory(
+        DistillationLoss,
+        tokenizer=tokenizer,
+        ce_weight=config.training.gradient_based.distillation.loss.ce_weight,
+        distill_weight=config.training.gradient_based.distillation.loss.distill_weight,
+        spike_reg_weight=config.training.gradient_based.distillation.loss.spike_reg_weight,
+        mem_reg_weight=config.training.gradient_based.distillation.loss.mem_reg_weight,
+        temperature=config.training.gradient_based.distillation.loss.temperature,
     )
 
-    final_report = emergent_system.execute_task(goal)
+    teacher_model = providers.Factory(AutoModelForCausalLM.from_pretrained, pretrained_model_name_or_path=config.training.gradient_based.distillation.teacher_model)
+    standard_trainer = providers.Factory(
+        BreakthroughTrainer, model=snn_model, optimizer=optimizer, criterion=standard_loss, scheduler=scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.gradient_based.grad_clip_norm,
+        rank=-1, use_amp=config.training.gradient_based.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
+    distillation_trainer = providers.Factory(
+        DistillationTrainer, model=snn_model, optimizer=optimizer, criterion=distillation_loss, scheduler=scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.gradient_based.grad_clip_norm,
+        rank=-1, use_amp=config.training.gradient_based.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
 
-    print("\n" + "="*20 + " ✅ FINAL REPORT " + "="*20)
-    print(final_report)
-    print("="*60)
+    # === 自己教師あり学習 (self_supervised) のためのプロバイダ ===
+    ssl_optimizer = providers.Factory(AdamW, lr=config.training.self_supervised.learning_rate)
+    ssl_scheduler = providers.Factory(_create_scheduler, optimizer=ssl_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.self_supervised.warmup_epochs)
 
-@app.command(
-    "gradient-train",
-    help="""
-    勾配ベースでSNNモデルを手動学習します (train.pyを呼び出します)。
-    このコマンドの後に、train.pyに渡したい引数をそのまま続けてください。
+    self_supervised_loss = providers.Factory(
+        SelfSupervisedLoss,
+        tokenizer=tokenizer,
+        prediction_weight=config.training.self_supervised.loss.prediction_weight,
+        spike_reg_weight=config.training.self_supervised.loss.spike_reg_weight,
+        mem_reg_weight=config.training.self_supervised.loss.mem_reg_weight,
+    )
+
+    self_supervised_trainer = providers.Factory(
+        SelfSupervisedTrainer, model=snn_model, optimizer=ssl_optimizer, criterion=self_supervised_loss, scheduler=ssl_scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.self_supervised.grad_clip_norm,
+        rank=-1, use_amp=config.training.self_supervised.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
+
+    # === 物理情報学習 (physics_informed) のためのプロバイダ ===
+    pi_optimizer = providers.Factory(AdamW, lr=config.training.physics_informed.learning_rate)
+    pi_scheduler = providers.Factory(_create_scheduler, optimizer=pi_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.physics_informed.warmup_epochs)
+
+    physics_informed_loss = providers.Factory(
+        PhysicsInformedLoss,
+        tokenizer=tokenizer,
+        ce_weight=config.training.physics_informed.loss.ce_weight,
+        spike_reg_weight=config.training.physics_informed.loss.spike_reg_weight,
+        mem_smoothness_weight=config.training.physics_informed.loss.mem_smoothness_weight,
+    )
+
+    physics_informed_trainer = providers.Factory(
+        PhysicsInformedTrainer, model=snn_model, optimizer=pi_optimizer, criterion=physics_informed_loss, scheduler=pi_scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.physics_informed.grad_clip_norm,
+        rank=-1, use_amp=config.training.physics_informed.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
+
+    # === 確率的アンサンブル学習 (probabilistic_ensemble) のためのプロバイダ ===
+    pe_optimizer = providers.Factory(AdamW, lr=config.training.probabilistic_ensemble.learning_rate)
+    pe_scheduler = providers.Factory(_create_scheduler, optimizer=pe_optimizer, epochs=config.training.epochs, warmup_epochs=config.training.probabilistic_ensemble.warmup_epochs)
+
+    probabilistic_ensemble_loss = providers.Factory(
+        ProbabilisticEnsembleLoss,
+        tokenizer=tokenizer,
+        ce_weight=config.training.probabilistic_ensemble.loss.ce_weight,
+        variance_reg_weight=config.training.probabilistic_ensemble.loss.variance_reg_weight,
+    )
+
+    probabilistic_ensemble_trainer = providers.Factory(
+        ProbabilisticEnsembleTrainer, model=snn_model, optimizer=pe_optimizer, criterion=probabilistic_ensemble_loss, scheduler=pe_scheduler,
+        device=providers.Factory(get_auto_device), grad_clip_norm=config.training.probabilistic_ensemble.grad_clip_norm,
+        rank=-1, use_amp=config.training.probabilistic_ensemble.use_amp, log_dir=config.training.log_dir,
+        astrocyte_network=astrocyte_network, meta_cognitive_snn=meta_cognitive_snn,
+    )
+
+    # === 生物学的学習 (biologically_plausible) のためのプロバイダ ===
+    bio_learning_rule = providers.Selector(
+        config.training.biologically_plausible.learning_rule,
+        STDP=providers.Factory(
+            STDP,
+            learning_rate=config.training.biologically_plausible.stdp.learning_rate,
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
+        REWARD_MODULATED_STDP=providers.Factory(
+            RewardModulatedSTDP,
+            learning_rate=config.training.biologically_plausible.reward_modulated_stdp.learning_rate,
+            tau_eligibility=config.training.biologically_plausible.reward_modulated_stdp.tau_eligibility,
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
+        CAUSAL_TRACE=providers.Factory(
+            CausalTraceCreditAssignment,
+            learning_rate=config.training.biologically_plausible.causal_trace.learning_rate,
+            tau_eligibility=config.training.biologically_plausible.causal_trace.tau_eligibility,
+            a_plus=config.training.biologically_plausible.stdp.a_plus,
+            a_minus=config.training.biologically_plausible.stdp.a_minus,
+            tau_trace=config.training.biologically_plausible.stdp.tau_trace,
+        ),
+    )
+
+    bio_snn_model = providers.Factory(
+        BioSNN,
+        layer_sizes=[10, 50, 2],
+        neuron_params=config.training.biologically_plausible.neuron,
+        learning_rule=bio_learning_rule,
+    )
+
+    rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
+
+    rl_agent: providers.Provider[ReinforcementLearnerAgent] = providers.Factory(
+        ReinforcementLearnerAgent,
+        input_size=4,
+        output_size=4,
+        device=providers.Factory(get_auto_device),
+    )
+
+    bio_rl_trainer = providers.Factory(
+        BioRLTrainer,
+        agent=rl_agent,
+        env=rl_environment,
+    )
+
+    # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
+    planner_snn = providers.Factory(
+        PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
+        d_state=config.model.d_state, num_layers=config.model.num_layers,
+        time_steps=config.model.time_steps, n_head=config.model.n_head,
+        num_skills=10
+    )
+    planner_optimizer = providers.Factory(AdamW, lr=config.training.planner.learning_rate)
+    planner_loss = providers.Factory(PlannerLoss)
+
+    # Redisクライアントのプロバイダ
+    redis_client = providers.Singleton(
+        redis.Redis,
+        host=config.model_registry.redis.host,
+        port=config.model_registry.redis.port,
+        db=config.model_registry.redis.db,
+        decode_responses=True,
+    )
+
+    model_registry = providers.Selector(
+        config.model_registry.provider,
+        file=providers.Singleton(
+            SimpleModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
+        distributed=providers.Singleton(
+            DistributedModelRegistry,
+            registry_path=config.model_registry.file.path,
+        ),
+    )
+
+
+class AgentContainer(containers.DeclarativeContainer):
+    """エージェントとプランナーの実行に必要な依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
+    training_container = providers.Container(TrainingContainer, config=config)
+
+    # --- 共通ツール ---
+    device = providers.Factory(get_auto_device)
+    model_registry = training_container.model_registry
+    web_crawler = providers.Singleton(WebCrawler)
+
+    rag_system = providers.Factory(
+        RAGSystem,
+        vector_store_path=providers.Callable(
+            lambda log_dir: os.path.join(log_dir, "vector_store") if log_dir else "runs/vector_store",
+            log_dir=config.training.log_dir
+        )
+    )
+
+    memory = providers.Factory(
+        Memory,
+        memory_path=providers.Callable(
+            lambda log_dir: os.path.join(log_dir, "agent_memory.jsonl") if log_dir else "runs/agent_memory.jsonl",
+            log_dir=config.training.log_dir
+        )
+    )
+
+    # --- 学習済みプランナーモデルのプロバイダ ---
+    trained_planner_snn = providers.Factory(
+        training_container.planner_snn
+    )
+
+    loaded_planner_snn = providers.Singleton(
+        _load_planner_snn_factory,
+        trained_planner_snn=trained_planner_snn,
+        model_path=config.training.planner.model_path,
+        device=device,
+    )
     
-    例: `python snn-cli.py gradient-train --model_config configs/models/large.yaml --data_path data/sample_data.jsonl`
-    """,
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
-)
-def gradient_train(ctx: typer.Context):
-    import train as gradient_based_trainer
-    print("🔧 勾配ベースの学習プロセスを開始します...")
-    train_args = ctx.args
-    
-    original_argv = sys.argv
-    sys.argv = ["train.py"] + train_args
-    
-    try:
-        gradient_based_trainer.main()
-    finally:
-        sys.argv = original_argv
+    hierarchical_planner = providers.Factory(
+        HierarchicalPlanner,
+        model_registry=model_registry,
+        rag_system=rag_system,
+        planner_model=loaded_planner_snn,
+        tokenizer_name=config.data.tokenizer_name,
+        device=device,
+    )
 
 
-if __name__ == "__main__":
-    app()
+class AppContainer(containers.DeclarativeContainer):
+    """Gradioアプリケーションの依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
+    training_container = providers.Container(TrainingContainer, config=config)
+    agent_container = providers.Container(AgentContainer, config=config)
+
+    snn_inference_engine = providers.Factory(
+        SNNInferenceEngine,
+        config=config,
+    )
+
+    chat_service = providers.Factory(
+        ChatService,
+        snn_engine=snn_inference_engine,
+        max_len=config.app.max_len,
+    )
+
+    langchain_adapter = providers.Factory(
+        SNNLangChainAdapter,
+        snn_engine=snn_inference_engine,
+    )
