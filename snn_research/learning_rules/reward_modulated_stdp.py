@@ -38,9 +38,11 @@ class RewardModulatedSTDP(STDP):
         assert self.pre_trace is not None and self.post_trace is not None and self.eligibility_trace is not None
 
         # 1. STDPライクなルールで適格性トレースを更新
+        # LTP
         self.eligibility_trace += self.a_plus * torch.outer(post_spikes, self.pre_trace)
-        self.eligibility_trace -= self.a_minus * torch.outer(self.post_trace, pre_spikes)
-
+        # LTD
+        self.eligibility_trace -= self.a_minus * torch.outer(pre_spikes, self.post_trace).T
+        
         # 2. 適格性トレースを時間減衰させる
         self.eligibility_trace -= (self.eligibility_trace / self.tau_eligibility) * self.dt
         
