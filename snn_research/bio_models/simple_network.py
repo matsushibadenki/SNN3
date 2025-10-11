@@ -1,12 +1,10 @@
 # ファイルパス: snn_research/bio_models/simple_network.py
 # タイトル: BioSNN (生物学的SNN)
-# Description: 生物学的学習則を組み込んだシンプルな2層SNN。
-# 変更点:
-# - 強化学習ループに対応するため、推論(forward)と学習(update_weights)を分離。
-# - forwardメソッドが中間層のスパイクも返すように変更。
+# (省略...)
 # 改善点:
 # - ROADMAPフェーズ2「階層的因果学習」に基づき、複数層に対応できるように拡張。
 # - update_weightsメソッドを一般化し、深いネットワークでの信用割り当てを可能にした。
+# 改善点 (v2): 「適応的因果スパース化」を実装。貢献度の低いシナプスの学習を抑制する。
 
 import torch
 import torch.nn as nn
@@ -14,13 +12,23 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from .lif_neuron import BioLIFNeuron
 from snn_research.learning_rules.base_rule import BioLearningRule
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class BioSNN(nn.Module):
     """生物学的学習則で学習する、複数層に対応したSNNモデル。"""
-    def __init__(self, layer_sizes: List[int], neuron_params: dict, learning_rule: BioLearningRule):
+    def __init__(self, layer_sizes: List[int], neuron_params: dict, learning_rule: BioLearningRule, 
+                 sparsification_config: Optional[Dict[str, Any]] = None): # ◾️ 追加
         super().__init__()
         self.layer_sizes = layer_sizes
         self.learning_rule = learning_rule
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.sparsification_enabled = sparsification_config.get("enabled", False) if sparsification_config else False
+        self.contribution_threshold = sparsification_config.get("contribution_threshold", 0.0) if sparsification_config else 0.0
+        if self.sparsification_enabled:
+            print(f"🧬 適応的因果スパース化が有効です (貢献度閾値: {self.contribution_threshold})")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         # 層と重みのリストを作成
         self.layers = nn.ModuleList()
@@ -65,6 +73,16 @@ class BioSNN(nn.Module):
                 weights=self.weights[i],
                 optional_params=optional_params
             )
+
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 適応的因果スパース化のロジック
+            if self.sparsification_enabled and isinstance(self.learning_rule, CausalTraceCreditAssignment):
+                if self.learning_rule.causal_contribution is not None:
+                    # 貢献度が閾値以下のシナプスの学習を抑制（ゲーティング）
+                    contribution_mask = self.learning_rule.causal_contribution > self.contribution_threshold
+                    dw = dw * contribution_mask
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
             # nn.Parameterの更新は .data を使う
             self.weights[i].data += dw
             # 重みが負にならないようにクリッピング
