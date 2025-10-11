@@ -1,4 +1,4 @@
-# ファイルパス: matsushibadenki/snn3/SNN3-190ede29139f560c90968675a68ccf65069201c/snn_research/agent/digital_life_form.py
+# ファイルパス: matsushibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/snn_research/agent/digital_life_form.py
 #
 # DigitalLifeForm オーケストレーター
 #
@@ -10,6 +10,10 @@
 # - 根本的な循環インポートエラーを解消するため、上位層であるAppContainerへの依存を削除。
 # - 必要なSNNLangChainAdapterを直接コンストラクタで受け取るように変更し、
 #   モジュール間の依存関係を正常化した。
+#
+# 修正点 (v9):
+# - 循環インポートエラーを解消するため、SNNLangChainAdapterのトップレベルインポートを削除し、
+#   TYPE_CHECKINGとForward Reference（文字列による型指定）を使用するように修正。
 
 import time
 import logging
@@ -29,7 +33,14 @@ from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerA
 from snn_research.agent.self_evolving_agent import SelfEvolvingAgent
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
 from snn_research.distillation.model_registry import DistributedModelRegistry
-from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# 循環インポートを避けるため、トップレベルでのインポートを削除
+# from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
+
+# 型チェック時のみインポートを実行する
+if TYPE_CHECKING:
+    from app.adapters.snn_langchain_adapter import SNNLangChainAdapter
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -49,7 +60,10 @@ class DigitalLifeForm:
         memory: Memory,
         physics_evaluator: PhysicsEvaluator,
         symbol_grounding: SymbolGrounding,
-        langchain_adapter: SNNLangChainAdapter
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # Forward Reference (文字列) を使って型ヒントを記述
+        langchain_adapter: "SNNLangChainAdapter"
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ):
         self.autonomous_agent = autonomous_agent
         self.rl_agent = rl_agent
@@ -270,4 +284,3 @@ class DigitalLifeForm:
         except Exception as e:
             logging.error(f"LLMによる自己言及の生成に失敗しました: {e}")
             return "エラー: 自己言及の生成に失敗しました。"
-
