@@ -14,6 +14,7 @@
 #
 # 修正点 (v3):
 # - TypeErrorを解消するため、vector_store_pathがNoneの場合のフォールバック処理を追加。
+# - mypyエラーを解消するため、vector_store_pathに型ヒントを追加。
 
 import os
 from typing import List, Optional
@@ -30,14 +31,12 @@ class RAGSystem:
     思考のための文脈を提供するRAGシステム。
     ナレッジグラフとしての機能も併せ持つ。
     """
-    def __init__(self, vector_store_path: str = "runs/vector_store"):
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def __init__(self, vector_store_path: Optional[str] = "runs/vector_store"):
         if vector_store_path is None:
             print("⚠️ RAGSystemにNoneのパスが渡されたため、デフォルト値 'runs/vector_store' を使用します。")
-            self.vector_store_path = "runs/vector_store"
+            self.vector_store_path: str = "runs/vector_store"
         else:
             self.vector_store_path = vector_store_path
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
