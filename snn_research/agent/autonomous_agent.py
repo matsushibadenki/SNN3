@@ -4,6 +4,7 @@
 # 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
 # 改善点: handle_taskメソッドを修正し、専門家モデルが性能要件を満たさない場合は、妥協せずに新しい学習を開始するようにロジックを変更。
 # BugFix: run_inferenceでSNNInferenceEngineに渡すconfigの構造を修正。
+# 修正点 (v2): 循環インポートエラーを解消するため、DIコンテナのインポートをメソッド内に移動。
 
 from typing import Dict, Any, Optional
 import asyncio
@@ -148,7 +149,10 @@ class AutonomousAgent:
         if unlabeled_data_path:
             print("- No suitable expert found or retraining forced. Initiating on-demand learning...")
             try:
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # 循環インポートを避けるため、メソッド内でインポートする
                 from app.containers import TrainingContainer
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 container = TrainingContainer()
                 container.config.from_yaml("configs/base_config.yaml")
                 container.config.from_yaml("configs/models/medium.yaml")
@@ -174,7 +178,6 @@ class AutonomousAgent:
                     device=device
                 )
                 
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 # 【SNN能力向上】大規模データセットが存在すれば、そちらを優先して使用する
                 wikitext_path = "data/wikitext-103_train.jsonl"
                 if os.path.exists(wikitext_path):
@@ -183,7 +186,6 @@ class AutonomousAgent:
                 else:
                     learning_data_path = unlabeled_data_path
                     print(f"⚠️ 大規模データセットが見つからないため、指定された '{learning_data_path}' を使用します。")
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
                 new_model_info = await manager.run_on_demand_pipeline(
                     task_description=task_description,
