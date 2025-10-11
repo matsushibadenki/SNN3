@@ -1,9 +1,11 @@
 # ファイルパス: snn_research/cognitive_architecture/cortex.py
-# (新規作成)
+# (修正)
 #
 # Title: Cortex (大脳皮質) モジュール
 #
 # Description:
+# - mypyエラーを解消するため、辞書のキーとして使用する変数がNoneでないことを
+#   明示的にチェックする処理を追加。
 # - 人工脳アーキテクチャの「記憶層」に属し、長期記憶を担うコンポーネント。
 # - Hippocampus (海馬) から送られてきた短期記憶（エピソード）を、
 #   永続的な知識として構造化し、固定する役割を持つ。
@@ -17,7 +19,7 @@ class Cortex:
     """
     def __init__(self):
         # 知識を格納するためのグラフ構造 (辞書で簡易的に表現)
-        # 例: {'concept_A': {'relation': 'is_a', 'target': 'category_X'}}
+        # 例: {'concept_A': [{'relation': 'is_a', 'target': 'category_X'}]}
         self.knowledge_graph: Dict[str, List[Dict[str, Any]]] = {}
         print("🧠 大脳皮質（長期記憶）モジュールが初期化されました。")
 
@@ -39,6 +41,7 @@ class Cortex:
             print("⚠️ 大脳皮質: 知識として統合するには情報が不十分なエピソードです。")
             return
 
+        # 'source'がNoneでないことを確認してから辞書のキーとして使用する
         if source not in self.knowledge_graph:
             self.knowledge_graph[source] = []
 
