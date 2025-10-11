@@ -8,6 +8,8 @@
 # - Error: Selector has no provider... を解決。
 # - Selectorが設定値を正しく解決できるよう、Callableプロバイダを使用して
 #   設定値の参照を遅延させるように修正。
+# 修正点 (v20):
+# - bio-causal-sparse実行時のエラーを解消するため、rl_environmentをGridWorldEnvに変更。
 
 import torch
 from dependency_injector import containers, providers
@@ -21,7 +23,7 @@ from typing import TYPE_CHECKING
 from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
 from snn_research.deployment import SNNInferenceEngine
 from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
-from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer
+from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer
 from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
 from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
 from snn_research.cognitive_architecture.planner_snn import PlannerSNN
@@ -37,8 +39,8 @@ from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTD
 from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.rl_env.simple_env import SimpleEnvironment
+from snn_research.rl_env.grid_world import GridWorldEnv
 from snn_research.training.bio_trainer import BioRLTrainer
-from snn_research.training.trainers import ParticleFilterTrainer 
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
@@ -232,12 +234,15 @@ class TrainingContainer(containers.DeclarativeContainer):
         sparsification_config=config.training.biologically_plausible.adaptive_causal_sparsification
     )
 
-    rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # SimpleEnvironmentからGridWorldEnvに変更
+    rl_environment = providers.Factory(GridWorldEnv, device=device)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     rl_agent: providers.Provider[ReinforcementLearnerAgent] = providers.Factory(
         ReinforcementLearnerAgent,
-        input_size=4,
-        output_size=4,
+        input_size=4, # GridWorldEnvのstate_size
+        output_size=4, # GridWorldEnvのaction_size
         device=providers.Factory(get_auto_device),
     )
 
@@ -273,7 +278,6 @@ class TrainingContainer(containers.DeclarativeContainer):
         decode_responses=True,
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     model_registry = providers.Selector(
         providers.Callable(lambda cfg: cfg.get("model_registry", {}).get("provider"), config.provided),
         file=providers.Singleton(
@@ -285,7 +289,6 @@ class TrainingContainer(containers.DeclarativeContainer):
             registry_path=config.model_registry.file.path,
         ),
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 class AgentContainer(containers.DeclarativeContainer):
