@@ -3,6 +3,7 @@
 # Title: 因果追跡クレジット割り当て (Causal Trace Credit Assignment)
 # Description: 微分から脱却し、スパイクの因果連鎖を辿ってクレジットを割り当てる
 #              新しい生物学的学習則。
+# 改善点: 「適応的因果スパース化」のため、シナプスの因果的貢献度を追跡する機能を追加。
 
 import torch
 from typing import Dict, Any, Optional
@@ -15,7 +16,16 @@ class CausalTraceCreditAssignment(RewardModulatedSTDP):
     """
     def __init__(self, learning_rate: float, a_plus: float, a_minus: float, tau_trace: float, tau_eligibility: float, dt: float = 1.0):
         super().__init__(learning_rate, a_plus, a_minus, tau_trace, tau_eligibility, dt)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.causal_contribution: Optional[torch.Tensor] = None
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("🧠 Causal Trace Credit Assignment learning rule initialized.")
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def _initialize_contribution_trace(self, weight_shape: tuple, device: torch.device):
+        """因果的貢献度を記録するトレースを初期化する。"""
+        self.causal_contribution = torch.zeros(weight_shape, device=device)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def update(
         self,
@@ -29,5 +39,18 @@ class CausalTraceCreditAssignment(RewardModulatedSTDP):
         このメソッドは、どのシナプスが最近の活動に「因果的」に関与したかを
         適格性トレースとして記録し、報酬が与えられた際にその貢献度に応じて重みを更新する。
         """
-        # 親クラス(RewardModulatedSTDP)のロジックをそのまま利用する
-        return super().update(pre_spikes, post_spikes, weights, optional_params)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        dw = super().update(pre_spikes, post_spikes, weights, optional_params)
+        
+        # 貢献度トレースの初期化
+        if self.causal_contribution is None or self.causal_contribution.shape != weights.shape:
+            self._initialize_contribution_trace(weights.shape, weights.device)
+        
+        assert self.causal_contribution is not None, "Causal contribution trace not initialized."
+
+        # 報酬があった場合、その更新の大きさを貢献度として記録（指数移動平均）
+        if optional_params and optional_params.get("reward", 0.0) != 0.0:
+            self.causal_contribution = self.causal_contribution * 0.99 + torch.abs(dw) * 0.01
+
+        return dw
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
