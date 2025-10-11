@@ -10,6 +10,8 @@
 #   設定値の参照を遅延させるように修正。
 # 修正点 (v20):
 # - bio-causal-sparse実行時のエラーを解消するため、rl_environmentをGridWorldEnvに変更。
+# 修正点 (v21):
+# - ParticleFilterTrainerにdeviceを渡すように修正。
 
 import torch
 from dependency_injector import containers, providers
@@ -234,15 +236,12 @@ class TrainingContainer(containers.DeclarativeContainer):
         sparsification_config=config.training.biologically_plausible.adaptive_causal_sparsification
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # SimpleEnvironmentからGridWorldEnvに変更
     rl_environment = providers.Factory(GridWorldEnv, device=device)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     rl_agent: providers.Provider[ReinforcementLearnerAgent] = providers.Factory(
         ReinforcementLearnerAgent,
-        input_size=4, # GridWorldEnvのstate_size
-        output_size=4, # GridWorldEnvのaction_size
+        input_size=4,
+        output_size=4,
         device=providers.Factory(get_auto_device),
     )
 
@@ -257,6 +256,7 @@ class TrainingContainer(containers.DeclarativeContainer):
         ParticleFilterTrainer,
         base_model=bio_snn_model,
         config=config,
+        device=device,
     )
 
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
