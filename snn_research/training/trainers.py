@@ -5,6 +5,7 @@
 # 修正点 (v3): ParticleFilterTrainerがdict型のconfigを正しく扱えるように修正。
 # 修正点 (v4): ParticleFilterTrainerのデータ次元の不整合を修正。
 # 修正点 (v5): MPSデバイス不整合エラーを修正。
+# 修正点 (v6): `device`引数が不足しているエラーを修正。
 
 import torch
 import torch.nn as nn
@@ -481,7 +482,6 @@ class ParticleFilterTrainer:
             self.particle_weights /= self.particle_weights.sum()
         else:
             self.particle_weights.fill_(1.0 / self.num_particles)
-
 
         # 4. 再サンプリング (Resampling)
         if 1. / (self.particle_weights**2).sum() < self.num_particles / 2:
