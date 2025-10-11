@@ -1,12 +1,10 @@
-# matsushibadenki/snn3/SNN3-27170475db1dde34e4e83ac31427cebd290f9474/snn_research/agent/autonomous_agent.py
-# ファイルパス: matsushibadenki/snn3/SNN3-176e5ceb739db651438b22d74c0021f222858011/snn_research/agent/autonomous_agent.py
-# タイトル: 自律エージェント
-# 機能説明: mypyエラーを解消するため、find_expert内の未定義変数へのアクセスを修正。
-# 改善点: handle_taskメソッドを修正し、専門家モデルが性能要件を満たさない場合は、妥協せずに新しい学習を開始するようにロジックを変更。
-# BugFix: run_inferenceでSNNInferenceEngineに渡すconfigの構造を修正。
-# 修正点 (v2): 循環インポートエラーを解消するため、DIコンテナのインポートをメソッド内に移動。
+# ファイルパス: snn_research/agent/autonomous_agent.py
+# (修正)
+# 修正点: memory.record_experienceに渡すreward引数を、
+#         floatから{'external': float}の辞書形式に修正し、mypyエラーを解消。
+# 修正点: expert_usedにNoneが含まれる可能性を排除。
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
 import os
 from pathlib import Path
@@ -46,18 +44,18 @@ class AutonomousAgent:
 
         expert = asyncio.run(self.find_expert(task_description))
         action = "execute_task_with_expert" if expert else "execute_task_general"
-        expert_id = [expert['model_id']] if expert else []
+        expert_id = [expert['model_id']] if expert and expert.get('model_id') else []
 
         if expert:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using expert model '{expert['model_id']}'."
         else:
             result = f"Task '{task_description}' executed by Agent '{self.name}' using general capabilities (no specific expert found)."
-        
+
         self.memory.record_experience(
             state=self.current_state,
             action=action,
             result={"status": "SUCCESS", "details": result},
-            reward=1.0,
+            reward={"external": 1.0},
             expert_used=expert_id,
             decision_context={"reason": "Direct execution command received."}
         )
@@ -69,7 +67,7 @@ class AutonomousAgent:
         """
         safe_task_description = task_description.lower().replace(" ", "_")
         candidate_experts = await self.model_registry.find_models_for_task(safe_task_description, top_k=5)
-        
+
         if not candidate_experts:
             print(f"最適な専門家が見つかりませんでした: {safe_task_description}")
             return None
@@ -101,7 +99,7 @@ class AutonomousAgent:
             self.memory.record_experience(
                 state=self.current_state, action=task_name,
                 result={"status": "FAILURE", "details": result_details},
-                reward=-1.0, expert_used=["web_crawler"],
+                reward={"external": -1.0}, expert_used=["web_crawler"],
                 decision_context={"reason": "No relevant URLs found."}
             )
             return result_details
@@ -112,7 +110,7 @@ class AutonomousAgent:
         self.memory.record_experience(
             state=self.current_state, action=task_name,
             result={"status": "SUCCESS", "summary": summary},
-            reward=1.0, expert_used=["web_crawler", "summarizer"],
+            reward={"external": 1.0}, expert_used=["web_crawler", "summarizer"],
             decision_context={"reason": "Information successfully retrieved and summarized."}
         )
         return f"Successfully learned about '{topic}'. Summary: {summary}"
@@ -122,13 +120,13 @@ class AutonomousAgent:
 
     def _summarize(self, text: str) -> str:
         return text[:150] + "..."
-    
+
     async def handle_task(self, task_description: str, unlabeled_data_path: Optional[str] = None, force_retrain: bool = False) -> Optional[Dict[str, Any]]:
         """
         タスクを処理する中心的なメソッド。専門家を検索し、いなければ学習を試みる。
         """
         print(f"--- Handling Task: {task_description} ---")
-        self.memory.record_experience(self.current_state, "handle_task", {"task": task_description}, 0.0, [], {"reason": "Task received"})
+        self.memory.record_experience(self.current_state, "handle_task", {"task": task_description}, {"external": 0.0}, [], {"reason": "Task received"})
 
         expert_model: Optional[Dict[str, Any]] = None
         if not force_retrain:
@@ -145,14 +143,11 @@ class AutonomousAgent:
 
         if expert_model:
             return expert_model
-        
+
         if unlabeled_data_path:
             print("- No suitable expert found or retraining forced. Initiating on-demand learning...")
             try:
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                # 循環インポートを避けるため、メソッド内でインポートする
                 from app.containers import TrainingContainer
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 container = TrainingContainer()
                 container.config.from_yaml("configs/base_config.yaml")
                 container.config.from_yaml("configs/models/medium.yaml")
@@ -177,8 +172,7 @@ class AutonomousAgent:
                     model_registry=self.model_registry,
                     device=device
                 )
-                
-                # 【SNN能力向上】大規模データセットが存在すれば、そちらを優先して使用する
+
                 wikitext_path = "data/wikitext-103_train.jsonl"
                 if os.path.exists(wikitext_path):
                     print(f"✅ 大規模データセット '{wikitext_path}' を発見。本格的な学習に使用します。")
@@ -194,29 +188,31 @@ class AutonomousAgent:
                     student_config=container.config.model.to_dict()
                 )
 
-                self.memory.record_experience(self.current_state, "on_demand_learning", new_model_info, 1.0, [new_model_info['model_id']], {"reason": "New expert created"})
+                model_id = new_model_info.get('model_id') if new_model_info else "unknown"
+                self.memory.record_experience(self.current_state, "on_demand_learning", new_model_info, {"external": 1.0}, [model_id] if model_id != "unknown" else [], {"reason": "New expert created"})
                 return new_model_info
 
             except Exception as e:
                 print(f"❌ On-demand learning failed: {e}")
-                self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, -1.0, [], {"reason": "Training failed"})
+                self.memory.record_experience(self.current_state, "on_demand_learning", {"error": str(e)}, {"external": -1.0}, [], {"reason": "Training failed"})
                 return None
-        
+
         print("- No expert found and no data provided for training.")
-        self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, -1.0, [], {"reason": "No expert and no data"})
+        self.memory.record_experience(self.current_state, "handle_task", {"status": "failed"}, {"external": -1.0}, [], {"reason": "No expert and no data"})
         return None
 
     async def run_inference(self, model_info: Dict[str, Any], prompt: str) -> None:
         """
         指定されたモデルで推論を実行する。
         """
-        print(f"Running inference with model {model_info.get('model_id', 'N/A')} on prompt: {prompt}")
+        model_id = model_info.get('model_id', 'N/A')
+        print(f"Running inference with model {model_id} on prompt: {prompt}")
 
         model_config = model_info.get('config')
-        
+
         if not model_config:
             print("❌ Error: Model config not found in registry. Cannot proceed with inference.")
-            self.memory.record_experience(self.current_state, "inference", {"error": "Model config not found"}, -0.5, [model_info.get('model_id')], {})
+            self.memory.record_experience(self.current_state, "inference", {"error": "Model config not found"}, {"external": -0.5}, [model_id] if model_id != 'N/A' else [], {})
             return
 
         full_config = OmegaConf.create({
@@ -226,26 +222,26 @@ class AutonomousAgent:
             },
             'model': model_config
         })
-        
+
         model_path = model_info.get('model_path') or model_info.get('path')
         if model_path:
             absolute_path = str(Path(model_path).resolve())
             OmegaConf.update(full_config, "model.path", absolute_path, merge=True)
-        
+
         config = full_config
 
         try:
             inference_engine = SNNInferenceEngine(config=config)
-            
+
             full_response = ""
             print("Response: ", end="", flush=True)
             for chunk, _ in inference_engine.generate(prompt, max_len=50):
                 print(chunk, end="", flush=True)
                 full_response += chunk
             print("\n--- Inference Complete ---")
-            
-            self.memory.record_experience(self.current_state, "inference", {"prompt": prompt, "response": full_response}, 0.5, [model_info.get('model_id')], {})
+
+            self.memory.record_experience(self.current_state, "inference", {"prompt": prompt, "response": full_response}, {"external": 0.5}, [model_id] if model_id != 'N/A' else [], {})
 
         except Exception as e:
             print(f"\n❌ Inference failed: {e}")
-            self.memory.record_experience(self.current_state, "inference", {"error": str(e)}, -0.5, [model_info.get('model_id')], {})
+            self.memory.record_experience(self.current_state, "inference", {"error": str(e)}, {"external": -0.5}, [model_id] if model_id != 'N/A' else [], {})
