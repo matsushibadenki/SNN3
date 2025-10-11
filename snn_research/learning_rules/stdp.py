@@ -2,6 +2,7 @@
 # Title: STDP (Spike-Timing-Dependent Plasticity) 学習ルール
 # Description: 古典的なSTDPを実装します。
 # BugFix: ファイル末尾の不正な閉じ括弧を削除し、構文エラーを修正。
+# BugFix (v2): LTD計算時の次元不整合エラーを修正。
 
 import torch
 from typing import Dict, Any, Optional
@@ -50,7 +51,11 @@ class STDP(BioLearningRule):
         
         # LTP (ポスト -> プレ)
         dw += self.learning_rate * self.a_plus * torch.outer(post_spikes, self.pre_trace)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # LTD (プレ -> ポスト)
-        dw -= self.learning_rate * self.a_minus * torch.outer(self.post_trace, pre_spikes).T
+        dw -= self.learning_rate * self.a_minus * torch.outer(pre_spikes, self.post_trace)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         return dw
+
+}
