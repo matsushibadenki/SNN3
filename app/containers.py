@@ -1,91 +1,30 @@
-# matsibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
-#
-# DIコンテナの定義ファイル (完全版)
-#
-# (省略...)
-#
-# 修正点 (v19):
-# - Error: Selector has no provider... を解決。
-# - Selectorが設定値を正しく解決できるよう、Callableプロバイダを使用して
-#   設定値の参照を遅延させるように修正。
-# 修正点 (v20):
-# - bio-causal-sparse実行時のエラーを解消するため、rl_environmentをGridWorldEnvに変更。
-# 修正点 (v21):
-# - ParticleFilterTrainerにdeviceを渡すように修正。
+# ファイルパス: app/containers.py
+# (更新)
+# 改善点: 新たにBrainContainerを追加。
+#          これまで実装したすべての認知コンポーネントの依存関係を定義し、
+#          完成品のArtificialBrainインスタンスを提供できるようにする。
 
 import torch
 from dependency_injector import containers, providers
-from torch.optim import AdamW, Optimizer
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, LRScheduler
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import os
-from typing import TYPE_CHECKING
+# ... (既存のimport文は省略) ...
 
-# --- プロジェクト内モジュールのインポート ---
-from snn_research.core.snn_core import SNNCore, BreakthroughSNN, SpikingTransformer
-from snn_research.deployment import SNNInferenceEngine
-from snn_research.training.losses import CombinedLoss, DistillationLoss, SelfSupervisedLoss, PhysicsInformedLoss, PlannerLoss, ProbabilisticEnsembleLoss
-from snn_research.training.trainers import BreakthroughTrainer, DistillationTrainer, SelfSupervisedTrainer, PhysicsInformedTrainer, ProbabilisticEnsembleTrainer, ParticleFilterTrainer
-from snn_research.cognitive_architecture.astrocyte_network import AstrocyteNetwork
-from snn_research.cognitive_architecture.meta_cognitive_snn import MetaCognitiveSNN
-from snn_research.cognitive_architecture.planner_snn import PlannerSNN
-from .services.chat_service import ChatService
-from .adapters.snn_langchain_adapter import SNNLangChainAdapter
-from snn_research.distillation.model_registry import SimpleModelRegistry, DistributedModelRegistry
-import redis
-from snn_research.tools.web_crawler import WebCrawler
-
-# --- 生物学的学習のためのインポート ---
-from snn_research.learning_rules.stdp import STDP
-from snn_research.learning_rules.reward_modulated_stdp import RewardModulatedSTDP
-from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
-from snn_research.bio_models.simple_network import BioSNN
-from snn_research.rl_env.simple_env import SimpleEnvironment
-from snn_research.rl_env.grid_world import GridWorldEnv
-from snn_research.training.bio_trainer import BioRLTrainer
-from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
-
-from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
-from snn_research.cognitive_architecture.rag_snn import RAGSystem
-from snn_research.agent.memory import Memory
-
-if TYPE_CHECKING:
-    from .adapters.snn_langchain_adapter import SNNLangChainAdapter
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from snn_research.cognitive_architecture.artificial_brain import ArtificialBrain
+from snn_research.io.sensory_receptor import SensoryReceptor
+from snn_research.io.spike_encoder import SpikeEncoder
+from snn_research.io.actuator import Actuator
+from snn_research.cognitive_architecture.perception_cortex import PerceptionCortex
+from snn_research.cognitive_architecture.prefrontal_cortex import PrefrontalCortex
+from snn_research.cognitive_architecture.hippocampus import Hippocampus
+from snn_research.cognitive_architecture.cortex import Cortex
+from snn_research.cognitive_architecture.amygdala import Amygdala
+from snn_research.cognitive_architecture.basal_ganglia import BasalGanglia
+from snn_research.cognitive_architecture.cerebellum import Cerebellum
+from snn_research.cognitive_architecture.motor_cortex import MotorCortex
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
-def get_auto_device() -> str:
-    """実行環境に最適なデバイスを自動的に選択する。"""
-    if torch.cuda.is_available(): return "cuda"
-    if torch.backends.mps.is_available(): return "mps"
-    return "cpu"
-
-def _calculate_t_max(epochs: int, warmup_epochs: int) -> int:
-    """学習率スケジューラのT_maxを計算する"""
-    return max(1, epochs - warmup_epochs)
-
-def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> LRScheduler:
-    """ウォームアップ付きのCosineAnnealingスケジューラを生成するファクトリ関数。"""
-    warmup_scheduler = LinearLR(optimizer=optimizer, start_factor=1e-3, total_iters=warmup_epochs)
-    main_scheduler_t_max = _calculate_t_max(epochs=epochs, warmup_epochs=warmup_epochs)
-    main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
-    return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
-
-def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str):
-    """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
-    model = trained_planner_snn
-    if os.path.exists(model_path):
-        try:
-            checkpoint = torch.load(model_path, map_location=device)
-            state_dict = checkpoint.get('model_state_dict', checkpoint)
-            model.load_state_dict(state_dict)
-            print(f"✅ 学習済みPlannerSNNモデルを '{model_path}' から正常にロードしました。")
-        except Exception as e:
-            print(f"⚠️ PlannerSNNモデルのロードに失敗しました: {e}。未学習のモデルを使用します。")
-    else:
-        print(f"⚠️ PlannerSNNモデルが見つかりません: {model_path}。未学習のモデルを使用します。")
-    return model.to(device)
-
-
+# ... (既存の TrainingContainer, AgentContainer, AppContainer は省略) ...
 class TrainingContainer(containers.DeclarativeContainer):
     """学習に関連するオブジェクトの依存関係を管理するコンテナ。"""
     config = providers.Configuration()
@@ -360,3 +299,51 @@ class AppContainer(containers.DeclarativeContainer):
         SNNLangChainAdapter,
         snn_engine=snn_inference_engine,
     )
+
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓追加開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+class BrainContainer(containers.DeclarativeContainer):
+    """人工脳（ArtificialBrain）とその全コンポーネントの依存関係を管理するコンテナ。"""
+    config = providers.Configuration()
+    agent_container = providers.Container(AgentContainer, config=config)
+
+    # --- IO Modules ---
+    num_neurons = providers.Factory(lambda: 256) # 設定ファイルから読むように変更も可能
+    sensory_receptor = providers.Singleton(SensoryReceptor)
+    spike_encoder = providers.Singleton(SpikeEncoder, num_neurons=num_neurons)
+    actuator = providers.Singleton(Actuator, actuator_name="voice_synthesizer")
+
+    # --- Cognitive Modules ---
+    perception_cortex = providers.Singleton(PerceptionCortex, num_neurons=num_neurons, feature_dim=64)
+    prefrontal_cortex = providers.Singleton(PrefrontalCortex)
+    hierarchical_planner = agent_container.hierarchical_planner
+    
+    # --- Memory Modules ---
+    hippocampus = providers.Singleton(Hippocampus, capacity=50)
+    cortex = providers.Singleton(Cortex)
+
+    # --- Value and Action Modules ---
+    amygdala = providers.Singleton(Amygdala)
+    basal_ganglia = providers.Singleton(BasalGanglia)
+
+    # --- Motor Modules ---
+    cerebellum = providers.Singleton(Cerebellum)
+    motor_cortex = providers.Singleton(MotorCortex, actuators=['voice_synthesizer'])
+
+    # --- The Brain ---
+    artificial_brain = providers.Singleton(
+        ArtificialBrain,
+        sensory_receptor=sensory_receptor,
+        spike_encoder=spike_encoder,
+        actuator=actuator,
+        perception_cortex=perception_cortex,
+        prefrontal_cortex=prefrontal_cortex,
+        hierarchical_planner=hierarchical_planner,
+        hippocampus=hippocampus,
+        cortex=cortex,
+        amygdala=amygdala,
+        basal_ganglia=basal_ganglia,
+        cerebellum=cerebellum,
+        motor_cortex=motor_cortex
+    )
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑追加終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
