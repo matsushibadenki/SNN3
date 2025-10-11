@@ -1,21 +1,9 @@
-# matsushibadenki/snn3/snn_research/agent/memory.py
-#
+# ファイルパス: snn_research/agent/memory.py
+# (更新)
 # Title: 長期記憶システム
-#
-# 概要：エージェントの経験を構造化データとして記録・管理する。
-#
-# 改善点:
-# - ROADMAPフェーズ2に基づき、因果的記憶アクセスを実装。
-# - 報酬が高かった成功体験を優先的に検索する`retrieve_successful_experiences`メソッドを追加。
-#
-# 改善点 (v2):
-# - 旧ロードマップ フェーズ5「多目的報酬ランドスケープ」を完全に実装。
-# - `get_total_reward`を更新し、外的報酬、物理法則、好奇心を
-#   総合的に評価して経験の「価値」を判断するようにした。
-#
-# 修正点 (v3):
-# - コンストラクタでmemory_pathがNoneの場合のフォールバック処理を強化。
-# - mypyエラーを解消するため、memory_pathに型ヒントを追加。
+# 改善点 (v4): ロードマップ「因果的記憶アクセス」を実装。
+#              経験を記録する際に、その成功に寄与したと考えられる
+#              「因果スナップショット」を保存する機能を追加。
 
 import json
 from datetime import datetime
@@ -25,26 +13,33 @@ import os
 class Memory:
     """
     エージェントの経験を構造化されたタプルとして長期記憶に記録するクラス。
-    ファイルは追記専用のjsonl形式で保存される。
     """
     def __init__(self, memory_path: Optional[str] = "runs/agent_memory.jsonl"):
-        """
-        Args:
-            memory_path (str): 記憶を保存するファイルへのパス。
-        """
         if memory_path is None:
             print("⚠️ MemoryにNoneのパスが渡されたため、デフォルト値 'runs/agent_memory.jsonl' を使用します。")
             self.memory_path: str = "runs/agent_memory.jsonl"
         else:
             self.memory_path = memory_path
         
-        # ファイルパスのディレクトリが存在しない場合は作成
         if os.path.dirname(self.memory_path):
             os.makedirs(os.path.dirname(self.memory_path), exist_ok=True)
 
-    def record_experience(self, state, action, result, reward, expert_used, decision_context):
+    def record_experience(
+        self,
+        state: Dict[str, Any],
+        action: str,
+        result: Any,
+        reward: Dict[str, Any],
+        expert_used: List[str],
+        decision_context: Dict[str, Any],
+        causal_snapshot: Optional[str] = None  # ◾️ 追加
+    ):
         """
         単一の経験を記録する。
+
+        Args:
+            (省略)
+            causal_snapshot (Optional[str]): 成功に寄与した因果関係のスナップショット。
         """
         experience_tuple = {
             "timestamp": datetime.utcnow().isoformat(),
@@ -53,11 +48,13 @@ class Memory:
             "result": result,
             "reward": reward,
             "expert_used": expert_used,
-            "decision_context": decision_context
+            "decision_context": decision_context,
+            "causal_snapshot": causal_snapshot,  # ◾️ 追加
         }
         with open(self.memory_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(experience_tuple, ensure_ascii=False) + "\n")
 
+    # ... (retrieve_similar_experiences, retrieve_successful_experiences, get_total_reward は変更なし) ...
     def retrieve_similar_experiences(self, query_state, top_k=5) -> List[Dict[str, Any]]:
         """
         現在の状態に類似した過去の経験を検索する（簡易的な実装）。
