@@ -1,24 +1,27 @@
 # ファイルパス: snn_research/cognitive_architecture/motor_cortex.py
-# (新規作成)
+# (修正)
 #
 # Title: Motor Cortex (運動野) モジュール
 #
 # Description:
+# - mypyエラーを解消するため、Optional型を明示的にインポート・使用するよう修正。
 # - 人工脳アーキテクチャの「運動層」の最終出力を担うコンポーネント。
 # - 小脳から受け取った一連の精密な運動コマンドを、
 #   実際のアクチュエータを駆動するための具体的な出力信号に変換する。
 # - これにより、抽象的な行動計画が物理的なアクションとして結実する。
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 class MotorCortex:
     """
     運動コマンドシーケンスを具体的なアクチュエータ信号に変換する運動野モジュール。
     """
-    def __init__(self, actuators: List[str] = None):
+    actuators: List[str]
+
+    def __init__(self, actuators: Optional[List[str]] = None):
         """
         Args:
-            actuators (List[str], optional):
+            actuators (Optional[List[str]], optional):
                 制御対象となるアクチュエータのリスト。
                 例: ['joint1', 'joint2', 'gripper']
                 指定されない場合は、汎用の'output'を使用する。
