@@ -1,11 +1,9 @@
-# matsibadenki/snn3/SNN3-79496245059a9838ecdcdf953e28024581f28ba2/app/containers.py
-#
-# DIコンテナの定義ファイル (完全版)
-#
-# (省略...)
-#
-# 修正点 (v22): mypyエラー 'Name is not defined' を解消するため、
-#               不足しているすべてのモジュールのインポート文を追加。
+# matsibadenki/snn3/app/containers.py
+# (修正)
+# 修正: mypyエラー 'Name is not defined' を解消するため、
+#       不足しているすべてのモジュールのインポート文を追加。
+# 修正: PlannerSNNのインスタンス生成時の依存関係の解決方法を修正し、
+#       設定値がNoneになる問題を解消。
 
 import torch
 from dependency_injector import containers, providers
@@ -85,9 +83,9 @@ def _create_scheduler(optimizer: Optimizer, epochs: int, warmup_epochs: int) -> 
     main_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=main_scheduler_t_max)
     return SequentialLR(optimizer=optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
-def _load_planner_snn_factory(trained_planner_snn, model_path: str, device: str):
+def _load_planner_snn_factory(planner_snn_instance, model_path: str, device: str):
     """学習済みPlannerSNNモデルをロードするためのファクトリ関数。"""
-    model = trained_planner_snn
+    model = planner_snn_instance
     if os.path.exists(model_path):
         try:
             checkpoint = torch.load(model_path, map_location=device)
@@ -276,7 +274,7 @@ class TrainingContainer(containers.DeclarativeContainer):
 
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
     planner_snn = providers.Factory(
-        PlannerSNN, vocab_size=tokenizer.provided.vocab_size, d_model=config.model.d_model,
+        PlannerSNN, vocab_size=providers.Callable(len, tokenizer), d_model=config.model.d_model,
         d_state=config.model.d_state, num_layers=config.model.num_layers,
         time_steps=config.model.time_steps, n_head=config.model.n_head,
         num_skills=10
@@ -333,16 +331,14 @@ class AgentContainer(containers.DeclarativeContainer):
     )
 
     # --- 学習済みプランナーモデルのプロバイダ ---
-    trained_planner_snn = providers.Factory(
-        training_container.planner_snn
-    )
-
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     loaded_planner_snn = providers.Singleton(
         _load_planner_snn_factory,
-        trained_planner_snn=trained_planner_snn,
+        planner_snn_instance=training_container.planner_snn,
         model_path=config.training.planner.model_path,
         device=device,
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     hierarchical_planner = providers.Factory(
         HierarchicalPlanner,
