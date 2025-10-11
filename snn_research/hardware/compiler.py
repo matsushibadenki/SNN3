@@ -1,11 +1,12 @@
 # ファイルパス: snn_research/hardware/compiler.py
 # (修正)
-# 修正: mypyエラーを解消するため、layer.n_neuronsをint()で明示的にキャスト。
+# 修正: mypyエラーを解消するため、typing.castを使用してモジュールの型を明示的に指定。
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, cast
 import yaml
 
 from snn_research.bio_models.simple_network import BioSNN
+from snn_research.bio_models.lif_neuron import BioLIFNeuron
 from snn_research.hardware.profiles import get_hardware_profile
 
 class NeuromorphicCompiler:
@@ -26,8 +27,9 @@ class NeuromorphicCompiler:
         }
 
         neuron_offset = 0
-        for i, layer in enumerate(model.layers):
-            num_neurons = int(layer.n_neurons) # 修正: intにキャスト
+        for i, layer_module in enumerate(model.layers):
+            layer = cast(BioLIFNeuron, layer_module)  # 修正: 型を明示的にキャスト
+            num_neurons = layer.n_neurons
             core_config = {
                 "core_id": i,
                 "neuron_type": type(layer).__name__,
@@ -39,7 +41,7 @@ class NeuromorphicCompiler:
                 }
             }
             hardware_config["neuron_cores"].append(core_config)
-            neuron_offset += num_neurons # 修正: キャスト済みの変数を使用
+            neuron_offset += num_neurons
 
         print(f"  - {len(model.layers)}個のニューロン層を{len(model.layers)}個のコアにマッピングしました。")
 
@@ -49,10 +51,11 @@ class NeuromorphicCompiler:
             
             post_core = hardware_config["neuron_cores"][i]
             post_core_offset = post_core["neuron_ids"][0]
+            post_num_neurons = int(post_core["num_neurons"])
 
             connections = []
             for pre_id_local in range(pre_core_size):
-                for post_id_local in range(int(post_core["num_neurons"])): # 修正: intにキャスト
+                for post_id_local in range(post_num_neurons):
                     weight = weight_matrix[post_id_local, pre_id_local].item()
                     if weight > 0:
                         connections.append({
