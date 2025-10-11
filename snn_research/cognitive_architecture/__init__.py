@@ -12,6 +12,7 @@ from .rag_snn import RAGSystem
 from .amygdala import Amygdala
 from .basal_ganglia import BasalGanglia
 from .cerebellum import Cerebellum
+from .motor_cortex import MotorCortex
 
 __all__ = [
     "AstrocyteNetwork",
@@ -25,5 +26,6 @@ __all__ = [
     "RAGSystem",
     "Amygdala",
     "BasalGanglia",
-    "Cerebellum"
+    "Cerebellum",
+    "MotorCortex"
 ]
