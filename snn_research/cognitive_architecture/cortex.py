@@ -37,17 +37,19 @@ class Cortex:
         relation = episode.get("relation")
         target = episode.get("target")
 
-        if not all([source, relation, target]):
+        # source, relation, target が None や空文字列でないことを確認
+        if not all(isinstance(val, str) and val for val in [source, relation, target]):
             print("⚠️ 大脳皮質: 知識として統合するには情報が不十分なエピソードです。")
             return
 
-        # 'source'がNoneでないことを確認してから辞書のキーとして使用する
+        # 'source'がNoneでないことが保証されたため、安全にキーとして使用できる
         if source not in self.knowledge_graph:
             self.knowledge_graph[source] = []
 
         # 新しい知識（関係性）を追加
         self.knowledge_graph[source].append({"relation": relation, "target": target})
         print(f"📚 大脳皮質: 新しい知識を固定しました: '{source}' --({relation})--> '{target}'")
+
 
     def retrieve_knowledge(self, concept: str) -> Optional[List[Dict[str, Any]]]:
         """
