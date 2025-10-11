@@ -38,6 +38,7 @@ from snn_research.learning_rules.causal_trace import CausalTraceCreditAssignment
 from snn_research.bio_models.simple_network import BioSNN
 from snn_research.rl_env.simple_env import SimpleEnvironment
 from snn_research.training.bio_trainer import BioRLTrainer
+from snn_research.training.trainers import ParticleFilterTrainer 
 from snn_research.agent.reinforcement_learner_agent import ReinforcementLearnerAgent
 
 from snn_research.cognitive_architecture.hierarchical_planner import HierarchicalPlanner
@@ -228,6 +229,7 @@ class TrainingContainer(containers.DeclarativeContainer):
         layer_sizes=[10, 50, 2],
         neuron_params=config.training.biologically_plausible.neuron,
         learning_rule=bio_learning_rule,
+        sparsification_config=config.training.biologically_plausible.adaptive_causal_sparsification
     )
 
     rl_environment = providers.Factory(SimpleEnvironment, pattern_size=10)
@@ -243,6 +245,13 @@ class TrainingContainer(containers.DeclarativeContainer):
         BioRLTrainer,
         agent=rl_agent,
         env=rl_environment,
+    )
+    
+    # --- パーティクルフィルタトレーナー ---
+    particle_filter_trainer = providers.Factory(
+        ParticleFilterTrainer,
+        base_model=bio_snn_model,
+        config=config,
     )
 
     # === 学習可能プランナー (PlannerSNN) のためのプロバイダ ===
