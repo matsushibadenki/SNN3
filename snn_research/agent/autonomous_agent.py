@@ -5,6 +5,7 @@
 #         floatから{'external': float}の辞書形式に修正し、mypyエラーを解消。
 # 修正点: expert_usedにNoneが含まれる可能性を排除。
 # 改善点: _search_for_urls と _summarize のダミー実装を、より具体的な実装に置き換え。
+# 修正点: mypyエラー [arg-type] を解消するため、nlargestのキーをlambda式に変更。
 
 from typing import Dict, Any, Optional, List
 import asyncio
@@ -149,14 +150,17 @@ class AutonomousAgent:
         # 2. 各文の重要度をスコアリング (単純な単語頻度に基づく)
         words = re.findall(r'\w+', text.lower())
         word_freq = Counter(words)
-        sentence_scores = {}
+        sentence_scores: Dict[int, float] = {}
         for i, sentence in enumerate(sentences):
             sentence_words = re.findall(r'\w+', sentence.lower())
             score = sum(word_freq[word] for word in sentence_words)
             sentence_scores[i] = score / len(sentence_words) if sentence_words else 0
 
         # 3. スコアの高い文を抽出
-        highest_scoring_indices = nlargest(num_sentences, sentence_scores, key=sentence_scores.get)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # mypyエラーを解消するため、keyにlambda式を明示的に使用
+        highest_scoring_indices = nlargest(num_sentences, sentence_scores, key=lambda k: sentence_scores[k])
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         summary_sentences = [sentences[i] for i in sorted(highest_scoring_indices)]
         
         return " ".join(summary_sentences)
