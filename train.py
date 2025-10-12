@@ -7,7 +7,6 @@
 # - 変更点: 不要になった古い生物学的学習(BioTrainer)のコードブロックを削除。
 # - BugFix: 'physics_informed'や'self_supervised'パラダイムでもモデルが保存されるように修正。
 # - 改善点 (v2): 新しい生物学的学習パラダイム（適応的因果スパース化、パーティクルフィルタ）に対応。
-# - 修正点 (v3): mypyエラー [attr-defined], [call-arg] を解消。
 
 import argparse
 import os
@@ -135,7 +134,6 @@ def train(
         start_epoch = trainer.load_checkpoint(args.resume_path) if args.resume_path else 0
         for epoch in range(start_epoch, config['training']['epochs']):
             if train_sampler: train_sampler.set_epoch(epoch)
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             trainer.train_epoch(train_loader, epoch)
             if rank in [-1, 0] and (epoch % config['training']['eval_interval'] == 0 or epoch == config['training']['epochs'] - 1):
                 val_metrics = trainer.evaluate(val_loader, epoch)
@@ -145,7 +143,6 @@ def train(
                         path=checkpoint_path, epoch=epoch, metric_value=val_metrics.get('total', float('inf')),
                         tokenizer_name=config['data']['tokenizer_name'], config=config['model']
                     )
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     else:
         raise ValueError(f"Unknown or unsupported training paradigm for this script: '{paradigm}'.")
