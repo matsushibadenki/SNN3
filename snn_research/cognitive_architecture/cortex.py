@@ -10,6 +10,7 @@
 # - Hippocampus (海馬) から送られてきた短期記憶（エピソード）を、
 #   永続的な知識として構造化し、固定する役割を持つ。
 # - 知識をナレッジグラフとして表現し、概念間の関連性を基にした検索を可能にする。
+# - 修正: mypyエラー [annotation-unchecked] を解消するため、戻り値の型ヒントを追加。
 
 from typing import Dict, Any, Optional, List
 
@@ -23,7 +24,7 @@ class Cortex:
         self.knowledge_graph: Dict[str, List[Dict[str, Any]]] = {}
         print("🧠 大脳皮質（長期記憶）モジュールが初期化されました。")
 
-    def consolidate_memory(self, episode: Dict[str, Any]):
+    def consolidate_memory(self, episode: Dict[str, Any]) -> None:
         """
         短期記憶のエピソードを解釈し、長期記憶として知識グラフに統合（固定）する。
 
