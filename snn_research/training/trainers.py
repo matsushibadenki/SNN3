@@ -1,11 +1,7 @@
-# matsushibadenki/snn/snn_research/training/trainers.py
-# SNNモデルの学習と評価ループを管理するTrainerクラス (モニタリング・評価機能完備)
-# 改善点: モデル保存時に'adaptive_threshold'も除外対象に追加し、安定性を向上。
-# 改善点 (v2): 確率的アンサンブル学習のためのParticleFilterTrainerを新規追加。
-# 修正点 (v3): ParticleFilterTrainerがdict型のconfigを正しく扱えるように修正。
-# 修正点 (v4): ParticleFilterTrainerのデータ次元の不整合を修正。
-# 修正点 (v5): MPSデバイス不整合エラーを修正。
-# 修正点 (v6): `device`引数が不足しているエラーを修正。
+# ファイルパス: snn/snn_research/training/trainers.py
+# (修正)
+# 修正点: mypyエラー [call-arg] を解消するため、DistillationTrainer内の
+#         未使用かつ型推論を混乱させていた train メソッドを削除。
 
 import torch
 import torch.nn as nn
@@ -217,12 +213,10 @@ class BreakthroughTrainer:
         return start_epoch
 
 class DistillationTrainer(BreakthroughTrainer):
-    def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, teacher_model: Optional[nn.Module] = None) -> Dict[str, float]:
-        final_metrics: Dict[str, float] = {}
-        for epoch in range(1, epochs + 1):
-            self.train_epoch(train_loader, epoch)
-            final_metrics = self.evaluate(val_loader, epoch)
-        return final_metrics
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # mypyエラー[call-arg]の原因となっていた未使用のtrainメソッドを削除。
+    # 親クラスのtrain_epochが直接使用される。
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _run_step(self, batch: Tuple[torch.Tensor, ...], is_train: bool) -> Dict[str, Any]:
         functional.reset_net(self.model)
