@@ -1,13 +1,6 @@
 # ファイルパス: snn_research/cognitive_architecture/prefrontal_cortex.py
-# (新規作成)
-#
-# Title: Prefrontal Cortex (前頭前野) モジュール
-#
-# Description:
-# - 人工脳アーキテクチャの「認知層」の最上位に位置し、実行制御機能を担う。
-# - Global Workspaceからシステム全体の状況を受け取り、
-#   内発的動機や外部からの要求を考慮して、次の高レベルな目標（ゴール）を決定する。
-# - タスクの計画立案そのものではなく、どのタスクに取り組むべきかを決定する戦略的な役割を持つ。
+# (修正)
+# 修正: mypyエラー [annotation-unchecked] を解消するため、戻り値の型ヒントを追加。
 
 from typing import Dict, Any
 
