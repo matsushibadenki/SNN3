@@ -1,4 +1,6 @@
 # ファイルパス: tests/__init__.py
-# (更新)
-# パッケージとして認識させるため __all__ を追加
-__all__ = []
+# (修正)
+# mypyエラー解消のため、__all__に型ヒントを追加
+from typing import List
+
+__all__: List[str] = []
