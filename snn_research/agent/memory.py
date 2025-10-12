@@ -6,13 +6,16 @@
 #              「因果スナップショット」を保存する機能を追加。
 # 改善点 (v5): retrieve_similar_experiences のダミー実装を
 #              TF-IDFに基づくベクトル類似度検索に置き換え。
+# 修正点: mypyエラー [import-untyped] を解消するため、type: ignoreを追加。
 
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import os
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class Memory:
     """
@@ -36,7 +39,7 @@ class Memory:
         reward: Dict[str, Any],
         expert_used: List[str],
         decision_context: Dict[str, Any],
-        causal_snapshot: Optional[str] = None  # ◾️ 追加
+        causal_snapshot: Optional[str] = None
     ):
         """
         単一の経験を記録する。
@@ -53,7 +56,7 @@ class Memory:
             "reward": reward,
             "expert_used": expert_used,
             "decision_context": decision_context,
-            "causal_snapshot": causal_snapshot,  # ◾️ 追加
+            "causal_snapshot": causal_snapshot,
         }
         with open(self.memory_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(experience_tuple, ensure_ascii=False) + "\n")
